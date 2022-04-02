@@ -1,0 +1,92 @@
+BKTRAP   IDNT     2,2      Trap a break key and walk back
+         TTL      Trap a break key and walk back
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Trap a break key and walk back
+*
+* Last modified by KRIS on 26-Nov-1990 13:54:15
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+* This routine requests break service on the standard input device,
+* and causes an error if such a break occurs.
+*
+         PAGE
+         INCLUDE  LIBDEF
+         INCLUDE  VDOSDE
+         INCLUDE  LIBMAC
+*
+* p_bktrap --
+*
+* Called by the initialization routine if it has not been defined to be
+* zero at link time.
+*
+         PROC     P_BKTRAP
+         BEGIN    P_BKTRAP,D0/A0/A1
+         MOVE.L   G.LIB(A5),A1      check for interactive
+         MOVE.L   L.LUNS(A1),D0     The first bit of the luns tells
+         BTST     #0,D0             If set, interractive
+         BEQ.S    RETURN            so go home if chain file
+*
+         ERQ      GTASQ$,ASQPKT(PC) initialize the asq
+         MOVE.L   L.INPUT(A1),A0    get standard input file
+         LEA      F.IOS(A0),A0      I/O packet
+         MOVE.L   I.FUNC(A0),-(SP)  save current state
+         MOVE.L   I.COMPL(A0),-(SP)
+         MOVE.L   #$01200200,I.FUNC(A0)      set break state
+         LEA      COMPLETE(PC),A1
+         MOVE.L   A1,I.COMPL(A0)    completion address
+         TRAP     #2                make the request
+         MOVE.L   (SP)+,I.COMPL(A0) restore changed fields
+         MOVE.L   (SP)+,I.FUNC(A0)
+RETURN   ENDPR    P_BKTRAP
+*
+* ASQ creation packet
+*
+ASQPKT   DC.L     0                 current task
+         DC.L     0                 current session
+         DC.B     5                 enabled
+         DC.B     12                max message length
+         DC.L     8                 queue length
+         DC.L     1                 service vector (bad address)
+*
+* Completion routine
+*
+* If the user has requested break service, the break is noted and
+* the event cleared.  If not, the registers are popped and an error
+* is caused
+*
+COMPLETE MOVE.L   G.LIB(A5),A4
+         TST.B    L.BKWANT(A4)      do we want the event?
+         BEQ.S    MAKEERR           no, make an error
+         ADD.B    #1,L.BREAK(A4)    yes note the event
+         CLR.B    L.BKWANT(A4)      the next one is normal
+         SUB.W    #8,SP             make room for the event
+         ERQ      RDEVNT$,(SP)      read the event
+         ADD.W    #8,SP
+         MOVE.W   #1,A0
+         ERQ      RTEVNT$           return and re-enable
+*
+MAKEERR  ADD.W    #1,G.LIBLEV(A5)   increment library level
+         MOVEM.L  (SP)+,D0-D7/A0-A6 Restore registers
+         ADD.W    #2,SP             pop status register
+         LINK     A6,#0             simulate a call
+         MERROR   <'Program halted with break key'>
+         END

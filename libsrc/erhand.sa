@@ -1,0 +1,267 @@
+ERHAND   IDNT     2,2      System error handler
+         TTL      System error handler
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1981, 1982, 1983, 1984, 1985, 1986, 1987, 1988
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* System error handler
+*
+* Last modified by KRIS on 26-Nov-1990 14:03:43
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+* This module handles all error traps which could occur during
+* execution of a Pascal-2 program.
+*
+* All errors are reported through traps and exceptions.  These
+* exceptions are converted into error numbers using a jump table,
+* and data about the error is recorded in the error communication
+* region.
+*
+* Any data in file buffers is forced out using "break".
+*
+* The stack is reset into the error stack, and the post mortem
+* analyzer (p_pma) is called to inform the user of the catastrophy.
+*
+         INCLUDE  LIBDEF
+         INCLUDE  LIBMAC
+         PAGE
+* error handler
+*
+* This handler saves the hardware state of the machine, then
+* isolates the error data and closes files.  Once we have a consistant
+* picture of the machine state at the error, the routine sets up
+* the error environment and calls the postmortem analyzer "p_pma" to
+* do the error analysis and reporting.
+*
+* It's called by "p_traps", which leaves on the stack a pair of addresses
+* whose difference (div 2) is the index into the error code table.  The
+* original contents of A0 will also be on the stack.
+*
+* traps will be disabled upon entry.
+*
+* The machine state is saved on the original process stack.  The
+* order in which registers are saved must be the same as that used
+* in p_detach (part of the concurrent package)
+*
+         XREF     P_ERTAB           error name table
+         XREF     P_ERRMSG          error message routine
+         XREF     P_WTLN            pascal's writeln
+         XREF     ERSTK$$           size of the error stack
+
+         XDEF     P_ERHAND
+P_ERHAND EQU      *
+         JSB      P_GETWRK          to address the workspace
+         MOVE.L   (SP),A0           base of the library area
+         MOVE.L   L.ERRA(A0),A0     base of the error work area
+         ADDA.W   #ER.SIZE+ERSTK$$,A0        a0 now points to the error stack
+         MOVE.L   4(SP),-(A0)       original A0
+         MOVEM.L  D0-D7/A1-A6,-(A0) save registers
+         MOVE.L   (SP)+,A4          library work area again
+         ADDQ.W   #4,SP             pop the saved a0
+         MOVE.L   L.GLOBA(A4),A5    global area
+         MOVE.L   L.ERRA(A4),A6     error communication region
+*
+* Clean off the stack, finding the error number and saving the
+* stacked error data
+*
+         MOVE.L   (SP)+,D0          end of trap table
+         MOVE.L   (SP)+,A0          error trap location
+         SUB.L    D0,A0             negative offset in error table
+         CLR.L    D0                converting word to long
+         MOVE.L   A0,-(SP)          save a0
+         LEA.L    P_ERTAB(PC),A0
+         ADDA.L   (SP),A0           calc the effective address in a0
+         MOVE.W   (A0),D0           get the error number
+         MOVEA.L  (SP)+,A0          restore a0
+*
+         BTST     #E$$BUS,D0        see if we have bus error data
+         BEQ.S    NOBUS
+*
+* Save bus error data (bus error and address error).
+* This could also be a failed pointer check.  If the error occured
+* on a data fetch cycle, and the instruction causing the problem
+* was
+*        cmp.l    -4(An),An
+*
+* we assume that this was the case.
+*
+         IFNE     MC68000
+* mc68000 bus error stack frame processing, the structure of it :
+*   (sp) - type of access
+*  2(sp) - access address
+*  6(sp) - instruction register
+* 10(sp) - status register
+* 12(sp) - program counter
+*
+         MOVE.W   (SP)+,D1          type of access
+         ADDQ.W   #4,SP             pop access address
+         MOVE.W   (SP)+,D2          instruction register contents
+         AND.W    #%11011,D1        not interested in user/sup mode
+         CMP.W    #%10001,D1        read access, data access
+         BNE.S    NOBUS             no, can't be pointer check
+         ENDC     mc68000
+         IFNE     MC68020
+* mc68020 bus error stack frame processing, format $B
+*   (sp) - status register
+*  2(sp) - program counter
+*  6(sp) - frame format, vector offset ($B008)
+*  8(sp) - internal register
+* 10(sp) - special status word
+* 12(sp) - 78 bytes of additional information
+*
+         CMP.W    #$B008,6(SP)      check the format and the offset
+         BNE.S    NOBUS             must be another problem
+         MOVE.L   2(SP),A1          pc at the catastrophy time
+         MOVE.W   (A1),D2           fetch the instruction opcode
+         ENDC     mc68020
+* register d2 contains the binary form of the instruction's opcode
+         MOVE.W   D2,D1             get instruction without register data
+         AND.W    #%1111000111111000,D1      zero register numbers
+         CMP.W    CMPSAMP(PC),D1    check against the sample.
+         BNE.S    NOBUS             not a proper instruction
+         MOVE.W   D2,D1             now we are going to compare registers
+         MOVE.L   #9,D3             shift count
+         LSR.W    D3,D1             right justify register
+         EOR.W    D2,D1             compare with other register
+         AND.W    #%111,D1          isolate register field
+         BNE.S    NOBUS             Not the same, give up
+*
+         MOVE.L   2(SP),A1          program counter at error
+         ADDQ.L   #2,A1             next instruction will decrement it
+INSTLP   CMP.W    -(A1),D2          search for match with instruction reg
+         BNE.S    INSTLP            we know it will match eventually
+         MOVE.W   2(A1),D1          get extension word
+         CMP.W    CMPSAMP+2(PC),D1  check sample extension
+         BNE.S    NOBUS             no, not -4
+         MOVE.L   #E.PTR,D0         yes, was really pointer error
+         BRA.S    NOBUS             branch around the sample
+*
+* Sample compare instruction
+*
+CMPSAMP  CMP.L    -4(A0),A0         A0 corresponds to zeroed reg field.
+*
+NOBUS    EQU      *
+         MOVE.L   2(SP),A0          error address
+         BTST     #E$$USER,D0       see if user supplied error number
+         BEQ.S    NOUSER            no, use the one we have
+         MOVE.W   (A0)+,D0          user supplied error number
+NOUSER   EQU      *
+*
+* The following kluge changes a pointer error to a file error if
+* the location l.fcheck is nonzero
+*
+         TST.W    L.FCHECK(A4)      see if it is set
+         BEQ.S    HAVECODE          fcheck not set, no change
+         CMP.W    #E.PTR,D0
+         BNE.S    HAVECODE          not pointer check, no change
+         MOVE.W   #E.NOTOPN,D0      substitute file not open
+HAVECODE MOVE.W   D0,ER.CODE(A6)    save the error code
+*
+* Now check for auxiliary data, which may be a file variable, in
+* register a0, on the top of the stack, or inline in the code.
+* Bits in the error number tell which
+*
+         LEA      ER.SIZE+ERSTK$$(A6),A3     recover the error stack
+         CLR      D1                assume none
+         BTST     #E$$FILE,D0       file variable?
+         BEQ.S    NOTFILE
+         MOVE.L   -12(A3),A2        saved value of a5
+         MOVE.L   L.LFILE(A4),D1    yes, get that
+         BRA.S    GOTAUX
+NOTFILE  BTST     #E$$A0,D0         a0?
+         BEQ.S    NOTA0
+         MOVE.L   -4(A3),D1         yes, a0 at time of error
+         BRA.S    GOTAUX
+NOTA0    BTST     #E$$STK,D0        on top of the stack?
+         BEQ.S    NOTSTK
+         MOVE.L   6(SP),D1          yes, current sp is in right place
+         BRA.S    GOTAUX
+NOTSTK   BTST     #E$$CODE,D0       inline code?
+         BEQ.S    GOTAUX            no, no aux data at all
+         MOVE.L   A0,D1             yes, a0 still points to it.
+GOTAUX   MOVE.L   D1,ER.AUX(A6)     auxiliary data saved
+         IFNE     VERSADOS
+*
+* Now issue a break to all files currently open
+* It is possible that the list of files may be screwed up by
+* the error, so we are suspicious and check the addresses
+* for consistancy.
+*
+         MOVE.L   L.HEAP(A4),D1     end of heap
+         MOVE.L   L.FILES(A4),D0    start of file chain
+BREAKL   TST.L    D0                end of list?
+         BEQ.S    BRKDONE           if so, done with breaks
+         BTST     #0,D0             see if odd
+         BNE.S    BRKDONE           yes, give up as confused
+         AND.L    #$FFFFFF,D0       mask off address part
+         CMP.L    D0,A4             see if in range
+         BHI.S    BRKDONE           below the global area
+         CMP.L    D0,D1             compare to heap top
+         BLO.S    BRKDONE           above the heap
+         MOVE.L   D0,A0             make the file addressable
+         BTST     #S.OUT,F.STATUS(A0)        open for output?
+         BEQ.S    NEXTBRK           no, to next file
+         BTST     #S.TEXT,F.STATUS(A0)       text file?
+         BEQ.S    NEXTBRK           no, to next file
+         JSB      P_BRKNC           write any incomplete buffer
+NEXTBRK  MOVE.L   F.NEXT(A0),D0     next file on chain
+         BRA.S    BREAKL            and continue
+BRKDONE  EQU      *                 done with this stuff
+         ENDC     versados
+*
+* Move the initial registers to the stack and save a pointer
+*
+         MOVEQ.L  #14,D0            register counter (-1)
+MOVREG   MOVE.L   -(A3),-(SP)       move a register
+         DBRA     D0,MOVREG         and another and another....
+         MOVE.L   SP,ER.USP(A6)
+*
+* Set up environment for error handling
+*
+         LEA      ER.SIZE+ERSTK$$(A6),SP     set up it's own stack
+         LEA      ER.SIZE(A6),A0    stack limit
+         MOVE.L   A0,G.SPOVF(A5)
+         MOVE.W   ER.CODE(A6),D0    error code
+         MOVE.W   D0,L.ABORT(A4)    save as termination code
+*
+* Check if there is a pma and call it
+*
+         MOVE.L   L.PMA(A4),D0      see if we have a pma
+         BEQ.S    NOPMA             if zero, don't have one
+         MOVE.L   A6,-(SP)          push arguments
+         PEA      L.OUTPUT(A4)      Output file for p_pma
+         PEA      L.INPUT(A4)       Input file for p_pma
+         MOVE.L   D0,A0             now get it where we can call it
+         JSR      (A0)              call pma
+         ADD.W    #12,SP            just in case we add more code
+         BRA.S    FINISH            call p_exit
+NOPMA
+*
+* There is no pma, so call the error message routine and exit
+*
+         PEA      L.OUTPUT(A4)      output file for p_errmsg
+         JSR      P_WTLN(PC)        skip to the next line
+         MOVE.W   ER.CODE(A6),-(SP) push error code
+         MOVE.L   ER.AUX(A6),-(SP)  push aux code
+         JSR      P_ERRMSG(PC)      show the error
+         ADD.W    #10,SP            just in case we add more code
+FINISH
+         JSB      P_EXIT            terminate the code
+         END

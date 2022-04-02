@@ -1,0 +1,146 @@
+INPUT    IDNT     2,2      Common file input routines
+         TTL      Common file input routines
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1981, 1982, 1983, 1984, 1985, 1986, 1987, 1988
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Common file input routines
+*
+* Last modified by KRIS on 26-Nov-1990 14:06:26
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+* Common input subroutines
+*
+         PAGE
+* p_getf -- read an input file
+*
+* This procedure is called by other support library routines.  It
+* is assumed that checkio has been called to set up the registers.
+* A4 must be initialized before this routine is called.
+* This routine modifies a0, a3, and d0.
+*
+         INCLUDE  LIBDEF
+         INCLUDE  LIBMAC
+*
+         XDEF     P_GETF
+P_GETF   EQU      *
+         BTST     #S.EOF,F.STATUS(A4)        are we at end-of-file?
+         BEQ.S    GF1               nope
+         ERROR    E.EOF
+GF1      LEA      F.IOS(A4),A0      point to ios parameter block
+         MOVE.W   #1,I.FUNC(A0)     set code/function to read
+         MOVE.L   F.BUFF(A4),A3     point to input buffer
+         MOVE.L   A3,I.BUFST(A0)    set buffer starting address
+         CLR.L    D0                clear upper word of d0
+         MOVE.W   F.BUFFSZ(A4),D0   get size of buffer
+         SUB.L    #1,D0             minus one to point to end
+         ADD.L    D0,A3             point to last byte
+         MOVE.L   A3,I.BUFEND(A0)   set pointer to end of buffer
+         IFNE     VERSADOS
+         TRAP     #2                call exec
+         ENDC     versados
+         IFNE     STNDALON
+         MOVE.L   A0,-(SP)          pass I/O block
+         MOVE.B   #IO.TRAN,-(SP)    it's a transfer operation
+         MOVE.L   F.IODR(A4),A0     I/O driver address
+         JSR      (A0)
+         ADDQ.W   #2,SP
+         MOVE.L   (SP)+,A0          restore a0
+         MOVE.B   I.STATUS(A0),D0   status to d0
+         ENDC     stndalon
+         CMP.B    #$C2,D0           end of file?
+         BNE.S    GF2               nope
+         BSET     #S.EOF,F.STATUS(A4)        mark end of file
+         BTST     #S1.RAN,F.STATUS+1(A4)     random access file?
+         BNE.S    GF6               if so, no further processing
+         CLR.L    I.RLEN(A0)        show no data read
+         BRA.S    GF5               and continue
+GF2      TST.B    D0                check returned status
+         BEQ.S    GF5               no error at all
+         BTST     #S1.NOERR,F.STATUS+1(A4)   user error handling?
+         BNE.S    GF4               yep, let him continue
+         IFNE     STNDALON
+         BTST     #S1.PERM,F.STATUS+1(A4)    is this the standard input file?
+         BEQ.S    GF3               nope
+         BSR.S    GF4               clean it up for the error handler
+         ENDC     stndalon
+GF3      ERROR    E.READF           error while reading file
+GF4      CLR.L    I.RLEN(A0)        call it a zero length read
+GF5      MOVE.L   F.BUFF(A4),A3     point to start of buffer
+         MOVE.L   A3,F.POINT(A4)    set buffer pointer
+         MOVE.L   I.RLEN(A0),D0     get length of data read
+         SUB.L    #1,D0             minus one to point to end
+         ADD.L    D0,A3             calculate pointer to end of data
+         MOVE.L   A3,I.BUFEND(A0)   set pointer to end of data
+GF6      RTS                        return to caller
+         PAGE
+*
+* p_getch -- read a character from a file
+*
+* This routine is called by other support library routines to obtain
+* the next character from a text file.  It is assumed that the caller
+* has called the checkio routine to set up the registers.  The next
+* character is returned in d0.  A0 and d0 are modified by this
+* routine.
+*
+         XDEF     P_GETCH
+P_GETCH  EQU      *
+         MOVE.L   A1,-(SP)          save a1
+         MOVE.L   F.POINT(A4),A1    get address of buffer pointer
+         BTST     #S.NEWL,F.STATUS(A4)       need a new line??
+         BNE.S    GCH1              yes, read next buffer
+         TST.B    (A1)+             no, point to next char in buffer
+         CMPA.L   F.IOS+I.BUFEND(A4),A1      end of buffer??
+         BLE.S    GCH5              still in buffer
+         BRA.S    GCH4              nope, eoln
+GCH1
+         BTST     #S1.PERM,F.STATUS+1(A4)    is this the standard input file?
+         BEQ.S    GCH2              nope
+         MOVEA.L  G.LIB(A5),A0      get lib work space
+         PEA      L.OUTPUT(A0)      use current output file
+         JSB      P_LBREAK,4        yes, break output file
+GCH2
+         ADD.L    #1,F.IOS+I.RECNUM(A4)      bump record number
+         BSR      P_GETF            and read a new line
+         BCLR     #S.EOLN,F.STATUS(A4)       clear the eoln bit
+         BTST     #S1.SNGL,F.STATUS+1(A4)    single mode ?
+         BEQ.S    GCH3              no process a standard text file
+         TST.L    D0                anything received ?
+         BMI.S    GCH4              no, join the common sequence
+         BRA.S    GCH5              load a character and leave s.newl set
+GCH3
+         BCLR     #S.NEWL,F.STATUS(A4)       have a line, don't need another
+         MOVE.L   F.POINT(A4),A1    restore buffer pointer
+         BTST     #S.EOF,F.STATUS(A4)        at end of file ??
+         BNE.S    GCH4              yes, force eoln to be true
+         CMPA.L   F.IOS+I.BUFEND(A4),A1      still in the buffer
+         BLE.S    GCH5              ok, we are still there
+GCH4
+         MOVE.B   #' ',(A1)         fake a space into file buffer
+         BSET     #S.EOLN,F.STATUS(A4)       eoln is true
+         BSET     #S.NEWL,F.STATUS(A4)       need next line
+GCH5
+         CLR.L    D0                kill junk in d0
+         MOVE.B   (A1),D0           load a character from buferr
+         MOVE.L   A1,F.POINT(A4)    update buffer pointer
+         MOVEA.L  (SP)+,A1          restore a1
+         BSET     #S.DEF,F.STATUS(A4)        buffer is defined
+         RTS                        and return to caller
+         END

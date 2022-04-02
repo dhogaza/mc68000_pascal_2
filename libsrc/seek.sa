@@ -1,0 +1,134 @@
+SEEK     IDNT     2,2      Random access file I/O, Seek() routine
+         TTL      Random access file I/O, Seek() routine
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Random access file I/O, Seek() routine
+*
+* Last modified by KRIS on 26-Nov-1990 14:05:31
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+         INCLUDE  LIBDEF
+         INCLUDE  LIBMAC
+         PAGE
+*
+* This routine positions a record file to a specified record.
+*
+* This simple job is complicated by differences between the Pascal-2
+* definition of a random access file and the VERSAdos definition.
+*
+* First, updating of a file is allowed only if that file is assigned
+* for "exclusive read/write".  We do not want to restrict access if
+* the file is used only for reading, so we clear the "s.out" bit
+* when the file is first made random access.  "Put" contains code
+* which will set appropriate permissions when the first write is done.
+*
+* Second, VERSAdos allows random access only up to the next record past
+* the end of file.  This is not consistent with PDP-11 operating systems.
+* If we attempt to seek past eof, the desired record is left in the
+* i.reclen field so that put can fill with dummy records.
+*
+         PROC     P_SEEK,<F,ADDRESS,RECNUM,INTEGER>
+
+         BEGIN    P_SEEK,A0/A1/A3/A4/D0-D2
+         CHECKIO  F
+         LEA      F.STATUS(A4),A1   point to status flags
+         MOVE.W   I.OPT(A0),D2      save current options
+         MOVE.L   RECNUM(A6),D1     get random record number
+         BNE      SEEK0
+         BTST     #S1.NOERR,1(A1)   user error handling?
+         BNE      SEEK7             yep, let him continue
+         ERROR    E.SEEK0
+SEEK0
+         SUB.L    #1,D1             record numbers start with one
+         MOVE.L   D1,I.RECNUM(A0)   set record number
+         BTST     #S1.RAN,1(A1)     is it already random access?
+         BNE.S    SEEK2             yes, just do what we have to
+         BSET     #S1.RAN,1(A1)     mark this file as a random access file
+         BSET     #S.INP,(A1)       input operations are now allowed
+*        bset     #s.out,(a1)       set in case we are a text file
+         BTST     #S.TEXT,(A1)      are we a text file?
+         BNE.S    SEEK1             yes
+         BCLR     #S.OUT,(A1)       output operations are not
+SEEK1
+*
+* If the file was opened with a "reset(f, 'file.ex')", and was
+* empty, the buffer will be cleared to empty.  The following
+* code reverses that.
+*
+         CLR.L    D0                compute new buffer end
+         MOVE.W   F.BUFFSZ(A4),D0   size of buffer
+         ADD.L    I.BUFST(A0),D0    address of buffer start
+         SUBQ.L   #1,D0             new buffer end
+         MOVE.L   D0,I.BUFEND(A0)   stored in the block
+SEEK2
+         BCLR     #S.EOF,(A1)       no longer at end of file
+         OR.W     #$6000,I.OPT(A0)  position via recordnumber
+*
+         BTST     #S1.CONT,1(A1)    file is contigous?
+         BEQ      SEEK4
+         JSB      P_GETF            read current record
+         BTST     #S.EOF,(A1)       end of file ?
+         BNE      SEEK3             that's an error
+         BCLR     #6,I.OPT(A0)      set option to read current record
+         BSET     #S.DEF,(A1)       input buffer is defined
+         BRA      SEEK7             everything is ready
+SEEK3
+         BTST     #S1.NOERR,1(A1)   user error handling?
+         BNE.S    SEEK7             yep, let him continue
+         ERROR    E.EOFCNT
+*
+SEEK4
+         MOVE.W   #$0101,I.FUNC(A0) code=1, function=position
+         IFNE     VERSADOS
+         TRAP     #2                call exec
+         ENDC     versados
+         IFNE     STNDALON
+         MOVE.L   A0,-(SP)          push I/O block
+         MOVE.B   #IO.TRAN,-(SP)    a transfer activity
+         MOVE.L   F.IODR(A4),A0     address of driver
+         JSR      (A0)
+         ADDQ.W   #2,SP             pop enumeration type
+         MOVE.L   (SP)+,A0          restore a0
+         MOVE.B   I.STATUS(A0),D0
+         ENDC     stndalon
+         BEQ.S    SEEK6             no error
+         CMP.W    #$C2,D0           end of file?
+         BNE.S    SEEK5             no, report other error
+         BSET     #S.EOF,(A1)       mark end of file
+         MOVE.L   D1,I.RECNUM(A0)   store record number for put
+         BRA.S    SEEK7             and skip other checks
+SEEK5
+         TST.B    D0                check error again
+         CHKERR   E.SEEK,1(A1),SEEK6
+SEEK6
+         LEA      F.IOS(A4),A0      point back to ios parameter block
+         BCLR     #6,I.OPT(A0)      set option to read current record
+         JSB      P_GETF            read current record
+         BSET     #S.DEF,(A1)       input buffer is defined
+         BTST     #S.TEXT,(A1)      are we a text file?
+         BEQ.S    SEEK7             no, exit
+         BCLR     #S.EOLN,(A1)      clear eoln flag
+         BCLR     #S.NEWL,(A1)      have a line, don't need another
+SEEK7
+         MOVE.W   D2,I.OPT(A0)      restore original options
+         ENDPR    P_SEEK
+         END

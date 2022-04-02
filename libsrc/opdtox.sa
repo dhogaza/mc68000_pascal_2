@@ -1,0 +1,92 @@
+OPDTOX   IDNT     2,2      Double-to-extended unpacker
+*  NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+* Copyright (C) 1985 Oregon Software, Inc.
+* All Rights Reserved.
+*
+* This program is the property of Oregon Software.  The program or
+* parts of it may be copied and used only as provided under a signed
+* license agreement with Oregon Software.  Any support purchased from
+* Oregon Software does not apply to user-modified programs.  All copies
+* of this program must display this notice and all copyright notices.
+*
+*
+* Release version: 0045  Level: 1
+* Processor: MC68000
+* System: VERSADOS
+* Flavor: ALL
+*
+* Double-to-extended unpacker
+*
+*Last modified by KRIS on 26-Nov-1990 14:01:55
+*Purpose:
+*Update release version for PL-GS0-GS0 at 2.3.0.1
+*
+*
+*
+*	dtox.as -- double-to-extended unpacker.
+*
+*		.globl		p_dtox
+         SECTION  8
+P_DTOX
+         MOVE.L   D1,D2
+         SWAP     D2
+         ROR.L    #5,D2
+         AND.W    #$F800,D2
+         MOVE.W   D0,D1
+         ROR.L    #5,D1
+         ASR.L    #4,D0
+         MOVE.W   D0,D1
+         SWAP     D0
+         EXT.L    D0
+         ADDQ.W   #1,D0
+         AND.W    #$07FF,D0
+         ADD.W    #$FFFE,D0
+         ROXR.W   #1,D1
+         SWAP     D1
+         BPL.S    IRREGULAR
+REGULAR
+         ADD.W    #$3C01,D0
+         RTS                        * -n, -z, -v, -c, -x
+IRREGULAR
+         BEQ.S    HI_ZERO
+HI_NONZERO
+         ADDQ.W   #1,D0
+         BEQ.S    DENORM_2
+NAN
+         RTS                        * n, -z, -v, -c, -x
+DENORM_2
+         MOVE.W   #$3C00,D0
+NORMAL_2
+         ADD.L    D2,D2
+         ADDX.L   D1,D1
+         DBMI     D0,NORMAL_2
+         RTS                        * n, -z, v, -c, -x
+HI_ZERO
+         TST.L    D2
+         BEQ.S    BOTH_ZERO
+LO_NONZERO
+         ADDQ.W   #1,D0
+         BEQ.S    DENORM_1
+SPECIAL
+         RTS                        * n, -z, -v, -c, -x
+DENORM_1
+         EXG      D2,D1
+         LSR.L    #1,D1
+         MOVE.W   #$3BE1,D0
+NORMAL_1
+         ADD.L    D1,D1
+         DBMI     D0,NORMAL_1
+         RTS                        * n, -z, v, -c, -x
+BOTH_ZERO
+         ADDQ.W   #1,D0
+         RTS
+ZERO
+*	-n, z, -v, c, x
+INFINITY
+*	n, -z, -v, -c, -x
+*
+         XDEF     P_DTOX
+         END
+*
+* (v.1.2c) converted on 11/26/90 at 15:55:27 from berkeley format

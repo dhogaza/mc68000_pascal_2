@@ -1,0 +1,143 @@
+TIMEST   IDNT     2,2      Get current date and time
+         TTL      Get current date and time
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Get current date and time
+*
+* Last modified by KRIS on 26-Nov-1990 14:06:59
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+* procedure timestamp(var day, month, year: integer;
+*                     var hour, minute, second: integer);
+*
+* Return the current date and time broken out in useful and system-
+* independent terms.
+*
+* Since the day is stored in days since Jan 1, 1980, we have to use
+* a calendar algorithm to get it as day, month, year.
+*
+* First we assume that all years divisible by 4 are leap years, which
+* is safe until 2100 AD, and compute the four-year interval in which
+* the day occurs.  We can then fudge for the initial leap year.  The
+* day and month are determined by extending February to be 30 days,
+* then dividing by 30.55.  This magic number is the slope of a line
+* which will pass correctly through the starts of the months.
+*
+* Time also causes some pain, since there is only a 16 bit divide,
+* and we have to squeeze results to be less than 16 bits.
+*
+         PAGE
+         INCLUDE  PASMAC
+         INCLUDE  VDOSDE
+         SECTION  13
+         OPT      BRS
+*
+* kluge macro to generate long storage code
+*
+STORE    MACRO
+         CLR.W    (\2)
+         MOVE.W   \1,2(\2)
+         ENDM
+*
+A        EQU      ADDRESS           fudge to shorter form
+*
+         PROC     TIMESTAMP,<DAY,A,MON,A,YEAR,A,HOUR,A,MIN,A,SEC,A>
+
+         VAR      BUF,GT.SIZE       system time packet
+
+         BEGIN    TIMESTAMP,D0/D1/A0
+         ERQ      GTDTIM$,BUF(A6)   first get day/time from system
+         MOVE.L   BUF+GT.DATE(A6),D0         start by computing the date
+         SUB.L    #1,D0             make zero-based
+         DIVU     #1461,D0          break it into 4 year chunks
+         MOVE.W   D0,D1             save the start of the quad
+         LSL.W    #2,D1             but convert back to years
+         CLR.W    D0                will become upper part of day
+         SWAP     D0                we have day in the quad
+         CMP.W    #365,D0           In the first year?
+         BLE      FRSTYEAR          yep, a simple job
+         SUB.L    #1,D0             get day in the year
+         DIVU     #365,D0           gives day and year in quad
+         ADD.W    D0,D1             compute year (rel to 1980)
+         CLR.W    D0                again, cheap zero extension
+         SWAP     D0
+FRSTYEAR EQU      *
+*
+* At this point we have the year (relative to 1980) in d1.w, and
+* the day of the year (relative to zero) in d0.l.  We can return
+* the year and break the day down to month and day of month.
+*
+         ADD.W    #1980,D1          compute actual year
+         MOVE.L   YEAR(A6),A0
+         STORE    D1,A0             and return the year
+*
+         ADD.L    #1,D0             Now compute the February correction
+         AND.W    #3,D1             is year mod 4 = 0? (leap year)
+         BNE      NOTLEAP           nope
+         CMP.W    #60,D0            yes, check for past the end of Feb.
+         BLE      HAVEDAY           no, day is correct
+         ADD.W    #1,D0             yes, fudge the day by one
+         BRA      HAVEDAY
+*
+NOTLEAP  CMP.W    #59,D0            not leap year, check end of feb
+         BLE      HAVEDAY           not past it, no correction
+         ADD.W    #2,D0             correction to 30 day Feb.
+*
+HAVEDAY  ADD.W    #91,D0            initial offset of the line
+         MOVE.L   D0,D1             save it as a common sub expression
+         MULU     #100,D0           scale for div by 30.55
+         DIVU     #3055,D0
+         SUB.W    #2,D0             month = (dayofy + 91) / 30.55 + 2
+         MOVE.L   MON(A6),A0
+         STORE    D0,A0             returned to the user
+*
+* Now compute the day number of the start of the month and we can
+* compute the day within the month
+*
+         ADD.W    #2,D0             add the offset back in.
+         MULU     #3055,D0          and multiply by 30.55
+         DIVU     #100,D0           we now have the starting day
+         SUB.W    D0,D1             giving the day of the month
+         MOVE.L   DAY(A6),A0
+         STORE    D1,A0             return the day
+*
+* Now we can compute the time of day.  Note that we divide by 60000
+* (milliseconds per minute) rather than 60 so we have both remainder
+* and quotient less than 65535.
+*
+         MOVE.L   BUF+GT.TIME(A6),D0         milliseconds from midnight
+         DIVU     #60000,D0         split into minutes and milliseconds
+         CLR.L    D1                extension
+         MOVE.W   D0,D1             d1 has niuntes
+         CLR.W    D0                cheap extension
+         SWAP     D0                d0 has milliseconds
+         DIVU     #60,D1            now have hours and minutes
+         MOVE.L   HOUR(A6),A0
+         STORE    D1,A0             return minutes
+         SWAP     D1                get hours
+         MOVE.L   MIN(A6),A0
+         STORE    D1,A0             return hours
+         DIVU     #1000,D0          now have seconds
+         MOVE.L   SEC(A6),A0
+         STORE    D0,A0             return seconds
+         ENDPR    TIMESTAMP         all done.
+         END

@@ -1,0 +1,86 @@
+OPENOU   IDNT     2,2      Open the standard output file
+         TTL      Open the standard output file
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1981, 1982, 1983, 1984, 1985, 1986, 1987, 1988
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Open the standard output file
+*
+* Last modified by KRIS on 26-Nov-1990 13:54:09
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+         PAGE
+* Initialize the standard output file.
+*
+* procedure p_output(var f: text);
+*
+         INCLUDE  LIBDEF
+         INCLUDE  IODEFS
+         INCLUDE  LIBMAC
+*
+         PROC     P_OUTPUT,<F,ADDRESS>
+*
+* Initial status values for standard output file
+*
+OUTST0   EQU      (1<<S.TEXT)+(1<<S.OUT)+(1<<S.INT)
+OUTSTAT  EQU      (OUTST0<<8)+(1<<S1.PERM)
+*
+         BEGIN    P_OUTPUT,A0/A1/A4/D0
+         MOVE.L   G.LIB(A5),A4      get library work area
+         MOVE.L   L.HEAP(A4),A0     current top of heap
+         ADDQ.W   #4,A0
+         MOVE.L   A0,-4(A0)
+         MOVE.L   F(A6),A1          return control block address
+         MOVE.L   A0,(A1)
+*
+* Now clear the block
+*
+         MOVE.L   A0,A1
+         MOVE.L   #((F.SIZE+F.DSIZE)>>1),D0  words to clear (-1)
+CLFILE   CLR.W    (A1)+
+         DBRA     D0,CLFILE
+         MOVE.L   A1,L.HEAP(A4)     new top of heap
+*
+* Link on the file list
+*
+         MOVE.L   L.FILES(A4),F.NEXT(A0)     remainder of the chain
+         MOVE.L   F(A6),F.FVAR(A0)  back pointer to user filevar
+         MOVE.L   A0,L.FILES(A4)    new is now first on the chain
+*
+         LEA      F.SIZE(A0),A1     point to the output buffer
+         MOVE.L   A1,F.POINT(A0)    start of buffer
+         MOVE.L   A1,F.BUFF(A0)     start of buffer
+         MOVE.L   A1,F.IOS+I.BUFST(A0)       start of buffer for I/O
+         MOVE.W   #F.DSIZE,F.BUFFSZ(A0)      buffer size
+         ADDA.W   #F.DSIZE-1,A1     end of buffer
+         MOVE.L   A1,F.IOS+I.BUFEND(A0)      set for transfer address
+         MOVE.W   #OUTSTAT,F.STATUS(A0)      initial status
+         MOVE.W   #IO.WT$,F.IOS+I.FUNC(A0)   operation
+         MOVE.B   #STDOUT,F.IOS+I.LUN(A0)    logical unit
+         CLR.W    F.ERR(A0)         no errors till now
+         IFNE     STNDALON
+         XREF     P_TERMIO          console terminal
+         MOVE.L   #P_TERMIO,F.IODR(A0)       store driver address
+         PEA      F.IOS(A0)         initialize driver
+         MOVE.B   #IO.OPEN,-(SP)
+         JSR      P_TERMIO          should get us going
+         ADDQ.W   #6,SP             pop the parameters
+         ENDC     stndalon
+         ENDPR    P_OUTPUT
+         END

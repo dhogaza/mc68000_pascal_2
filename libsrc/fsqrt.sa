@@ -1,0 +1,180 @@
+FSQRT    IDNT     2,2      Single Precision Real Square Root Function
+         TTL      Single Precision Real Square Root Function
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Single Precision Real Square Root Function
+*
+* Last modified by KRIS on 26-Nov-1990 13:58:19
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+         PAGE
+
+***********************************************************
+*
+*  single precision real square root routine
+*
+*    entry conditions:
+*
+*      8(SP) = 32-bit real function value
+*      4(SP) = 32-bit real parameter value
+*      0(SP) = return address
+*
+*    exit conditions:
+*
+*      4(SP) = 32-bit real function value
+*      0(SP) = 32-bit real parameter value
+*      CCR  = N and Z flags conditionally set, V = 0
+*        {*** note: -0.0 result will force Z=1  ***}
+*
+*    error conditions:
+*
+*      "negative operand in real square root"
+*      "invalid operand in real square root"
+*
+*    comments:
+*
+*      a signed zero value returns that value as its result
+*
+***********************************************************
+
+         INCLUDE  LIBDEF
+         INCLUDE  FPPDEF
+         INCLUDE  LIBMAC
+
+         XDEF     P_FSQRT           ;fsqrt
+
+P_FSQRT:
+         MOVEM.L  D0-D2,-(SP)       ;save 3 long registers
+
+         MOVE.L   16(SP),D0         ;get argument
+         BLE.S    TESTZERO          ;if negative or zero
+
+         MOVEQ    #EXPBIAS/2,D2     ;prepare for exponent of result
+         ROL.L    #8,D0             ;isolate exponent
+         BMI.S    ODDEXPON          ;if exponent is odd
+
+* exponent is even, square root lies between sqrt(2) and 2.0
+
+         ADD.B    D0,D2             ;add to half of exponent bias
+         CLR.B    D0
+         BSET     #31,D0            ;set implied bit
+
+         MOVE.L   D0,D1             ;copy out mantissa
+         SWAP     D0                ;get high order
+         MULU     #$9249,D0
+         SWAP     D0
+         ADDI.W   #$6DB7,D0         ;initial approximation
+         BRA.S    ITERATE2
+
+* exponent is odd, square root lies between 1.0 and sqrt(2)
+* test for invalid operand here
+
+ODDEXPON:
+         ADDQ.B   #1,D0             ;bump the odd exponent, so that
+         BMI.S    INVALID           ;   $7F would become $80
+
+         ADD.B    D0,D2             ;add to half of exponent bias
+         CLR.B    D0                ;done with original exponent
+         MOVE.L   D0,D1             ;copy out mantissa
+
+         LSR.L    #1,D1             ;adjust fraction
+         SWAP     D0                ;get high order
+         MULU     #$6DB7,D0
+         SWAP     D0
+         ADDI.W   #$4925,D0         ;initial approximation
+
+* initial approximation is good for about 7 bits
+
+ITERATE2:
+         PUSH.B   D2                ;save exponent of result
+
+         MOVE.L   D1,D2             ;copy fraction
+         DIVU     D0,D2             ;next approximation
+         BVS.S    OVFLOW
+
+         ADD.W    D2,D0             ;plus previous
+         ROXR.W   #1,D0             ;divided by two
+
+* second approximation good for about 14 bits
+
+         DIVU     D0,D1
+         BVC.S    DIVOK
+
+OVFLOW:  MOVEQ    #0,D2             ;sets high order to 0
+         SWAP     D1                ;low order is "remainder"
+         BRA.S    COMPOSE
+
+DIVOK:   MOVE.W   D1,D2             ;save high order quotient
+         SWAP     D2                ;in its appropriate position
+
+COMPOSE: CLR.W    D1
+
+         DIVU     D0,D1
+         MOVE.W   D1,D2             ;save low order quotient
+
+         SWAP     D0                ;tidy up the previous approximation
+         CLR.W    D0
+         ADD.L    D2,D0             ;voila! about 29 bits worth of result
+
+* perform SIMPLE rounding since the root is NOT exactly 29 bits accurate
+
+         ST       D0                ;set byte to ones to propage carry
+         ADDQ.L   #1,D0             ;  up to the rounding bit (in 8)
+         BCC.S    FINISH
+
+         ADDQ.B   #1,(SP)           ;increment exponent
+
+FINISH:  POP.B    D0                ;restore exponent
+
+         ROR.L    #8,D0             ;rotate into position
+         LSR.L    #1,D0             ;set positive sign
+
+RESTORE:
+         MOVE.L   D0,20(SP)         ;store function result
+         MOVEM.L  (SP)+,D0-D2
+         RTS                        ;with ccr correctly set
+
+
+******  ERROR TESTING  ******
+
+
+TESTZERO:
+         MOVE.L   D0,D1             ;copy value
+         ADD.L    D1,D1             ;strip sign
+         BEQ.S    RESTORE           ;if signed zero
+
+* branch to negroot (rather than swapping error calls and falling into it)
+         BRA.S    NEGROOT           ;allows short branches in mainline
+
+
+INVALID:
+         ADDA.W   #12,SP            ;flush stack
+         LIBFRAME
+         MERROR   <'Invalid operand in real square root'>
+
+
+NEGROOT:
+         ADDA.W   #12,SP            ;flush stack
+         LIBFRAME
+         MERROR   <'Negative operand in real square root'>
+
+
+         END

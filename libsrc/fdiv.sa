@@ -1,0 +1,266 @@
+FDIV     IDNT     2,2      Single Precision Real Division
+         TTL      Single Precision Real Division
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Single Precision Real Division
+*
+* Last modified by KRIS on 26-Nov-1990 13:58:02
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+         PAGE
+
+         INCLUDE  LIBDEF
+         INCLUDE  FPPDEF
+         INCLUDE  LIBMAC
+
+         XDEF     P_FDIV            ;fdiv
+
+***********************************************************
+*
+*  single precision real division routine
+*
+*    entry conditions:
+*
+*      D3.L = 32-bit real divisor
+*      D4.L = 32-bit real dividend
+*
+*    exit conditions:
+*
+*      D3.L = unchanged
+*      D4.L = 32-bit real quotient
+*      CCR  = N and Z flags conditionally set, V = 0
+*        {*** note: -0.0 result will force Z=1  ***}
+*
+*    intermediate register usage:
+*
+*      D0.L = receives upper and lower trial quotient words
+*      D1.L = zero extended low order divisor
+*      D2.L = temp for product of low divisor and trial quotient
+*      D3.L = high order divisor and result exponent and sign
+*      D4.L = partial remainder
+*
+*    error conditions:
+*
+*      "real division by zero"
+*      "exponent overflow in division"
+*      "invalid operand in division"
+*
+*    comments:
+*
+*      Exponent underflow flushes the result immediately
+*      to zero rather than denormalizing.
+*
+***********************************************************
+
+P_FDIV:
+         MOVEM.L  D0-D4,-(SP)       ;save 5 long registers
+         MOVEQ    #0,D0
+         MOVEQ    #0,D1
+
+         ROL.L    #8,D3
+         BNE.S    NOT0              ;if not normal zero
+
+********************************
+
+         ADDA.W   #20,SP
+         LIBFRAME
+         MERROR   <'Real division by zero'>
+
+********************************
+
+NOT0
+         BMI.S    D3XODD            ;if odd exponent
+
+         BSET     #31,D3            ;set implied bit
+         MOVE.B   D3,D1             ;divisor exponent
+
+         ADD.B    D1,D1
+         BRA.S    TESTD4
+
+********************************
+
+D3XODD:  MOVE.B   D3,D1             ;divisor exponent
+         ADD.B    D1,D1
+
+         ADDQ.B   #2,D1             ;is divisor infinity or NaN?
+         BEQ.S    INVALID           ;yes
+
+         SUBQ.B   #1,D1             ;correct exponent
+
+********************************
+
+TESTD4:
+         ROL.L    #8,D4             ;isolate exponent of dividend
+         BMI.S    D4XODD            ;if odd exponent
+
+         BSET     #31,D4            ;set implied bit
+         MOVE.B   D4,D0             ;copy out exponent
+
+         ADD.B    D0,D0             ;compose exponent
+         BNE.S    DIV1              ;if not normal zero or denormal
+
+********************************
+* result will be zero (if not denormal)
+
+MAKE0:   EOR.B    D3,D4             ;test the sign
+         MOVEM.L  (SP)+,D0-D4       ;restore registers
+         BMI.S    MINUS0
+
+         MOVEQ    #0,D4             ;make +0
+         RTS
+
+MINUS0:  MOVEQ    #0,D4
+         BCHG     #31,D4            ;will leave the z-flag set true
+         RTS
+
+********************************
+
+INVALID:
+         ADDA.W   #20,SP
+         LIBFRAME
+         MERROR   <'Invalid operand in real division'>
+
+********************************
+
+D4XODD:
+         MOVE.B   D4,D0             ;copy out exponent
+         ADD.B    D0,D0             ;compose dividend exponent
+
+         ADDQ.B   #2,D0             ;is dividend infinity or NaN?
+         BEQ.S    INVALID           ;yes
+
+         SUBQ.B   #1,D0             ;no -- correct the exponent
+
+********************************
+
+DIV1     EOR.B    D4,D3             ;get resultant sign
+         PUSH.B   D3                ;save to stack
+
+         SUB.W    D1,D0             ;difference of exponents
+         CLR.B    D3
+         CLR.B    D4
+
+         TST.W    D1                ;denormalized divisor ?
+         BNE.S    NORMAL
+
+********************************
+* This is a division by denormalized number.  The register D0 contains
+* the difference of exponents.  Three of upper bytes of register d3 contain
+* the mantissa including the implied bit, which must be ignored.
+
+FIXEXP
+         ASL.L    #1,D3             shift left
+         BMI.S    NORMAL            we found first bit in the mantissa
+         ADDQ.W   #1,D0             correct the resulting exponent
+         BRA      FIXEXP            try again
+
+********************************
+
+NORMAL
+         LSR.L    #1,D4             ;unnormalize dividend by one
+
+         MOVE.L   D3,D1             ;save copy of divisor
+         MOVE.W   D0,D3             ;save exponent
+         SWAP     D3                ;get high order word of divisor
+
+         DIVU     D3,D4             ;get approximate high order quotient
+
+         MOVE.W   D4,D0             ;this will be our permanent copy
+         MOVE.W   D4,D2             ;d2 will soon hold a long product
+         CLR.W    D4                ;remainder still in high order
+
+         MULU     D1,D2             ;trial quotient times low order divisor
+
+         SUB.L    D2,D4
+         BCC.S    DIV2              ;if result is positive
+
+         SUBQ.W   #1,D0             ;correct the quotient
+         ADD.L    D1,D4             ;add entire divisor back
+         BCS.S    DIV2              ;if now positive
+
+         SUBQ.W   #1,D0             ;correct the quotient
+         ADD.L    D1,D4             ;add entire divisor back
+
+DIV2:    DIVU     D3,D4             ;high order divisor into remainder
+         BVS.S    FIXUP             ;if hardware divide overflow
+
+         SWAP     D0
+         MOVE.W   D4,D0             ;this will be our permanent copy
+         MOVE.W   D4,D2             ;d2 will soon hold a long product
+         CLR.W    D4                ;remainder still in high order
+
+         MULU     D1,D2             ;trial quotient times low order divisor
+
+         SUB.L    D2,D4
+         BCC.S    DIV3              ;if result is positive
+
+         MOVEQ    #-2,D2            ;prepare for quotient correction
+         ADD.L    D1,D4             ;add entire divisor back
+         ADDX.W   D2,D0             ;subtracts 1 or 2 from quotient
+
+********************************
+
+DIV3     SWAP     D3                ;retrieve exponent
+
+         MOVE.L   D0,D4             ;result to accumulator
+         BMI.S    ROUND
+
+         ADD.L    D4,D4
+         SUBQ.W   #1,D3
+
+ROUND    ADD.B    D4,D4             ;force round bit to carry
+         SUBX.B   D4,D4
+         ADDQ.L   #1,D4
+
+         POP.B    D4                ;retrieve sign
+         ADD.L    D4,D4             ;force off implied bit
+
+         ADDI.W   #EXPBIAS,D3       ;bias correction
+         BLE.S    UNDERFLOW
+
+         CMPI.W   #255,D3
+         BGE.S    OVERFLOW
+
+         MOVE.B   D3,D4             ;set exponent into place
+UNDREXIT:
+         MOVEM.L  (SP)+,D0-D3
+         ADDQ.L   #4,SP             ;flush old d4
+
+         ROL.L    #7,D4
+         SWAP     D4                ;our ducks are now lined up
+         RTS                        ;with ccr correctly set
+
+********************************
+
+FIXUP:   ADDQ.W   #1,D0
+         SWAP     D0
+         BRA.S    DIV3
+
+UNDERFLOW:
+         AND.L    #256,D4
+         BRA.S    UNDREXIT
+
+OVERFLOW:
+         ADDA.W   #20,SP
+         LIBFRAME
+         MERROR   <'Exponent overflow in division'>
+
+         END

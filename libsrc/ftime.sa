@@ -1,0 +1,103 @@
+FTIME    IDNT     2,2      Return Time-of-Day in Hours as Single Real
+         TTL      Return Time-of-Day in Hours as Single Real
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Return Time-of-Day in Hours as Single Real
+*
+* Last modified by KRIS on 26-Nov-1990 13:58:30
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+         PAGE
+
+         INCLUDE  LIBDEF
+         INCLUDE  FPPDEF
+         INCLUDE  LIBMAC
+
+         XDEF     P_FTIME
+
+***********************************************************
+*
+*  Return single-precision real time of day
+*
+*    entry conditions:
+*      0(SP) = return address
+*      4(SP) = return function value
+*
+*    exit conditions:
+*      0(SP) = 32-bit single precision real time of day
+*      CCR = (N, C, V = 0; Z = 1 at midnite, else Z = 0)
+*
+*    intermediate register usage:
+*      D0.L = work register for real result
+*      D1.L = maintains exponent count
+*      A0.L = points to data block for returning system time
+*
+*    error conditions:
+*      system time equals, or exceeds, 24 hours
+*
+***********************************************************
+
+
+P_FTIME:
+         MOVEM.L  D0-D1/A0,-(SP)    ;save registers
+         SUBQ.L   #8,SP             ;create time block
+         MOVEA.L  SP,A0             ;point to the block
+         MOVEQ    #74,D0            ;code to fetch date & time
+         TRAP     #1                ;call VERSAdos
+
+         ADDQ.L   #4,SP             ;ignore date
+         POP.L    D0                ;get time in milliseconds
+         BEQ.S    EXIT              ;if zero
+
+         CMPI.L   #86400000,D0      ;milliseconds per day
+         BGE.S    TIME_ERR          ;corrupt data
+
+         MOVEA.L  #3600000*512,A0   ;milliseconds per hour, scaled 9 bits
+         MOVEQ    #-121,D1          ;starting exponent (byte value = 135)
+LOOP:
+         ADD.L    D0,D0             ;shift left, and
+         CMP.L    A0,D0             ;  compare with divisor
+         DBCC     D1,LOOP           ;until quotient will be normalized
+
+         DIVU     #56250,D0         ;get 1st 16 bits of quotient
+         MOVEA.W  D0,A0             ;save to temp register
+         CLR.W    D0
+         DIVU     #56250,D0         ;get 2nd 32 bits of quotient
+         SWAP     D0
+         MOVE.W   A0,D0
+         SWAP     D0
+
+         ADD.L    D0,D0             ;force off implied bit
+         MOVE.B   D1,D0             ;copy in exponent
+         ROR.L    #8,D0             ;rotate exponent to high order
+         ADDQ.L   #1,D0             ;perform simple rounding
+         LSR.L    #1,D0             ;set sign to positive
+EXIT:
+         MOVE.L   D0,16(SP)         ;store result, set ccr
+         MOVEM.L  (SP)+,D0-D1/A0    ;restore registers
+         RTS
+
+TIME_ERR:
+         ADDA.W   #12,SP            ;clean stack
+         LIBFRAME
+         MERROR   <'System time exceeds 24 hours'>
+
+         END

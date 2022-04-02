@@ -1,0 +1,527 @@
+INITIA   IDNT     2,2      Run-time initialization routine
+         TTL      Run-time initialization routine
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1981, 1982, 1983, 1984, 1985, 1986, 1987, 1988
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Run-time initialization routine
+*
+* Last modified by KRIS on 26-Nov-1990 13:53:37
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+* This portion of the initialization routine is invarient, and may
+* be included in ROM or a shared library without having to be relinked
+* each time.
+*
+* Those items which must be set up at link time are included in the
+* module "linkdep", which transfers control to p_init after setting
+* up a work segment of the proper size.
+*
+         INCLUDE  LIBDEF
+         IFNE     VERSADOS
+         INCLUDE  VDOSDE
+         INCLUDE  IODEFS
+         ENDC     versados
+         INCLUDE  LIBMAC
+*
+* The routine is entered by:
+*
+* jmp      p_init
+*
+         XDEF     P_INIT
+*
+P_INIT   EQU      *
+         IFNE     VERSADOS
+* Registers contain:
+*
+* D0      status from GTSEG$ system call.
+* D1      session number
+* D2      default volumn id.
+* D3      task name of spawning task
+* D4      first 4 characters of default catalog
+* D5      last 4 characters of default catalog
+* D6      upper word: length of command line
+*         lower word: default user number
+* D7      LUN's in use by this task
+*
+* A0      base address of workspace
+* A1      actual length of workspace segment
+* A2      real user number
+* A3      name of this task
+* A4      user's terminal ID
+* A5      length of global data section
+* A6      desired length of workspace
+* A7      return address to Pascal code
+*
+* The segment "PAW$" must be allocated, (or an attempt made).
+* This segment must be large enough to contain the library work
+* space, the global segment, the heap, and the stack.
+*
+* If the segment was not allocated, or if it does not have enough room
+* for the library work area, a p_panic routine prints a simple error message.
+* Otherwise, if the desired space is too small, the standard error routine
+* prints a better message.
+*
+         TST.W    D0                See if we have a segment
+         BNE.L    P_PANIC           No, scream loudly
+         CMPA     #H.SIZE,A1        See if we have enough to work
+         BLE.L    P_PANIC           No, scream again
+*
+* Now we will save registers and set up basic pointers
+*
+         MOVE.L   A4,H.LIB+L.UTERM(A0)       User terminal ID
+         LEA      H.LIB(A0),A4      library storage area in a4
+         MOVE.L   A5,L.GLOBL(A4)    global length
+         MOVE.L   A7,A5             save return address
+         MOVE.L   A0,A7             stack pointer in A7
+         ADD.L    A1,A7
+         MOVE.L   A5,-(SP)          save return address
+         LEA      H.GLOB+G.NSIZE(A0),A5      global pointer in a5
+*
+* Save the initial data from the registers
+*
+         MOVE.L   A1,L.AWORKL(A4)   actual workspace length
+         MOVE.W   A2,L.RUSER(A4)    real user number
+         MOVE.L   A3,L.TASKN(A4)    current task name
+         MOVE.L   A6,L.RWORKL(A4)   requested workspace length
+         MOVE.L   D1,L.SESSIO(A4)   session number
+         MOVE.L   D2,L.VOLN(A4)     default volumn ID
+         MOVE.L   D3,L.FATHER(A4)   spawning task
+         MOVE.L   D4,L.CAT(A4)      default catalog (8 bytes)
+         MOVE.L   D5,L.CAT+4(A4)
+         MOVE.W   D6,L.USER(A4)     current user number
+         SWAP     D6
+         MOVE.W   D6,L.COML(A4)     command line length
+         MOVE.L   D7,L.LUNS(A4)     LUN's in use
+         CLR.W    L.BREAK(A4)       no breaks now
+         PAGE
+         ENDC     versados
+         IFNE     STNDALON
+*
+* Runtime initialization for stand-alone
+*
+* This is very similar to VERSAdos, which is why it is intermixed in the
+* same module.
+*
+* The initial register setup is somewhat simpler...
+*
+* A0      base of the workspace
+* A5      length of the global data section
+* A6      end of the workspace (or 0)
+* A7      return address to Pascal code
+*
+         MOVE.L   A0,A3             save base of workspace
+         MOVE.L   A7,A4             save the return address
+         CMP.W    #0,A6             do we have to scan for EOM?
+         BNE.S    ENDFOUND          no, we know where we stand
+         MOVE.L   A3,D0             yes, round start up to 1024 bytes
+         ADD.L    #$3FF,D0
+         AND.W    #$FC00,D0         clear out lower bits
+         MOVE.L   D0,A6             ready to scan for bits
+*
+* The end of the physical memory is detected by causing the bus error
+* by the instruction MOVE.L D0,(A6) within the "srchend" loop.  The trap
+* handler uses the location l.tphand(a3) to pass the control to the
+* error handling routine.  We are going to set this location to the
+* addree ENDFOUND, so we know when the bus error occured.  Depending
+* on the processor type, different stack frame are built during the
+* bus error exception.  The largest one (format $B on 68020) uses $5C
+* bytes.  We have to make sure that the whole stack frame plus
+* few bytes used by the trap handler will not overwrite the program
+* code - we provide at least additional $80 bytes on the temporary
+* stack for this purpose.
+*
+         MOVE.L   #ENDFOUND,H.LIB+L.TPHAND(A3)        out of loop on trap
+         LEA      $80+H.LIB+L.TPHAND(A3),SP  give it a bit of stack
+         IFNE     MC68010!MC68020
+* since we are going to cause the bus error, we have to set the vector
+* base register before it occurs
+         XREF     DEFVBR$$
+         MOVE.L   #DEFVBR$$,A0
+         MOVEC.L  A0,VBR
+         ENDC     mc68010 or mc68020
+SRCHEND  MOVE.L   (A6),D0           see if we can read it
+         MOVE.L   D0,(A6)           write it?
+         ADD.W    #$400,A6          try next block
+         BRA.S    SRCHEND
+ENDFOUND EQU      *                 found the end of memory
+         MOVE.L   A6,A7             initial stack pointer
+         MOVE.L   A4,-(SP)          save the return address
+         LEA      H.LIB(A3),A4      set up library pointer
+         MOVE.L   A5,L.GLOBL(A4)    save the length of global area
+         LEA      H.GLOB+G.NSIZE(A3),A5      set up global pointer
+         CLR.L    L.ERRIO(A4)       no drivers at this point
+         ENDC     stndalon
+*
+* At this point, initial register contents are stored as necessary,
+* and the following registers are initialized
+*
+* A4      points to library work area
+* A5      Initial global pointer
+* A7      Initial stack pointer.
+*
+*
+* Initialize memory to an improbable value
+*
+         IFNE     LIBCHECK
+         MOVE.L   #IMPROB,D0
+         LEA      G.SIZE(A5),A0     start of global area
+CL2      MOVE.W   D0,(A0)+
+         CMPA.L   A0,A7             stack is end of workspace
+         BHI.S    CL2
+         ENDC     libcheck
+         CLR.L    -(SP)             fake dynamic link
+         MOVE.L   SP,A6             frame pointer
+         MOVE.L   A4,G.LIB(A5)      library pointer established
+*
+* Find the run-time base address of the "own" section.  The global p_own
+* contains its own address at the link time.  It may be alocated anywhere
+* in the SEG2.  It is always preceeded and followed by a longword
+* containing an ASCII string 'pown', which allows for consistency check.
+*
+         IFNE     PIC
+         ERQ      RCVSA$,SEG2(PC)   where is SEG2 ?
+         TST.W    (A0)+             we're using longword compare
+SEAOWN
+         TST.W    (A0)+             bump address by 2 bytes
+         CMP.L    #P_OWN,(A0)       check if this is the p_own
+         BNE      SEAOWN            no, keep looking
+         CMP.L    #'pown',4(A0)
+         BNE      SEAOWN
+         CMP.L    #'pown',-4(A0)
+         BNE      SEAOWN
+         MOVE.L   A0,G.OWN(A5)      set pointer to "owned" segment
+OWNOK
+         ENDC     pic
+*
+* initialize other critical locations
+*
+         CLR.L    L.FILES(A4)       open file chain
+         CLR.L    L.FREE(A4)        no free list
+         CLR.L    L.FREE+4(A4)      zero length
+         CLR.W    L.FCHECK(A4)      not doing a file chack
+         CLR.W    L.ABORT(A4)       clear the abort code
+         CLR.L    L.PMA(A4)         no PMA yet
+         CLR.L    L.TERM(A4)        no exit routine established
+         MOVE.L   A5,L.GLOBA(A4)    start of global area
+         CLR.L    L.ERRA(A4)        clear error handler address
+         MOVEQ.L  #NIL,D0           nil pointer value
+         MOVE.L   D0,L.INPUT(A4)    standard input pointer
+         MOVE.L   D0,L.OUTPUT(A4)   standard output pointer
+         MOVE.L   A5,D0             Compute start of heap
+         ADD.L    L.GLOBL(A4),D0    end of global area
+         ADD.L    #G.SIZE+1,D0      standard variables
+         BCLR     #0,D0             rounded up to a word
+         MOVE.L   D0,L.HEAP(A4)     start of heap
+         CLR.L    L.HCHK(A4)        use sp to check for overflow
+         LEA      G.SPOVF(A5),A0    address of stack check
+         MOVE.L   A0,L.SCHK(A4)     save address for new/disp
+         CLR.L    (A0)              temporarily disabled
+         MOVE.W   #1,G.LIBLEV(A5)   in one level deep
+         CLR.L    L.LFILE(A5)       file pointer
+*
+* Now things are set up well enough that the error handler will run,
+* so we can initialize traps.
+*
+         XREF     P_TRAPS
+         MOVE.L   #P_TRAPS,D0       is there a trap routine?
+         BEQ.S    NOTRAPS           no, skip all trapping
+         IFNE     PIC
+         JSR      P_TRAPS(PC)       yes, initialize traps
+         ENDC     pic
+         IFEQ     PIC
+         JSR      P_TRAPS           yes, initialize traps
+         ENDC     nopic
+*
+* It's time to set the address of post mortem analyser.
+*
+         XREF     P_PMA
+         IFEQ     PIC
+         MOVE.L   #P_PMA,L.PMA(A4)  set pma address
+         ENDC     nopic
+         IFNE     PIC
+         MOVE.L   #P_PMA,D0         is pma really there ?
+         BEQ.S    NOTRAPS           no it isn't
+         LEA      P_PMA(PC),A0      load pma address
+         MOVE.L   A0,L.PMA(A4)      set it
+         ENDC     pic
+NOTRAPS  EQU      *
+         IFNE     STNDALON
+         IFNE     CONCURR
+*
+* Initilize the interrupt context table if necessary.
+*
+         MOVE.L   #INTSTART,A0      start location of the table
+INIICT
+         CMP.L    #INTEND,A0        ending location
+         BEQ.S    ICTRDY            finish when they are the same
+         CLR.L    (A0)+             clear one longword, point to the next one
+         BRA      INIICT            loop...
+ICTRDY
+         ENDC     concurr
+         MOVE.W   #$2000,SR         set supervisor mode,ints on
+         IFNE     CONCURR
+*
+* initialize the concurrent package if needed
+*
+         CLR.L    L.SGATE(A4)       no gate yet.
+         JSB      P_INICPP          initialize the concurrent package
+         PEA      L.SGATE(A4)       now create the system gate
+         JSB      NEWGATE
+         IFNE     LOGGING
+         MOVE.L   L.SGATE(A4),(SP)  don't log it
+         JSB      LOGOFFG
+         ENDC     logging
+         ADDQ.W   #4,SP             pop parameters
+         ENDC     concurr
+*
+* initialize the I/O drivers.  All initialize routines for the drivers
+* are entered into the table "devices", and are called with no
+* arguments
+*
+         LEA      DEVICES,A0        start of the table
+MOREINIT MOVE.L   (A0)+,D0          check the next driver
+         BEQ.S    MOREINIT          zero, ignore it
+         BTST     #0,D0             is it odd?
+         BNE.S    DONEINIT          yes, done with them
+         MOVE.L   D0,A1             in a useful place
+         JSR      (A1)              call the routine
+         BRA.S    MOREINIT          and try the next
+DONEINIT EQU      *                 all done with this.
+         ENDC     stndalon
+*
+         IFNE     VERSADOS
+         IFNE     CONCURR
+*
+* Initialize simulated concurrency
+*
+         JSB      P_INICPP          initialize the concurrent package
+         JSB      INITTIME          start the advancetimer process
+         ENDC     concurr
+         ENDC     versados
+*
+*
+* Initialize input and output if needed
+*
+         XREF     P_INPUT
+         MOVE.L   #P_INPUT,D0       do we want the standard input?
+         BEQ.S    NOINPUT           no, skip it
+         PEA      L.INPUT(A4)       yes, call initialization routine
+         JSR      P_INPUT(PC)
+         ADDQ.W   #4,SP
+         XREF     P_OUTPUT          how about the standard output?
+NOINPUT  MOVE.L   #P_OUTPUT,D0
+         BEQ.S    NOOUTPUT          no, no I/O at all
+         PEA      L.OUTPUT(A4)
+         JSR      P_OUTPUT(PC)      initialize standard output
+         ADDQ.W   #4,SP
+NOOUTPUT MOVE.L   L.INPUT(A4),G.INPUT(A5)    put in global locs
+         MOVE.L   L.OUTPUT(A4),G.OUTPUT(A5)
+         IFNE     VERSADOS
+*
+* did we get enough memory to operate?
+*
+         MOVE.L   L.AWORKL(A4),D0   space we got
+         CMP.L    L.RWORKL(A4),D0   space we wanted
+         BGE.S    ENOUGH            got what we asked for?
+         ERROR    E.SHORT           nope.
+ENOUGH   EQU      *
+*
+* Arrange to trap breaks if desired
+*
+         XREF     P_BKTRAP          break trap routine
+         MOVE.L   #P_BKTRAP,D0      is there such a routine?
+         BEQ.S    NOBREAK           no, was disabled
+         JSR      P_BKTRAP(PC)      yes, call it to trap breaks
+NOBREAK  EQU      *
+         ENDC     versados
+*
+* finish setting up dynamic memory variables
+*
+         MOVE.L   L.HEAP(A4),D0     current top of heap
+         MOVE.L   D0,L.HIGH(A4)     high water mark
+         ADD.L    #TRAPMIN,D0       add stack margin
+         MOVE.L   D0,G.SPOVF(A5)    stack overflow limit
+         MOVE.L   SP,G.SP(A5)       save global stack for goto
+*
+* Now return to the user, using the standard sequence
+*
+         UNLK     A6
+         SUB.W    #1,G.LIBLEV(A5)   decrement library level
+         RTS
+         IFNE     STNDALON
+         PAGE
+* List of I/O device initialization tables.
+*
+* Each routine listed below will be called with no arguments after
+* the concurrent package and system gate have been initialized.
+* Any entrys which are zero are skipped, allowing link-time
+* control over inclusion.
+*
+* The table is terminated by an odd value
+*
+DEVICES  EQU      *
+         IFNE     MC68000
+         XREF     P_ACIA
+         DC.L     P_ACIA            initialize console ports
+         IFNE     CONCURR
+         XREF     P_TIMER
+         DC.L     P_TIMER           initialize timer module
+         ENDC     concurr
+         XREF     P_INITST
+         DC.L     P_INITST          set initial panel status
+         ENDC     mc68000
+         IFNE     MC68010
+         XREF     P_SCC
+         DC.L     P_SCC             initialize console ports
+         IFNE     CONCURR
+         XREF     P_PIT
+         DC.L     P_PIT             initialize timer module
+         ENDC     concurr
+         ENDC     mc68010
+         IFNE     MC68020
+         XREF     P_SIO
+         DC.L     P_SIO             initialize console ports
+         IFNE     CONCURR
+         XREF     P_CIO
+         DC.L     P_CIO             initialize timer module
+         ENDC     concurr
+         ENDC     mc68020
+         DC.L     -1                terminate the table
+         IFNE     CONCURR
+*
+* A dummy interrupt context table.  The distance between the lebels
+* "intstart" and "intend" determines the usage of the primitives
+* supporting ISRs.  It is increased by the named section "p_ict"
+* defined in the module ISRASM.
+*
+P_ICT    SECTION  0
+INTSTART DS.B     0
+P_ICT.   SECTION  0
+INTEND   DS.B     0
+         ENDC     concurr
+
+         ENDC     stndalon
+         IFNE     VERSADOS
+         PAGE
+* Panic error routine
+*
+* This routine writes a canned error message to the standard output
+* file.  Since we have no writable memory, we can't add anything
+* to identify the problem.
+*
+*
+P_PANIC  EQU      *
+         MOVE.L   D0,D4             save the status from GTSEG
+         MOVE.L   A0,D5             base address of the work space
+         IFEQ     PIC
+         IOS      PANICMS
+         ENDC     nopic
+         IFNE     PIC
+         XDEF     P_PANIC
+         LEA.L    NOPAW(PC),A1      run time address of text
+         LEA.L    NOPAWE(PC),A2     run time address of end of text
+*
+* Set up the message packet residing in the read/write segment.  The
+* following sequence is expecting the starting of the message in register
+* a1 and address following the last character in the message in register
+* a2.
+*
+BYEUSER
+         ERQ      RCVSA$,SEG2(PC)   where is SEG2 ?
+         ADD.L    #PANICMS-P_OWN,A0 run-time address of the packet
+         MOVE.L   A0,D0             save it for later
+         MOVE.B   #IO.DTRN$,(A0)+   data transfer function
+         MOVE.B   #IO.WT$,(A0)+     write data
+         CLR.W    (A0)+             option bits
+         CLR.B    (A0)+             status
+         MOVE.B   #STDOUT,(A0)+     write to standard output
+         CLR.W    (A0)+             reserved area
+         CLR.L    (A0)+             unused
+         MOVE.L   A1,(A0)+          set the message buffer address
+         MOVE.L   A2,(A0)+          end of message buffer
+         SUB.L    A1,A2             calculate message length
+         MOVE.L   A2,(A0)+          length of transfer
+         CLR.L    (A0)+             completion address
+         MOVE.L   D0,A0             restore addres of the packet
+         IOS
+         ENDC     pic
+         MOVE.W   #0,A0
+         ERQ      ABORT$
+*
+* Message text : the GTSEG returned an error
+*
+NOPAW    DC.B     'Could not allocate workspace'
+NOPAWE   DC.B     0
+         DS.W     0
+*
+* Packet to write the message
+*
+         IFEQ     PIC
+         DS.W     0
+PANICMS  DC.B     IO.DTRN$          data transfer function
+         DC.B     IO.WT$            write data
+         DC.W     0                 option bits
+         DC.B     0                 status
+         DC.B     6                 write to standard output
+         DC.W     0                 reserved area
+         DC.L     0                 unused
+         DC.L     NOPAW             message buffer
+         DC.L     NOPAWE            end of message buffer
+         DC.L     NOPAWE-NOPAW      length of transfer
+         DC.L     0                 completion address
+         ENDC     nopic
+         IFNE     PIC
+*
+* segment allocation packet - get SEG2 attributes
+*
+SEG2     DC.L     0                 current task
+         DC.L     0                 session number (ignored)
+         DC.W     $2000             use a0 for returned info (rcvsa$)
+         DC.W     0                 seg attributes
+         DC.L     'SEG2'            default read/write segment's name
+         DC.L     0
+         DC.L     0
+         DC.L     0
+P_INIMSG SECTION  15
+         DS.W     0
+*
+* Following area is filled at the run-time.
+*
+PANICMS  DS.B     1                 data transfer function
+         DS.B     1                 write data
+         DS.W     1                 option bits
+         DS.B     1                 status
+         DS.B     1                 write to standard output
+         DS.W     1                 reserved area
+         DS.L     1                 unused
+         DS.L     1                 message buffer (set at run-time)
+         DS.L     1                 end of message buffer (set at run-time)
+         DS.L     1                 length of transfer
+         DS.L     1                 completion address
+         SECTION  15
+         XDEF     P_OWN
+         DC.L     'pown'
+P_OWN
+         DC.L     *
+         DC.L     'pown'
+         ENDC     pic
+         ENDC     versados
+         END

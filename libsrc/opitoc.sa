@@ -1,0 +1,143 @@
+OPITOC   IDNT     2,2      Integer to char conversion routine
+         TTL      Integer to char conversion routine
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Integer to char conversion routine
+*
+* Last modified by KRIS on 26-Nov-1990 14:08:24
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+         INCLUDE  LIBDEF
+         INCLUDE  LIBMAC
+
+*
+* convert an integer to asii string.
+*
+* procedure p_itoc(procedure putf(ch: char); {receives chars of converted value}
+*                  e: integer; {the integer value to convert}
+*                  total_width: integer {total field width for conversion} );
+*   external;
+*
+         PROC     P_ITOC,<PUTF,PROCEDURE,INT,INTEGER,INT_WIDTH,INTEGER>
+
+         BEGIN    P_ITOC,A0/A2-A4/D0-D4
+         MOVEA.L  PUTF+PRC.SA(A6),A0         ;address of the procedure putf
+         MOVEA.L  PUTF+PRC.SL(A6),A4         ;static link used be the callee
+         LEA      DIGITS(PC),A2     ;initialize digit map table
+
+         LEA      DECTAB32(PC),A3   ;initialize for 32 bit conversion
+         MOVEQ    #10,D2            ;10 digits max
+         MOVE.L   INT(A6),D3        ;get integer to output
+
+         SMI      D4                ;save sign
+         BPL.S    POSVAL            ;it is positive
+
+         NEG.L    D3                ;make it positive
+
+POSVAL
+         MOVE.L   INT_WIDTH(A6),D1  ;get field width
+         BPL.S    SCALE             ;it really is decimal
+
+***  setup for hexadecimal output:
+
+         LEA      HEXTAB32(PC),A3   ;switch to hexadecimal output
+         MOVEQ    #8,D2             ;8 digits max
+         TST.B    D4                ;did we negate above?
+         BPL.S    POSHEX            ;nope
+
+         CLR.B    D4                ;yes, make it positive
+         NEG.L    D3                ;return to original value
+
+POSHEX   NEG.L    D1                ;make field width positive
+         CMP.L    D1,D2             ;compare with max digits
+         BLE.S    COUNTSP           ;print all digits
+
+***  common code for either hex or decimal:
+
+SCALE    CMP.L    (A3)+,D3          ;compare divisor with number
+         DBCC     D2,SCALE
+
+         TST.L    -(A3)             ;restore pointer
+         BNE.S    COUNTSP           ;if value is not zero
+
+         MOVEQ    #1,D2             ;value is zero, that means 1 digit
+         TST.L    -(A3)             ;and prevent division by zero
+
+COUNTSP  ADD.B    D4,D4             ;set x-flag to sign of argument
+         SUBX.L   D2,D1             ;subtract digit size from field width
+         TST.L    D1                ;subx inst and Z-bit setting
+         BLE.S    NOSPACE           ;no space fill needed
+
+***  generate appropriate number of leading spaces:
+
+         MOVE.B   #' ',-(SP)        ;else get a space
+         TST.L    INT_WIDTH(A6)     hex form ?
+         BGE.S    DOSPACE
+         MOVE.B   #'0',(SP)         ;use zero instead of leading spaces
+
+DOSPACE
+         JSR      (A0)              ;return a character
+
+         SUBQ.L   #1,D1             ;count the space
+         BNE.S    DOSPACE           ;print all leading spaces
+         ADDQ.W   #2,SP             cleanup the stack
+
+***  print minus sign if argument was negative:
+
+NOSPACE  TST.B    D4                ;test sign flag
+         BPL.S    LOOP              ;number is positive
+
+         MOVE.B   #'-',-(SP)        get a space
+         JSR      (A0)              return a character
+         ADDQ.W   #2,SP
+
+***  produce 1 to 10 digits of the result:
+
+LOOP     MOVEQ    #15,D0            ;initialize to last digit index
+
+LOOP2    SUB.L    (A3),D3           ;subtract table entry from remainder
+
+         DBCS     D0,LOOP2          ;until remainder goes negative
+
+         ADD.L    (A3)+,D3          ;restore remainder to positive value
+
+         MOVE.B   0(A2,D0.W),-(SP)  ;get digit
+         JSR      (A0)              ;return a character
+         ADDQ.W   #2,SP
+
+         TST.L    (A3)              ;end of table?
+         BNE.S    LOOP              ;no, keep printing
+
+         ENDPR    P_ITOC
+
+* tables used by integer output
+
+
+DECTAB32 DC.L     1000000000,100000000,10000000,1000000,100000
+DECTAB16 DC.L     10000,1000,100,10,1,0
+
+HEXTAB32 DC.L     $10000000,$1000000,$100000,$10000
+HEXTAB16 DC.L     $1000,$100,$10,$1,0
+
+DIGITS   DC.B     'FEDCBA9876543210'
+
+         END

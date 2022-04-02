@@ -1,0 +1,192 @@
+DGDATA   IDNT     2,2      Utility routines for Postmortem Analyzer
+         TTL      Utility routines for Postmortem Analyzer
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: ~processor~
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Utility routines for Postmortem Analyzer
+*
+* Last modified by KRIS on 26-Nov-1990 14:03:58
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+         PAGE
+         INCLUDE  LIBDEF
+         INCLUDE  PASMAC
+         SECTION  8
+*
+* These routines are utility procedures for interface between the
+* post-mortem dumper and the diagnostic tables.
+*
+* They are coded in assembler rather than in Pascal primarily because
+* the preliminary version of Pascal has only 16 bit integers.
+*
+*
+* Interface type:
+*
+         RECORD   BITPTR            This points to a single bit
+         FIELD    BP.BYTE,ADDRESS   selects the byte
+         FIELD    BP.BIT,SHORTINT   selects the bit
+         ENDREC   BITPTR
+         PAGE
+* Diagnostic table structure
+*
+* The diagnostic tables are generated as unlabeled segment 14 code.
+* The linker will concatenate them and place them at the start of
+* all segment 14 code.
+*
+* Each Pascal compilation which generates diagnostic data also generates
+* a reference to the named segment 'p_diag' in segment 14.  This, then
+* will be the first named block in segment 14, and the linker will
+* place it immediately following the unlabeled code.  All references
+* to this code will be overlayed, so we can find its address from
+* a library routine at runtime.
+*
+* Each piece of diagnostic text has the format:
+*
+* first  dc.w     last-*        rel address of last of table
+*        dc.l     startaddr     starting address of code
+*        dc.l     codelen       length of code
+*        :           :
+*        :           :          diagnostic text
+*        :           :
+* last   dc.w     first-*       rel address of start of table
+*
+* this makes it fairly easy to scan these tables and find the one
+* corresponding to the code address provided
+*
+* Layout definition
+*
+         RECORD   DIAGHEAD
+         FIELD    D.LAST,SHORTINT
+         FIELD    D.STADR,ADDRESS
+         FIELD    D.CDLEN,INTEGER
+         ENDREC   DIAGHEAD
+*
+* Diagnostic area reference.  This is a reference to just past the
+* diagnostic area.
+*
+P_DIAG   SECTION  14
+DIAGS    EQU      *
+         DC.W     0
+         SECTION  8
+         PAGE
+* This module contains three procedures which are callable from
+* Pascal, and several utility procedures which use a minimum calling
+* sequence and pass arguments in the registers.
+*
+* These registers are used throughout the internal procedures.
+*
+*       D0      function value return
+*       D1      value argument or scratch
+*       D2      scratch
+*       D3      error code (local var for p_getlno)
+*       D4      line number (local var for p_getlno)
+*       D5      current search pc (local var for p_getlno)
+*       D6      target pc (local var for p_getlno)
+*       D7      bit part of current bit address
+*
+*       A0      scratch
+*       A1      unused
+*       A2      Points to block kind parameter for p_getlno
+*       A3      points to procname parameter for p_getlno
+*       A4      byte part of current bit address
+*
+         PAGE
+* procedure p_dgdata(pc: address; {address for which data is desired}
+*                    var found: boolean; {true if data exists}
+*                    var data: address {address of data});
+*
+* Gets the start of the diagnostic data block for the compilation unit
+* containing "PC".  If no such block exists, "found" will be false.
+*
+* This is the main procedure which must be rewritten when the library
+* is moved to another operating system
+*
+         XREF     P_WTC
+         XREF     P_WTS
+         PROC     P_DGDATA,<DERPC,ADDRESS,DFOUND,ADDRESS,DATA,ADDRESS>
+
+         BEGIN    P_DGDATA,D0-D3/A0-A1
+         CLR.L    D3                value of "found"
+         LEA.L    P_DGDATA(PC),A0
+         ADDA.L   #DIAGS-P_DGDATA,A0         end of the diagnostic tables
+         MOVE.L   DERPC(A6),D0      pc being checked
+*
+* First find a piece of diagnostic text
+*
+DIAGSRCH MOVE.W   -(A0),D1          get distance to start of the next block
+         NEG.W    D1                it is negative, we want it positive
+         BLE.S    NODIAGS           if result is negative, no diagnostics
+         SUB.W    D1,A0             this should be the start of these tables
+         LEA.L    *(PC),A1          use any address from this module
+         CMPA.L   A1,A0             addressable ? (assume diags follow code)
+         BCS.S    NODIAGS           oops, beyond the diagnostics
+         CMP.W    (A0),D1           this is the distance to the end
+         BNE.S    NODIAGS           it should match, or not diag text
+*
+* We have some diagnostic text, see if our pc is in this one
+*
+         MOVE.L   D.STADR(A0),D2    actual code starting address
+         CMP.L    D2,D0             see if erpc fits
+         BCS.S    DIAGSRCH          too low, keep looking
+         CLR.L    D1                compute end of this code area
+         MOVE.L   D.CDLEN(A0),D1
+         ADD.L    D2,D1             this is the end of the area
+         ADD.L    #1,D1             just to make sure
+         CMP.L    D1,D0
+         BHI.S    DIAGSRCH          we are too large for this one
+*
+* we have it, return the value and go home
+*
+         MOVEQ    #1,D3             we found it
+         MOVE.L   DATA(A6),A1
+         MOVE.L   A0,(A1)           return start of data area
+NODIAGS  MOVE.L   DFOUND(A6),A1
+         MOVE.B   D3,(A1)           report if found
+         ENDPR    P_DGDATA
+         PAGE
+         IFNE     VERSADOS
+*
+* Check if the task is a subtask i.e. if l.father is different than
+* l.taskn.  If the task is not the "main" task, than write the task
+* name to the output file passed as procedure parameter.
+*
+         PROC     P_WTASK,<OUT,ADDRESS>
+         BEGIN    P_WTASK,A4
+         MOVE.L   G.LIB(A5),A4      pointer to library area
+         CMP.B    #'&',L.FATHER(A4) one of the "system" fathers ?
+         BEQ.S    ITSMAIN           yes, so it's a main task
+         MOVE.L   OUT(A6),-(SP)     file to write
+         PEA.L    TEXT_S(PC)        starting address of the text
+         MOVE.L   #TEXT_E-TEXT_S,-(SP)
+         MOVE.L   #TEXT_E-TEXT_S,-(SP)
+         JSR      P_WTS(PC)         write the text
+         ADD.W    #12,SP            clean the stack
+         PEA.L    L.TASKN(A4)       the task name
+         PEA      4                 length of the string
+         PEA      4                 number of characters to write
+         JSR      P_WTS(PC)         write the name
+         ADD.W    #16,SP            clean the stack
+ITSMAIN
+         ENDPR    P_WTASK
+TEXT_S
+         DC.B     ' in task '
+TEXT_E   EQU      *
+         ENDC     versados
+         END

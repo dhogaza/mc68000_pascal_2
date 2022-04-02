@@ -1,0 +1,213 @@
+OUTPUT   IDNT     2,2      Common file output routines
+         TTL      Common file output routines
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1981, 1982, 1983, 1984, 1985, 1986, 1987, 1988
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Common file output routines
+*
+* Last modified by KRIS on 26-Nov-1990 14:06:38
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+         PAGE
+         INCLUDE  LIBDEF
+         INCLUDE  IODEFS
+         INCLUDE  LIBMAC
+*
+* common output routines
+*
+* p_putf -- write a buffer to a file
+*
+* this routine writes the current file buffer to the file.  it is assumed
+* that the checkio routine has been called to verify that the file is
+* active and to set up the necessary registers.  the following registers
+* are used by this routine:
+*
+* a4 -- pointer to fdb of file to use
+* a0 -- pointer to ios parameter block in above file
+*
+         XDEF     P_PUTF
+P_PUTF   EQU      *
+         MOVE.W   #IO.WT$,I.FUNC(A0)         set code/function to write
+         XDEF     P_PUTFX
+P_PUTFX  EQU      *                 special entry point for updating records
+         MOVE.L   D0,-(SP)          save D0
+         IFNE     VERSADOS
+         IOS
+         ENDC     versados
+         IFNE     STNDALON
+         MOVE.L   A0,-(SP)          push I/O block
+         MOVE.B   #IO.TRAN,-(SP)    doing a transfer
+         MOVE.L   F.IODR(A4),A0     address of driver
+         JSR      (A0)              call the driver
+         ADDQ.W   #2,SP             pop the first parameter
+         MOVE.L   (SP)+,A0          restore a0
+         MOVE.B   I.STATUS(A0),D0   status into D0 like the system
+         ENDC     stndalon
+         CHKERR   E.WRITF,F.STATUS+1(A4),NOERRH
+NOERRH   MOVE.L   F.BUFF(A4),F.POINT(A4)     reset output pointer
+         MOVE.L   F.POINT(A4),I.BUFEND(A0)   copy buffer addr to end of buffer word
+         CLR.L    D0                clear upper word of d0
+         MOVE.W   F.BUFFSZ(A4),D0   get buffer size
+         SUB.L    #1,D0             minus one to point to last byte
+         ADD.L    D0,I.BUFEND(A0)   calculate pointer to last byte
+         MOVE.L   (SP)+,D0          restore D0
+         RTS                        return to caller
+         PAGE
+*
+* p_wch -- write a character to a file.
+*
+* this routine is called by several output routines to add a character
+* to the output buffer of the current file.  the character to output
+* is in the lower 8 bits of d0.  this routine assumes that the
+* chekio macro has been called to verify that the file is valid and to
+* set up the initial registers.
+*
+         XDEF     P_WCH
+P_WCH    EQU      *
+         MOVE.L   A3,-(SP)          save a3
+         MOVE.L   F.POINT(A4),A3    get pointer into file
+         CMP.L    I.BUFEND(A0),A3   is buffer full?
+         BLE.S    PWCH1             nope
+         BSR.S    P_PUTF            yes, dump the buffer
+         MOVE.L   F.POINT(A4),A3    set new buffer pointer
+PWCH1    EQU      *
+         MOVE.B   D0,(A3)+          store next character
+         MOVE.L   A3,F.POINT(A4)    store new pointer
+         BTST     #S1.SNGL,F.STATUS+1(A4)    single mode ?
+         BEQ.S    PWCH2
+         MOVE.L   A3,I.BUFEND(A0)   pointer to first unused byte
+         SUB.L    #1,I.BUFEND(A0)   move it backwards to the last used
+         BSR.S    P_PUTF            write the buffer
+PWCH2
+         MOVE.L   (SP)+,A3          restore a3
+         RTS                        return to caller
+         PAGE
+*
+* p_wtln -- writeln(file)
+*
+         PROC     P_WTLN,<F1,ADDRESS>,P_WLN
+
+         BEGIN    P_WTLN,D0-D1/A0/A3-A4
+         CHECKIO  F1,OUTPUT
+
+         MOVE.L   F.POINT(A4),A3    get pointer to next char
+         BTST     #S1.SNGL,F.STATUS+1(A4)    sngl mode ?
+         BEQ.S    WLN0
+         MOVE.B   #$D,(A3)          append carriage return
+         MOVE.B   #$A,1(A3)         and line feed
+         ADDQ.L   #1,A3             point to the last character
+         BRA.S    WLN2
+WLN0
+         CMP.L    I.BUFST(A0),A3    is buffer empty?
+         BNE.S    WLN1              nope
+         MOVE.B   #' ',(A3)+        yes, so fill with a space
+WLN1     EQU      *
+         SUB.L    #1,A3             point to last used byte in output buffer
+WLN2
+         MOVE.L   A3,I.BUFEND(A0)   set pointer to last byte
+         ADDQ.L   #1,I.RECNUM(A0)   bump the line number
+         BSR      P_PUTF            write line to file
+         ENDPR    P_WTLN
+*
+* p_wtln_o -- writeln(output) - pushes the pointer to standard output
+*                               and calls p_wtln
+*
+         PROC     P_WTLN_O
+
+         BEGIN    P_WTLN_O
+         PEA      G.OUTPUT(A5)      push pointer to standard output
+         BSR      P_WTLN            writeln(output);
+         ADDQ.W   #4,SP             kill the pointer
+         ENDPR    P_WTLN_O
+         PAGE
+*
+* p_break -- break(file)
+*
+* the break procedure is similar to writeln, except that image
+* output mode is used to cause the line to be printed with no
+* carriage return or line feed.  this routine is called automatically
+* when an input operation on "input" is requested so that prompt
+* messages issued via "write" on the standard output file will
+* be printed.
+*
+         PROC     P_BREAK,<F,ADDRESS>,P_LBREAK
+         BEGIN    P_BREAK,D0-D1/A0/A3-A4
+         CHECKIO  F,OUTPUT
+
+         MOVE.L   F.POINT(A4),D0    get pointer to next character
+         CMP.L    F.BUFF(A4),D0     is output buffer empty?
+         BEQ.S    BRK1              yes, so nothing to do
+         MOVE.W   I.OPT(A0),-(SP)   save current options
+         MOVE.W   (SP),D0           get options
+         BTST     #S.INT,F.STATUS(A4)        interactive device?
+         BEQ.S    BRK0              nope, simply write the record
+         BSET     #3,D0             set image mode
+BRK0     MOVE.W   D0,I.OPT(A0)      set new options
+         MOVE.L   F(A6),-(SP)       push file variable
+         BSR      P_WLN             write the line to the file
+         ADDQ.L   #4,SP             kill file pointer
+         MOVE.W   (SP)+,I.OPT(A0)   restore original options
+BRK1     ENDPR    P_BREAK
+         PAGE
+* p_brknc
+*
+* Special entry to do a break on output files without checking
+* for error.  This is used by the error handler to flush files
+* without causing another error, which cannot be handled because....
+*
+* It is assumed that the file is a text file and open for output.
+*
+* called:
+*       lea     file,a0
+*       jsr     p_brknc
+*
+* Note that the file argument is passed in A0
+*
+         XDEF     P_BRKNC
+P_BRKNC  EQU      *
+         MOVEM.L  D0/A0-A1,-(SP)
+         MOVE.L   F.POINT(A0),D0    see if the buffer is full
+         CMP.L    F.BUFF(A0),D0     by comparing with buffer address
+         BEQ.S    BRKNCRT           if not, return
+         MOVE.L   A0,A1             save file buffer
+         LEA      F.IOS(A0),A0      get the I/O control block
+         SUB.L    #1,D0             point to last full byte in buffer
+         MOVE.L   D0,I.BUFEND(A0)
+         MOVE.W   #IO.WT$,I.FUNC(A0)         set function to write
+         IFNE     VERSADOS
+         IOS
+         ENDC     versados
+         IFNE     STNDALON
+         MOVE.L   A0,-(SP)          push I/O block
+         MOVE.B   #IO.TRAN,-(SP)    doing a transfer
+         MOVE.L   F.IODR(A1),A0     address of driver
+         JSR      (A0)              call the driver
+         ADDQ.W   #2,SP             pop the first parameter
+         MOVE.L   (SP)+,A0          restore a0
+         ENDC     stndalon
+         MOVE.L   F.BUFF(A1),F.POINT(A1)     reset output pointer
+         MOVE.L   F.POINT(A1),I.BUFEND(A0)   copy buffer addr to end of buffer word
+         CLR.L    D0                clear upper word of d0
+         MOVE.W   F.BUFFSZ(A1),D0   get buffer size
+         SUB.L    #1,D0             minus one to point to last byte
+         ADD.L    D0,I.BUFEND(A0)   calculate pointer to last byte
+BRKNCRT  MOVEM.L  (SP)+,D0/A0-A1
+         RTS
+         END

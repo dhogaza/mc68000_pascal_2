@@ -1,0 +1,71 @@
+BREAKS   IDNT     2,2      Gives the user access to break traps
+         TTL      Gives the user access to break traps
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Gives the user access to break traps
+*
+* Last modified by KRIS on 26-Nov-1990 14:07:49
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+         PAGE
+*
+* Give the user a way of detecting "break" key usage.
+*
+* Procedure takebrk;
+*
+* Inform the system that we would like to take the next break which
+* occurs.  After that break, break handling returns to normal.
+*
+         INCLUDE  LIBDEF
+         INCLUDE  LIBMAC
+*
+         PROC     TAKEBRK
+         BEGIN    TAKEBRK,A4/A4
+         MOVE.L   G.LIB(A5),A4      access to the library
+         MOVE.W   #0001,L.BREAK(A4) clear break and set flag
+         ENDPR    TAKEBRK
+         PAGE
+*
+* function breakoccurred: boolean;
+*
+* true if a break has occurred since the call to takebrk.
+*
+* This uses an abbreviated calling sequence for speed.
+*
+         XDEF     BREAKOCC
+BREAKOCC EQU      *
+         MOVE.L   A4,-(SP)          need a working register
+         MOVE.L   G.LIB(A5),A4      get to the library
+         MOVE.B   L.BREAK(A4),8(SP) report the results
+         MOVE.L   (SP)+,A4          restore register
+         RTS                        and return
+         PAGE
+*
+* procedure nobreaks;
+*
+* stop break trapping and return the break function to normal.
+*
+         PROC     NOBREAKS
+         BEGIN    NOBREAKS,A4/A4
+         MOVE.L   G.LIB(A5),A4      get to the library
+         CLR.W    L.BREAK(A4)       clear break and flag
+         ENDPR    NOBREAKS          and be done with it
+         END

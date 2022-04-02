@@ -1,0 +1,202 @@
+IMUL     IDNT     2,2      32-bit Integer Multiply
+         TTL      32-bit Integer Multiply
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* 32-bit Integer Multiply
+*
+* Last modified by KRIS on 26-Nov-1990 14:08:29
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+         PAGE
+
+***********************************************************
+*
+*  32-bit Integer Multiply (signed and unsigned)
+*
+*    entry conditions:
+*
+*      D3.L = 32-bit (signed) integer multiplier
+*      D4.L = 32-bit (signed) integer multiplicand
+*
+*    exit conditions:
+*
+*      D3.L = 32-bit (signed) integer product
+*      D4.L = 32-bit (signed) integer product
+*      CCR  = N and Z flags conditionally set
+*
+*    intermediate register usage:
+*
+*      none
+*
+*    maximum stack usage:
+*
+*      8 bytes including return address
+*
+*    error conditions:
+*
+*      "integer overflow during multiplication"
+*
+*    comments:
+*
+*      The signed multiply routine detects signed integer overflow
+*      and produces a fatal runtime error.  That algorithm takes
+*      the absolute values of the operands, and negates the product
+*      if it is negative.  This insures that at most two MULU
+*      instructions are executed, and somewhat simplifies overflow
+*      detection.  (The largest negative number * (+1) does not
+*      incur overflow.)
+*
+***********************************************************
+
+         PAGE
+
+         INCLUDE  LIBDEF
+         INCLUDE  LIBMAC
+
+         SECTION  8
+
+         XDEF     P_IMUL            ;imul -- signed 32-bit multiply
+         XDEF     P_UMUL            ;umul -- unsigned 32-bit multiply
+
+
+P_IMUL:  TST.L    D4                ;is multiplicand positive?
+         BPL.S    D4POS             ;yes
+         NEG.L    D4                ;no -- take abs value
+
+         TST.L    D3                ;is multiplier positive?
+         BPL.S    NEGPROD           ;yes
+         NEG.L    D3                ;no -- take abs value
+
+* develop a positive product
+
+POSPROD  CMP.L    D4,D3             ;compare 2 absolute values
+         BCC.S    POSMUL1           ;branch if d4 is smaller
+         EXG.L    D3,D4             ;else make it the smaller
+
+POSMUL1  MOVE.L   D4,-(SP)          ;save the smaller operand
+         MULU     D3,D4             ;take product of low orders
+
+         MOVE.W   (SP)+,D3          ;high order of smaller operand
+         BNE.S    OVRFLOW1          ;overflow guaranteed if not zero
+
+         SWAP     D3                ;check hi order of larger operand
+         BNE.S    POSMUL2           ;if non-zero then multiply again
+
+         ADDQ.W   #2,SP             ;else cleanup stack
+         BRA.S    POSEXIT           ;and exit with result in d4
+
+POSMUL2  MULU     (SP)+,D3          ;inner product (original d4.lo * d3.hi)
+         SWAP     D3                ;effectively multiplying by 2**16
+
+         ADD.L    D3,D4             ;combine partial products
+         ROXR.W   #1,D3             ;bits 32..47 of the product must be zero
+         BNE.S    OVERFLOW          ;else overflow has occurred
+
+POSEXIT  MOVE.L   D4,D3             ;copy result and reset condition codes
+         BMI.S    OVERFLOW          ;if product >= 2**31
+         RTS
+
+
+********************************
+
+
+D4POS:   TST.L    D3                ;is multiplier positive?
+         BPL.S    POSPROD           ;yes
+         NEG.L    D3                ;no -- take abs value
+
+*  develop a negative product
+
+NEGPROD  CMP.L    D4,D3             ;compare 2 absolute values
+         BCC.S    NEGMUL1           ;branch if d4 is smaller
+         EXG.L    D3,D4             ;else make it the smaller
+
+NEGMUL1  MOVE.L   D4,-(SP)          ;save the smaller operand
+         MULU     D3,D4             ;take product of low orders
+
+         MOVE.W   (SP)+,D3          ;high order of smaller operand
+         BNE.S    OVRFLOW1          ;overflow guaranteed if not zero
+
+         SWAP     D3                ;check hi order of larger operand
+         BNE.S    NEGMUL2           ;if non-zero then multiply again
+
+         ADDQ.W   #2,SP             ;else cleanup stack
+         BRA.S    NEGEXIT           ;and exit with result in d4
+
+NEGMUL2  MULU     (SP)+,D3          ;inner product (original d4.lo * d3.hi)
+         SWAP     D3                ;effectively multiplying by 2**16
+
+         ADD.L    D3,D4             ;combine partial products
+         ROXR.W   #1,D3             ;bits 32..47 of the product must be zero
+         BNE.S    OVERFLOW          ;else overflow has occurred
+
+NEGEXIT  NEG.L    D4                ;complement product
+         MOVE.L   D4,D3             ;copy result and reset condition codes
+         BGT.S    OVERFLOW          ;if 0 < product < -2**31
+         RTS
+
+
+********************************
+
+
+OVRFLOW1:
+         ADDQ.L   #2,SP             ;adjust stack
+OVERFLOW:
+         LINK     A6,#0             ;build stack frame for walkback
+         ADDQ.W   #1,G.LIBLEV(A5)   ;bump library level counter
+
+         MERROR   <'Integer overflow during multiplication'>
+
+
+********************************
+
+*  UNSIGNED 32-BIT MULTIPLY ROUTINE
+
+
+P_UMUL:
+         CMP.L    D4,D3             ;compare 2 absolute values
+         BCC.S    UMUL1             ;branch if d4 is smaller
+         EXG.L    D3,D4             ;else make it the smaller
+
+UMUL1    MOVE.L   D4,-(SP)          ;save the smaller operand
+         MULU     D3,D4             ;take product of low orders
+
+         MOVE.W   (SP)+,D3          ;high order of smaller operand
+         BNE.S    OVRFLOW1          ;overflow guaranteed if not zero
+
+         SWAP     D3                ;check hi order of larger operand
+         BNE.S    UMUL2             ;if non-zero then multiply again
+
+         ADDQ.W   #2,SP             ;else cleanup stack
+         BRA.S    UMULEX            ;and exit with result in d4
+
+UMUL2    MULU     (SP)+,D3          ;inner product (original d4.lo * d3.hi)
+         SWAP     D3                ;effectively multiplying by 2**16
+         TST.W    D3                ;bits 32..47 of the product
+         BNE.S    OVERFLOW          ;must be zero
+
+         ADD.L    D3,D4             ;combine partial products
+         BCS.S    OVERFLOW          ;if carry out of 32nd bit position
+
+UMULEX   MOVE.L   D4,D3             ;copy result and reset condition codes
+         RTS
+
+
+         END

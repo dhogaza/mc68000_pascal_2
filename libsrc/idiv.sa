@@ -1,0 +1,258 @@
+IDIV     IDNT     2,2      32-bit Integer Div and Mod
+         TTL      32-bit Integer Div and Mod
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* 32-bit Integer Div and Mod
+*
+* Last modified by KRIS on 26-Nov-1990 14:08:34
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+*  32-bit Integer Division and Modulus
+*
+*    entry conditions:
+*
+*      D3.L = 32-bit integer divisor
+*      D4.L = 32-bit integer dividend
+*
+*    exit conditions:
+*
+*      D3.L = 32-bit signed integer modulus
+*      D4.L = 32-bit signed integer quotient
+*      CCR  = N and Z flags conditionally set
+*
+*    intermediate register usage:
+*
+*      D0 thru D2
+*
+*    maximum stack usage:
+*
+*      20 bytes including return address
+*
+*    error conditions:
+*
+*      "long integer division by zero"
+*
+*    comments:
+*
+*      if the divisor is negative, the modulus (which
+*      should be undefined) is set to $FFFFFFFF (-1).
+*      This is the only case in which the modulus will
+*      be less than 0.  If the divisor is positive, but
+*      the dividend is negative, and the remainder is
+*      non-zero, then the divisor is added back to the
+*      remainder after division, as per Pascal (and
+*      mathematical) definition.  A signed division of
+*      (-maxint-1) by (-1) produces overflow.
+*
+***********************************************************
+
+         INCLUDE  LIBDEF
+
+         SECTION  8
+         XDEF     P_IDIV
+         XDEF     P_UDIV
+         XREF     P_DIVZER
+         XREF     P_INTOVR
+
+P_IDIV
+         LINK     A6,#0
+         ADD.W    #1,G.LIBLEV(A5)
+         TST.L    D3                * divisor
+         BGT.S    POSDVR            * if positive AND non-zero
+
+
+* divisor <= 0
+
+         NEG.L    D3                * take absolute value
+         BEQ.S    DIVBY0            * eliminate this degenerate case
+
+         TST.L    D4                * dividend
+         BPL.S    POSDVD            * if positive or zero
+
+
+* (-dividend) / (-divisor) --> (+quotient) and (undefined modulus)
+
+         NEG.L    D4                * take absolute value
+         BSR.S    P_UDIV
+
+         MOVEQ    #-1,D3            * modulus
+         TST.L    D4                * set ccr to quotient (optional)
+         BMI.S    OVERFLOW          * if quotient not positive
+         BRA      RETURN
+
+
+* (+dividend) / (-divisor) --> (-quotient) and (undefined modulus)
+
+POSDVD   BSR.S    P_UDIV
+
+         MOVEQ    #-1,D3            * modulus
+         NEG.L    D4                * quotient (sets ccr)
+         BRA.S    RETURN
+
+
+* divisor > 0
+
+POSDVR   TST.L    D4                * dividend
+         BPL.S    L_UDIV            * note: jump rather than call
+
+
+* (-dividend) / (+divisor) --> (-quotient)
+* and (modulus = +divisor - abs(remainder))
+
+         NEG.L    D4                * take absolute value
+         MOVE.L   D3,-(SP)          * save divisor
+         BSR.S    P_UDIV
+
+         NEG.L    D3                * negate remainder
+         BEQ.S    NOADD
+
+         ADD.L    (SP)+,D3          * add divisor to remainder
+         NEG.L    D4                * negate quotient, set ccr
+         BRA.S    RETURN
+
+NOADD    ADD.W    #4,SP             * pop divisor off stack
+         NEG.L    D4                * negate quotient, set ccr
+         BRA.S    RETURN
+
+
+********************************
+
+OVERFLOW
+         JSR      P_INTOVR(PC)
+
+DIVBY0   JSR      P_DIVZER(PC)
+
+
+* **** UNSIGNED 32-BIT DIVISION
+
+P_UDIV
+         LINK     A6,#0
+         ADD.W    #1,G.LIBLEV(A5)
+L_UDIV   CMP.L    D3,D4             * compare operands
+         BCS.S    SETZERO           * branch if divisor > dividend
+
+* 0 <= divisor <= dividend ;i.e. divisor may = 0
+
+         SWAP     D3                * divisor
+         TST.W    D3                * test high order word
+         BEQ.S    SHORTCUT          * if dvr is "low" precision
+
+* 2^16 <= divisor <= dividend <= 2^32 - 1
+
+         SWAP     D3                * recompose divisor
+         BMI.S    SETONE            * if divisor already normalized
+
+         MOVEM.L  D0-D2,-(SP)       * save 3 scratch registers (d0-d2)
+
+         MOVEQ    #-1,D0            * initialize normalization count
+
+NORMAL   ADD.L    D3,D3
+         DBMI     D0,NORMAL
+
+         MOVEQ    #16,D1            * clears upper portion of register
+         ADD.W    D0,D1             * computes right shift count
+
+         MOVE.W   D4,D2             * copy low order word of dividend
+         NEG.L    D0                * correct the left shift count
+         LSL.W    D0,D2             * shift low order left
+
+         LSR.L    D1,D4             * align high order word (plus extension)
+
+         SWAP     D3                * high order divisor
+         DIVU     D3,D4             * get approximate high order quotient
+
+         SWAP     D3                * get low order divisor back
+
+         MOVE.W   D4,D1             * high order portion of d1 = 0
+         MOVE.W   D2,D4             * append low order dividend to remainder
+         MOVE.W   D1,D2             * set up trial quotient
+
+         MULU     D3,D2             * trial quotient times low order divisor
+
+         SUB.L    D2,D4             * subtracted from full remainder
+         BCC.S    DIV2              * if result is positive
+
+         SUBQ.W   #1,D1             * correct the quotient
+         ADD.L    D3,D4             * add divisor back
+         BCS.S    DIV2              * if now positive
+
+         SUBQ.W   #1,D1             * correct the quotient
+         ADD.L    D3,D4             * add divisor back
+
+DIV2     MOVE.L   D4,D3             * remainder
+         LSR.L    D0,D3             * correct the remainder
+
+         MOVE.L   D1,D4             * quotient (sets flags)
+
+         MOVEM.L  (SP)+,D0-D2       * restore d0-d2
+
+RETURN
+         SUB.W    #1,G.LIBLEV(A5)
+         UNLK     A6
+         RTS
+
+* 0 <= dividend < divisor ;i.e. divisor cannot = 0
+
+SETZERO
+         MOVE.L   D4,D3             * the dividend becomes the remainder
+         MOVEQ    #0,D4             * the quotient is zero
+         BRA.S    RETURN
+
+* 2^31 <= divisor <= dividend <= 2^32 - 1
+
+SETONE   SUB.L    D3,D4             * get remainder into d4
+         MOVE.L   D4,D3             * move back into d3
+         MOVEQ    #1,D4             * set quotient (and ccr)
+         BRA.S    RETURN
+
+
+*** divisor is 16 or fewer bits in precision ***
+
+
+SHORTCUT
+         SWAP     D3                * restore low order of divisor
+         BEQ.S    DIVBY0            * eliminate this degenerate case
+
+         MOVE.W   D4,-(SP)          * save low order dividend
+         CLR.W    D4
+         SWAP     D4                * zero extends high order dividend
+         BEQ.S    SHORT2            * shortcut if low precision
+
+         DIVU     D3,D4             * div by 0 will take hardware trap
+
+         SWAP     D3
+         MOVE.W   D4,D3             * save 1st quotient
+         SWAP     D3
+
+SHORT2   MOVE.W   (SP)+,D4          * compose new partial dividend
+
+         DIVU     D3,D4
+
+         MOVE.W   D4,D3             * compose full quotient
+         CLR.W    D4
+         SWAP     D4                * compose full remainder
+         EXG      D3,D4             * quotient to d4, remainder to d3
+         TST.L    D4                * set condition codes (optional)
+         BRA.S    RETURN
+
+*
+         END

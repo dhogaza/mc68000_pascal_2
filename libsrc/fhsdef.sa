@@ -1,0 +1,152 @@
+*        include fhsdef
+         NOLIST
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1981, 1982, 1983, 1984, 1985, 1986, 1987, 1988
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Defines constants and types for use with the file handling system
+*
+* Last modified by KRIS on 26-Nov-1990 14:09:35
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+         PAGE
+* File handling system. definitions
+*
+* usual control block
+*
+         OFFSET   0
+FH.CODE  DS.B     1                 code for file operation
+FH.CMD   DS.B     1                 command for file operation
+FH.OPT   DS.W     1                 options which modify operation
+FH.STAT  DS.B     1                 status returned for last operation
+FH.LUN   DS.B     1                 logical unit number
+FH.VOLN  DS.B     4                 volume name
+FH.USERN DS.W     1                 user number
+FH.CATNM DS.B     8                 catalog name
+FH.FILEN DS.B     8                 file name
+FH.EXT   DS.B     2                 extension
+FH.RESV  DS.W     1                 reserved
+FH.PROT  DS.W     1                 read/write protection codes
+FH.RLEN  DS.W     1                 record length
+FH.SZEPT DS.L     1                 size/pointer info
+FH.SIZE  DS.B     0                 size of fhs parameter block
+*
+* Special control block for change logical unit
+*
+         OFFSET   FH.VOLN           up to here is the same
+FHC.LUB  DS.B     1                 new logical unit name
+FHC.RES  DS.B     1                 reserved
+FHC.TN   DS.L     1                 task name
+FHC.TS   DS.L     1                 task session
+FHC.SIZE DS.B     0
+*
+* FHS request types (command)
+*
+FH.FCMD$ EQU      0                 Device/file commands
+FH.UCMD$ EQU      1                 utility commands
+FH.SCMD$ EQU      2                 spooler commands
+FH.PRIV$ EQU      $80               privileged commands
+         PAGE
+*
+* Command bits for device/file commands (fh.fcmd$)
+*
+FH.CKP$$ EQU      0                 checkpoint
+FH.DEL$$ EQU      1                 delete
+FH.CLS$$ EQU      2                 close
+FH.PRT$$ EQU      3                 protect
+FH.REN$$ EQU      4                 rename
+FH.CAP$$ EQU      5                 change access permission
+FH.ASS$$ EQU      6                 assign
+FH.ALL$$ EQU      7                 allocate
+*
+* command values for device/file commands
+*
+FH.CKP$  EQU      1<<FH.CKP$$       checkpoint
+FH.DEL$  EQU      1<<FH.DEL$$       delete
+FH.CLS$  EQU      1<<FH.CLS$$       close
+FH.PRT$  EQU      1<<FH.PRT$$       protect
+FH.REN$  EQU      1<<FH.REN$$       rename
+FH.CAP$  EQU      1<<FH.CAP$$       change access permission
+FH.ASS$  EQU      1<<FH.ASS$$       assign
+FH.ALL$  EQU      1<<FH.ALL$$       allocate
+*
+* option field locations for device/file commands
+*
+FH.UOP$$ EQU      12                user options (3 bit field)
+FH.FTY$$ EQU      8                 file type (3 bit field)
+FH.POS$$ EQU      6                 position option
+FH.SSG$$ EQU      5                 shared segment option
+FH.OVR$$ EQU      3                 file overwrite option
+FH.APM$$ EQU      0                 access permission (3 bit field)
+*
+* option field values for device/file commands
+*
+FH.CTG$  EQU      0<<FH.FTY$$       contiguous file type
+FH.SEQ$  EQU      1<<FH.FTY$$       sequential file type
+FH.ISEQ$ EQU      2<<FH.FTY$$       index sequential (no duplicate keys)
+FH.ISDU$ EQU      3<<FH.FTY$$       index sequential (duplicate keys)
+FH.PBOF$ EQU      0<<FH.POS$$       position to start of file
+FH.BEOF$ EQU      1<<FH.POS$$       position to end of file
+FH.OVR$  EQU      1<<FH.OVR$$       overwrite existing file
+FH.PRO$  EQU      0<<FH.APM$$       public read only
+FH.ERO$  EQU      1<<FH.APM$$       exclusive read only
+FH.PWO$  EQU      2<<FH.APM$$       public write only
+FH.EWO$  EQU      3<<FH.APM$$       exclusive write only
+FH.PRW$  EQU      4<<FH.APM$$       public read write
+FH.PREW$ EQU      5<<FH.APM$$       public read exclusive write
+FH.ERPW$ EQU      6<<FH.APM$$       exclusive read public write
+FH.ERW$  EQU      7<<FH.APM$$       exclusive read write
+         PAGE
+*
+* Command bits for utility commands
+*
+FH.FDV$$ EQU      3                 fetch default volume
+FH.CLU$$ EQU      4                 change logical unit
+FH.FDM$$ EQU      5                 fetch device mnemonics
+FH.FDE$$ EQU      6                 fetch directory entry
+FH.RAT$$ EQU      7                 retrieve attributes
+*
+* Command values for utility commands
+*
+FH.FDV$  EQU      1<<FH.FDV$$       fetch default volume
+FH.CLU$  EQU      1<<FH.CLU$$       change logical unit
+FH.FDM$  EQU      1<<FH.FDM$$       fetch device mnemonics
+FH.FDE$  EQU      1<<FH.FDE$$       fetch directory entry
+FH.RAT$  EQU      1<<FH.RAT$$       retrieve attributes
+*
+* Option values for change logical unit
+*
+FHC.REC$ EQU      1                 receive the lun
+FHC.KP$  EQU      $8000             keep a copy
+*
+* Macro to invoke the file handling service
+*
+FHS      MACRO
+         NOLIST
+         OPT      MEX
+         LIST
+         IFNC     '\1',''
+         LEA      \1,A0
+         ENDC
+         TRAP     #3
+         NOLIST
+         OPT      NOMEX
+         LIST
+         ENDM
+         LIST

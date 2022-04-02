@@ -1,0 +1,115 @@
+*        include opfig
+         NOLIST
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1987, 1988, 1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: ~processor~
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Pascal-2 run-time library configuration file.
+*
+* Last modified by KRIS on 26-Nov-1990 13:43:36
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+
+*
+* This module defines configuration constants and types for the
+* assembly portion of package.  It is important that the configuration
+* constants be kept in agreement with those in the Pascal portion
+* of the package.
+*
+
+* The two operating system flags "versados" and "stndalon" are mutually
+* exclusive (only one may be non-zero).
+
+* The library is to be used under the VERSAdos system
+VERSADOS EQU      1
+
+* The stand-alone version of the library
+STNDALON EQU      0
+
+* The concurrent programming package is desired
+CONCURR  EQU      0
+
+* If "concurr" is non-zero, synchronizing code will be generated for
+* all modifications to system variables.  If it is zero, no locking
+* code will be generated.
+
+* The library is position independent
+PIC      EQU      0
+
+* The three processor switches, "mc68000", "mc68010", and "mc68020" are
+* mutually exclusive (only one may be non-zero).
+*
+* The target processor is mc68000 (default exormacs)
+MC68000  EQU      1
+
+* The target processor is mc68010 (default vme-10 series systems)
+MC68010  EQU      0
+
+* The target processor is mc68020 (default vme-131 board)
+MC68020  EQU      0
+
+* The library is to support the mc68881 floating point coprocessor
+MC68881  EQU      1
+
+         IFNE     STNDALON
+* Enable consistency checks
+CHECKING EQU      1
+*
+* The constant "checking" is used to turn on and off code for runtime
+* consistency checks.  It is strongly recommended that this be left
+* on except for the final production copy.  Any non-zero value enables
+* checking
+*
+
+* Enable event logging
+LOGGING  EQU      1
+*
+* The constant "logging" enables the generation of circular log entries
+* for synchronizing events.  This log is automatically printed when an
+* error occurs, and can help considerably in locating time-dependent
+* errors.
+*
+
+* Enable statistics gathering
+STATISTICS        EQU      LOGGING
+*
+* The constant "statistics" is used to turn on and off code for
+* gathering performance statistics.  It also determines the size of
+* some of the data structures allocated on the heap, as space to
+* hold the statistics is only allocated when needed.
+*
+
+ROMINTS  EQU      0                 assume it's all ram
+*
+* The constant "romints" must be set to 1 if the interrupt vectors
+* are in read-only memory.  This may be required if the rest of the
+* load addresses are to be in rom.  In this case, each vector which
+* is to be used with "waitint" must contain the address of a three
+* word area which will be filled at runtime with "jsr return".
+*
+         ENDC     stndalon
+         IFNE     MC68010
+         OPT      P=68010
+         ENDC     mc68010
+         IFNE     MC68020
+         OPT      P=68020
+         ENDC     mc68020
+         IFNE     MC68881
+         OPT      P=68881
+         ENDC     mc68881
+         LIST

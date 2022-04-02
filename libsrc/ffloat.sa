@@ -1,0 +1,116 @@
+FFLOAT   IDNT     2,2      Float 16-bit Integer to Single Real
+         TTL      Float 16-bit Integer to Single Real
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Float 16-bit Integer to Single Real
+*
+* Last modified by KRIS on 26-Nov-1990 13:56:59
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+         PAGE
+
+         INCLUDE  FPPDEF
+
+         XDEF     P_FFLOAT
+
+***********************************************************
+*
+*  Float 32-bit integer to single precision real (p_ffloat)
+*
+*    entry conditions:
+*      D4.W = 32-bit integer input value
+*
+*    exit conditions:
+*      D4.L = 32-bit single precision real
+*      CCR = (N and Z flags conditionally set, V = 0)
+*
+*    intermediate register usage:
+*      D4.L = normalizes integer value
+*      D3.W = develops exponent counter
+*
+*    error conditions:
+*      none
+*
+***********************************************************
+
+P_FFLOAT:
+         PUSH.W   D3                ;save a temp register
+         TST.L    D4                ;set flags
+         BGT.S    POSFLOAT          ;if positive
+
+         MOVE.W   #256+158,D3       ;negative sign
+         NEG.L    D4                ;take absolute value
+         BEQ.S    MAKEZERO          ;if zero
+         BPL.S    TESTLOW           ;if not 0 or $80000000
+         POP.W    D3
+         MOVE.L   #$CF000000,D4     ;floating point -maxint-1
+         RTS
+
+MAKEZERO:
+         POP.W    D3
+         MOVEQ    #0,D4             ;sets ccr
+         RTS
+
+**************
+
+POSFLOAT:
+         MOVE.W   #158,D3           ;positive sign
+
+TESTLOW:
+         CMPI.L   #$80,D4           ;look for low precision
+         BGE.S    OKPOS             ;if eight or more significant bits
+
+         SUBI.W   #24,D3            ;indicate left shift of 24 places
+         ROR.L    #8,D4             ;perform the shift
+OKPOS:
+         ADD.L    D4,D4             ;shift left
+         DBCS     D3,OKPOS          ;  until carry gets set
+
+         BTST     #8,D4             ;test rounding bit
+         BNE.S    NEARTEST          ;it's set -- look for "nearest even"
+
+         SUB.B    D4,D4             ;clear out any residual junk (and x-flag)
+         BRA.S    COMPOSE           ;put the parts together
+
+
+* apply "round to nearest even" rule:
+
+NEARTEST:
+         TST.B    D4                ;round bit is set -- are all others =0?
+         BNE.S    ROUNDUP           ;no -- perform normal rounding
+
+         ST       D4                ;jam set low order bits to ones
+         ADDQ.L   #1,D4             ;this clears the low order 9 bits
+         BCLR     #9,D4             ;clear least significant bit of result
+         BRA.S    COMPOSE           ;the x-flag still remembers long overflow
+
+ROUNDUP:
+         ST       D4                ;jam set low order bits to ones
+         ADDQ.L   #1,D4             ;this clears the low order 9 bits
+
+COMPOSE:
+         ADDX.W   D3,D4             ;add exponent + overflow bit to mantissa
+         POP.W    D3                ;restore the temp register
+         SWAP     D4                ;kick sign and exponent to high order
+         ROL.L    #7,D4             ;finish the alignment, and
+         RTS                        ;  exit with condition codes set
+
+         END

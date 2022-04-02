@@ -1,0 +1,468 @@
+ERRMSG   IDNT     2,2      System error message routine
+         TTL      System error message routine
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1981, 1982, 1983, 1984, 1985, 1986, 1987, 1988
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* System error message routine
+*
+* Last modified by KRIS on 26-Nov-1990 14:04:02
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+         PAGE
+* Print an error message
+*
+* p_errmsg(var f: text; {file on which to write it}
+*          code: error_code; {main error code}
+*          aux: aux_code; {aux data, if any}
+*
+         INCLUDE  LIBDEF
+         INCLUDE  PASMAC
+         SECTION  8
+         XREF     P_WTC             write a character
+         XREF     P_WTI             write an integer
+         XREF     P_WTS             write a string
+         XREF     P_WTLN            writeln
+*
+         PROC     P_ERRMSG,<F,ADDRESS,CODE,SHORTINT,AUX,POINTER>
+
+         BEGIN    P_ERRMSG,D0-D2/A0-A3
+         IFNE     MC68881
+         IFNE     VERSADOS
+         XREF     P_FPC
+         MOVE.L   #P_FPC,D0         68881 is used ?
+         BEQ      NOFPC
+         ENDC     versados
+         FMOVE.L  IADDR,D0          68881's instruction address register
+         IFNE     VERSADOS
+NOFPC
+         ENDC     versados
+         MOVE.L   D0,A3             save it for later (%E may be found)
+         ENDC     mc68881
+         CLR.L    D0                top of D0 stays zero throughout
+         MOVE.W   CODE(A6),D0       get the error number for the search
+         CMP.W    #E.NONE,D0        no error message?
+         BEQ.S    ERDONE            we're done
+         LEA      ERRTAB(PC),A0     and the start of the error table
+         CLR.L    D1                top of D1 stays zero throughout
+SRCH     MOVE.B   (A0)+,D1          get the next error code
+         BEQ.S    FOUND             no error message, use default
+         CMP.B    D1,D0             does it match?
+         BEQ.S    FOUND             found a match
+         MOVE.B   (A0)+,D1          length of message (top is zero)
+         ADD.W    D1,A0             skip the message
+         BRA.S    SRCH              and keep looking
+*
+FOUND    MOVE.L   F(A6),A2          get file address and save it
+         MOVE.B   (A0)+,D1          length of string (zero extended)
+         SUBQ.W   #1,D1             minus 1 for dbra
+*
+* Main error message writing loop
+*
+WLOOP    MOVE.B   (A0)+,D0          next character
+         CMP.B    #'%',D0           is it a special char?
+         BNE.S    WRITEIT           no, write it.
+         MOVE.L   AUX(A6),A1        we will probably need this
+         MOVE.B   (A0)+,D0          yes, see what to do
+         SUBQ.W   #1,D1
+         CMP.B    #'A',D0
+         BEQ.S    WASTR             write aux string
+         CMP.B    #'F',D0
+         BEQ.S    WFNAME            write the file name
+         CMP.B    #'I',D0
+         BEQ      WIOSTAT           write I/O status
+         CMP.B    #'N',D0
+         BEQ      WERRNO            write error number
+         CMP.B    #'S',D0
+         BEQ      WFHSTAT           write FHS status
+         IFNE     MC68881
+         CMP.B    #'E',D0
+         BEQ      WRFPC             interpret the 68881 opcode's extension
+         ENDC     mc68881
+WRITEIT  BSR.S    WCHAR             write the character in d0
+WRDONE   DBRA     D1,WLOOP          repeat if more
+         MOVE.L   A2,-(SP)          push the pointer to file variable
+         JSR      P_WTLN(PC)
+         ADDQ.W   #4,SP             pop args
+ERDONE
+         ENDPR    P_ERRMSG
+         PAGE
+* write a character in D0
+*
+WCHAR    MOVE.L   A2,-(SP)          push the pointer to file variable
+         MOVE.B   D0,-(SP)          push character
+         MOVE.L   #1,-(SP)          length
+         JSR      P_WTC(PC)         write the character
+         ADD.W    #6+INTEGER,SP     pop args
+         RTS
+*
+* write nonblank characters.
+*
+* "d2+1" characters starting at (a1) are scanned, and written if
+* printing characters.
+* A1 is left after the last character
+*
+* This is used only by wfname
+*
+WNBLNK   MOVE.B   (A1)+,D0          get the first character
+         CMP.B    #' ',D0           is it printable?
+         BLE.S    WNBLNK1           no print if <= blank
+         BSR.S    WCHAR             write the character
+WNBLNK1  DBRA     D2,WNBLNK         repeat if more
+         RTS
+         PAGE
+*
+* Write the string pointed to by the aux argument (A1).
+*
+* A1 points to a integer length which is immediately followed by
+* the text of the message.
+*
+WASTR    MOVE.L   A2,-(SP)          push the pointer to file variable
+         PEA      INTEGER(A1)       start of the string
+         MOVE.L   (A1),-(SP)        length of string
+         MOVE.L   (A1),-(SP)        length to print
+         JSR      P_WTS(PC)         write a string
+         ADD.W    #8+2*INTEGER,SP   pop args
+         BRA.S    WRDONE
+         PAGE
+* write the file name in the control block pointed to by aux
+*
+*
+WFNAME
+         IFNE     STNDALON
+         MOVE.L   F.FHS+P.FILENM(A1),A1      pointer to name
+         CMPA.L   #NIL,A1           is there any ?
+         BEQ      WRDONE            nope, so we're done
+         MOVE.B   #$27,D0           load single quote
+         BSR.S    WCHAR             and write it
+         MOVE.L   F.FHS+P.FNAMLN(A1),D2      length of filename
+         SUBQ.L   #1,D0             so it works with dbra
+         BSR.S    WNBLNK            write the name
+         MOVE.B   #$27,D0           terminate with single quote
+         BSR.S    WCHAR
+         ENDC     stndalon
+         IFNE     VERSADOS
+         ADD.W    #F.FHS+P.VOLN,A1  start of name information
+         MOVEQ    #3,D2
+         BSR.S    WNBLNK            write volume
+         MOVEQ    #':'>>8,D0
+         BSR.L    WCHAR             voln:
+         MOVE.L   A2,-(SP)          push the pointer to file variable
+         MOVE.W   (A1)+,-(SP)       time to write user number
+         CLR.W    -(SP)             make it long
+         MOVE.L   #1,-(SP)
+         JSR      P_WTI(PC)         write integer
+         ADD.W    #4+2*INTEGER,SP   pop arguments
+         MOVEQ    #'.'>>8,D0
+         BSR.S    WCHAR             voln:uuuu.
+         MOVEQ    #7,D2
+         BSR.S    WNBLNK            write catalog
+         MOVEQ    #'.'>>8,D0
+         BSR.S    WCHAR             voln:uuuu.catalog.
+         MOVEQ    #7,D2
+         BSR.S    WNBLNK            write file name
+         MOVEQ    #'.'>>8,D0
+         BSR.S    WCHAR             voln:uuuu.catalog.file.
+         MOVEQ    #1,D2
+         BSR.S    WNBLNK            write extension
+         ENDC     versados
+         BRA      WRDONE            voln:uuuu.catalog.file.ex
+         PAGE
+* wiostat and wfhstat - write status values
+*
+WIOSTAT  MOVE.B   F.IOS+I.STATUS(A1),D0      iostatus
+WSTAT    AND.W    #$FF,D0           truncated to a byte
+         MOVE.L   A2,-(SP)          push the pointer to file variable
+         MOVE.L   D0,-(SP)
+         MOVE.L   #-2,-(SP)         print 2 digits octal
+         JSR      P_WTI(PC)         write integer
+         ADD.W    #4+2*INTEGER,SP   pop arguments
+         BRA      WRDONE
+*
+WFHSTAT  MOVE.B   F.FHS+P.STATUS(A1),D0      fhs status
+         BRA.S    WSTAT
+         PAGE
+* write the error number as an integer
+*
+WERRNO   MOVE.W   CODE(A6),D0       error truncated
+         AND.W    #$FF,D0
+         MOVE.L   A2,-(SP)          push the pointer to file variable
+         MOVE.L   D0,-(SP)
+         MOVE.L   #1,-(SP)
+         JSR      P_WTI(PC)         write integer
+         ADD.W    #4+2*INTEGER,SP   restore stack
+         BRA      WRDONE
+         PAGE
+         IFNE     MC68881
+*
+* In case a 68881 trap "operand error" occurs we want to give some more
+* information about the reason of this error.  Particulary the information
+* about the kind of math operation causing this error seems to be
+* potentialy helpful.  The following code is using the saved pc at
+* the time the error occured to access the instruction causing the problem.
+* Then the lowest seven bytes are interpreted to determine the opcode
+* of the instruction causing the problem.
+*
+WRFPC
+         MOVEM.L  D1-D2/A0-A1,-(SP)
+         MOVE.L   A2,-(SP)          push the pointer to file variable
+*        bfextu   (a3){16:3},d0     get opclass field
+         CLR.L    D0                clear scratch
+         MOVE.B   2(A3),D0          get bits 16-23
+         LSR.B    #5,D0             get opclass field
+         BNE.S    MEMACC            branch if from/to memory
+         MOVE.W   #9,D0             format is depending on the fpctrl
+         BRA.S    FPONLY            continue
+MEMACC
+         CMP.B    #2,D0             memory to fpn ?
+         BEQ.S    CLASSOK           yes - branch
+         CMP.B    #3,D0             fpn to memory ?
+         BNE.S    UNKNOWN           no, hmmmm ...
+*
+* this is a fpn to memory instruction. we have two interesting cases:
+* 1. the destination format is type longword - the instruction was
+*    executed to perform real to integer conversion.  we have to assume
+*    it was a trunc() or round()
+* 2. the destination format is single or double real. in this case we
+*    do expect that there is an overflow during conversion from the
+*    extended precision form
+*
+*        bfextu   (a3){19:3},d0     get format of the operand
+         CLR.L    D0                clear scratch
+         MOVE.B   2(A3),D0          get bits 16-23
+         LSR.B    #2,D0             bits 16-21
+         AND.B    #$7,D0            leave operand only (19-21)
+         BNE.S    FMV               it's not an integer
+         LEA.L    TRNCRND+1(PC),A0  address of the message
+         BRA      WREXT             fall in common code
+FMV
+         CMP.L    #1,D0             single real ?
+         CMP.L    #2,D0             double real ?
+
+UNKNOWN
+*
+* there is no easy way to dermine the kind of instruction causing the error.
+* in this case we show the hex form of the opcode.
+*
+         PEA      TEXT+2(PC)        start address of the text
+         CLR.L    D1
+         MOVE.B   TEXT+1(PC),D1     length of message
+         MOVE.L   D1,-(SP)          length of string
+         MOVE.L   D1,-(SP)          length to print
+         JSR      P_WTS(PC)         write a string
+         ADD.W    #4+2*INTEGER,SP   pop args
+         MOVE.L   (A3),-(SP)        opcode of fpp instruction
+         MOVE.L   #-8,-(SP)         print 8 digits octal
+         JSR      P_WTI(PC)         write integer
+         ADD.W    #4+2*INTEGER,SP   pop arguments
+         BRA.S    FPCDONE
+CLASSOK
+*
+* there is an operand accessing the memory.  this means that we are able
+* to recognize if the instruction was attempting to use longword, single
+* or double real format.
+*
+*        bfextu   (a3){19:3},d0     get format of the operand
+         CLR.L    D0                clear scratch
+         MOVE.B   2(A3),D0          get bits 16-23
+         LSR.B    #2,D0             bits 16-21
+         AND.B    #$7,D0            leave operand only (19-21)
+         ADDQ.L   #1,D0             bump the format code
+FPONLY
+*
+* the instruction causing the error used the floating point registers
+* only. since it's not possible to determine the precision of the
+* operation, we display the info "in floating point"
+*
+         LEA      FRMTAB(PC),A0     and the start of the error table
+         CLR.L    D1                top of D1 stays zero throughout
+SRCHF    MOVE.B   (A0)+,D1          get the next error code
+         BEQ.S    UNKNOWN           no error message
+         CMP.B    D1,D0             does it match?
+         BEQ.S    FOUNDF            found a match
+         MOVE.B   (A0)+,D1          length of message (top is zero)
+         ADD.W    D1,A0             skip the message
+         BRA.S    SRCHF             and keep looking
+FOUNDF
+         CLR.L    D2
+         MOVE.L   A0,A1             save the pointer to message text
+         MOVE.B   (A1)+,D2          length of the string
+*        bfextu   (a3){25:7},d0     get extension of the instruction
+         CLR.L    D0                clear scratch
+         MOVE.B   3(A3),D0          bits 24-31
+         AND.B    #$7F,D0           leave extension only
+         LEA      EXTTAB(PC),A0     and the start of the error table
+         CLR.L    D1                top of D1 stays zero throughout
+SRCHE    MOVE.B   (A0)+,D1          get the next error code
+         BEQ      UNKNOWN           no error message
+         CMP.B    D1,D0             does it match?
+         BEQ.S    FOUNDE            found a match
+         MOVE.B   (A0)+,D1          length of message (top is zero)
+         ADD.W    D1,A0             skip the message
+         BRA.S    SRCHE             and keep looking
+FOUNDE
+         PEA      (A1)              start of the string (operand)
+         MOVE.L   D2,-(SP)          length of string
+         MOVE.L   D2,-(SP)          length to print
+         JSR      P_WTS(PC)         write a string
+         ADD.W    #4+2*INTEGER,SP   pop args
+WREXT
+         CLR      D1
+         MOVE.B   (A0)+,D1          length of the string
+         PEA      (A0)              start of the string
+         MOVE.L   D1,-(SP)          length of string
+         MOVE.L   D1,-(SP)          length to print
+         JSR      P_WTS(PC)         write a string
+         ADD.W    #8+2*INTEGER,SP   pop args
+
+FPCDONE
+         MOVEM.L  (SP)+,D1-D2/A0-A1
+         BRA      WRDONE
+         PAGE
+         ENDC     mc68881
+* Error messages.  Each is entered in a table along with a search key
+* using the "msg" macro
+*
+* Special character sequences in the messages cause special actions
+* using the aux data.  Note that no error checking is done on these
+* codes, unknown codes are ignored.
+*
+*       %A      write aux message as a string
+*       %F      write the file name
+*       %I      write the IOS status in hex
+*       %N      write the error number in decimal
+*       %S      write the FHS status in hex
+         IFNE     MC68881
+*       %E      interpret the 68881 opcode's extension
+         ENDC     mc68881
+*
+MSG      MACRO
+         DC.B     \1&$FF,EM\@-BM\@
+BM\@     DC.B     \2
+EM\@     DS.B     0
+         ENDM
+*
+*
+ERRTAB   EQU      *
+         MSG      E.UMSG,<'%A'>
+*
+         MSG      E.PTR,<'Attempted reference through an invalid pointer.'>
+         MSG      E.CASE,<'CASE selector matches no label.'>
+         MSG      E.RANGE,<'Variable or array index range exceeded.'>
+         MSG      E.ASSRAN,<'Variable subrange exceeded.'>
+         MSG      E.INDEX,<'Array index range exceeded.'>
+         MSG      E.STACK,<'Stack overflow.'>
+         MSG      E.ZDIV,<'Attempt to divide by zero.'>
+*
+         MSG      E.TRAP,<'Unexpected trap.'>
+         MSG      E.BUS,<'Memory protection violation.'>
+         MSG      E.ADDR,<'Attempt to access an odd address.'>
+         MSG      E.ILLEG,<'Attempt to execute an illegal instruction'>
+         IFNE     VERSADOS
+         MSG      E.PRIV,<'Attempt to execute a privileged instruction.'>
+         ENDC     versados
+         IFNE     STNDALON
+         MSG      E.UNEXIN,<'Unexpected interrupt.'>
+         MSG      E.TRACE,<'Trace mode trap.'>
+         MSG      E.SPURIN,<'Spurious interrupt.'>
+         MSG      E.UNININ,<'Uninitialized interrupt.'>
+         ENDC     stndalon
+*
+         IFNE     VERSADOS
+         MSG      E.SHORT,<'Not enough memory to establish the workspace.'>
+         ENDC     versados
+         MSG      E.NOTOPN,<'File is not open.'>
+         MSG      E.NOTOUT,<'File %F is not an output file.'>
+         MSG      E.NOTINP,<'File %F is not an input file.'>
+         MSG      E.WRITF,<'Error writing output file (%F), status: %I.'>
+         MSG      E.READF,<'Error reading input file (%F), status: %I.'>
+         MSG      E.EOF,<'Attempt to read past end of file (%F).'>
+         MSG      E.NEOF,<'PUT attempted when not at end of file (%F).'>
+         MSG      E.REWIND,<'Can''t rewind file (F%), status: %I.'>
+         MSG      E.TRUNC,<'Can''t truncate file (%F), status: %S.'>
+         MSG      E.SEEK,<'Unable to SEEK to record (%F), status: %I.'>
+         IFNE     VERSADOS
+         MSG      E.NOTRAN,<'Seek not allowed for file %F, status: %S.'>
+         MSG      E.TOOMNY,<'Too many files open.'>
+         MSG      E.ALLOC,<'Can''t create file %F, status: %S.'>
+         MSG      E.ASSIGN,<'Can''t open file %F, status: %S.'>
+         MSG      E.ATTR,<'Can''t read attributes for file %F, status: %S.'>
+         MSG      E.BADNAM,<'Bad syntax for a file name.'>
+         MSG      E.UDFILE,<'Attempt to Reset an undefined file.'>
+
+         MSG      E.BADSWT,<'Illegal I/O switch.'>
+         MSG      E.BADLUN,<'Invalid Logical Unit Number.'>
+         MSG      E.CONTSZ,<'Missing size for contiguous file %F'>
+         MSG      E.EOFCNT,<'SEEK past end of contiguous file (%F)'>
+
+         ENDC     versados
+         MSG      E.BADINT,<'Illegal value for an integer.'>
+         MSG      E.SEEK0,<'SEEK to record zero (%F)'>
+         MSG      E.DISNIL,<'Attempt to DISPOSE of a NIL pointer.'>
+         MSG      E.DISBAD,<'DISPOSE argument never allocated with NEW.'>
+         MSG      E.DOUBLE,<'Pointer already DISPOSEd or invalid.'>
+         MSG      E.NOMEM,<'Not enough memory for the heap.'>
+         MSG      E.UABORT,<'Program aborted by user.'>
+         IFNE     MC68881
+         MSG      EF.FLINE,<'MC68881 trap : F-line emulator.'>
+         MSG      EF.PROT,<'MC68881 trap : Coprocessor protocol violation.'>
+         MSG      EF.UCOND,<'MC68881 trap : Branch/set on unordered condition.'>
+         MSG      EF.INEX,<'MC68881 trap : Inexact result %E'>
+         MSG      EF.DIVZ,<'MC68881 trap : Floating-point divide by zero.'>
+         MSG      EF.UNDER,<'MC68881 trap : Underflow %E'>
+         MSG      EF.OPERR,<'MC68881 trap : Operand error %E'>
+         MSG      EF.OVERF,<'MC68881 trap : Overflow %E'>
+         MSG      EF.NAN,<'MC68881 trap : Signaling NAN %E'>
+         ENDC     mc68881
+*
+* The following message must be the last in the table
+*
+         MSG      0,<'Unknown error code %N'>
+         IFNE     MC68881
+EXTTAB
+* table of 68881's extension patterns
+         MSG      $01,<'round'>
+         MSG      $03,<'truncation'>
+         MSG      $04,<'square root'>
+         MSG      $0A,<'arctangent'>
+         MSG      $0E,<'sine'>
+         MSG      $0F,<'tangent'>
+         MSG      $10,<'exponent'>
+         MSG      $14,<'logarithm'>
+         MSG      $1D,<'cosine'>
+         MSG      $20,<'division'>
+         MSG      $22,<'addition'>
+         MSG      $23,<'multiplication'>
+         MSG      $28,<'subtraction'>
+         MSG      $38,<'comparison'>
+         MSG      $0,<'*** unrecognized 68881 extension'>
+FRMTAB
+* table of 68881's format patterns
+         MSG      $0+1,<'in integer '>
+         MSG      $1+1,<'in single precision real '>
+         MSG      $2+1,<'in extended precision real '>
+         MSG      $5+1,<'in double precision real '>
+         MSG      $8+1,<'in floating point '>
+         MSG      $0,<'*** unrecognized 68881 format'>
+TEXT
+         MSG      $0,<'in instruction '>
+TRNCRND
+         MSG      $0,<'in trunc/round function'>
+         ENDC     mc68881
+         END

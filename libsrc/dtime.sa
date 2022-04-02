@@ -1,0 +1,72 @@
+DTIME    IDNT     2,2      Return Time-of-Day in Hours as Double Real
+         TTL      Return Time-of-Day in Hours as Double Real
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Return Time-of-Day in Hours as Double Real
+*
+* Last modified by KRIS on 26-Nov-1990 14:00:42
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+         PAGE
+
+
+         INCLUDE  LIBDEF
+         INCLUDE  VDOSDE
+         INCLUDE  LIBMAC
+*
+* return double-precision real time of day
+*
+* function p_dtime: real;
+*
+*    error conditions:
+*      system time equals, or exceeds, 24 hours
+*
+
+MS_DAY   EQU      86400000          milliseconds per day
+MS_HR    EQU      $414B7740         milliseconds per hour (upper longword
+*                                   of the double real format)
+
+         XREF     P_DFLOAT
+         XREF     P_DDIV
+
+         FUNC     P_DTIME,<>,RESULT,DOUBLE
+
+         VAR      TB,GT.SIZE        returned time block
+
+         BEGIN    P_DTIME,D0/D4/A0
+         LEA.L    TB(A6),A0         point to the time block
+         ERQ      GTDTIM$,TB(A6)    get day/time from system
+         CMPI.L   #MS_DAY,TB+GT.TIME(A6)     more than 24 hours ?
+         BGE.S    TIME_ERR          corrupt data
+         MOVE.L   TB+GT.TIME(A6),D4 load time
+         JSR      P_DFLOAT(PC)
+* push the divisor
+         PEA      0                 lower longword
+         MOVE.L   #MS_HR,-(SP)      upper longword
+         JSR      P_DDIV(PC)        convert miliseconds to hours
+         MOVE.L   (SP)+,RESULT(A6)  return the result (upper longword)
+         MOVE.L   (SP)+,RESULT+4(A6)         return the result (lower longword)
+         ENDPR    P_DTIME
+
+TIME_ERR:
+         ADDA.W   #12,SP            clean stack
+         MERROR   <'System time exceeds 24 hours'>
+         END

@@ -1,0 +1,130 @@
+*        include  iodefs
+         NOLIST
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* I/O system structures and constants
+*
+* Last modified by KRIS on 26-Nov-1990 14:09:18
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+* I/O system structures and constants
+*
+         OFFSET   0
+IO.FUNC  DS.W     1                 code/command for i/o operation
+IO.OPT   DS.W     1                 options which modify operation
+IO.STAT  DS.B     1                 status returned for last operation
+IO.LUN   DS.B     1                 logical unit number
+IO.RESV  DS.W     1                 reserved, must be zero
+* configuration/status block address
+IO.CSBADR
+IO.RECN  DS.L     1                 random record number
+IO.BUFST DS.L     1                 starting address of buffer
+IO.BEND  DS.L     1                 ending address of buffer
+IO.RLEN  DS.L     1                 length of last record read
+IO.COMPL DS.L     1                 completion address (zero for pascal)
+IO.SIZE  DS.B     1                 size of iosb
+*
+* request types
+*
+IO.DTRN$ EQU      0                 data transfer request
+IO.CMD$  EQU      1                 command functions
+IO.PRIV$ EQU      $80               privileged use
+*
+* data transfer function values
+*
+IO.RD$$  EQU      0                 read request
+IO.WT$$  EQU      1                 write request
+IO.OIN$$ EQU      2                 output with input
+IO.UPD$$ EQU      3                 update record
+IO.DEL$$ EQU      4                 delete record
+IO.FRM$$ EQU      5                 format disk
+*
+IO.RD$   EQU      1<<IO.RD$$        read request
+IO.WT$   EQU      1<<IO.WT$$        write request
+IO.OIN$  EQU      1<<IO.OIN$$       output with input
+IO.UPD$  EQU      1<<IO.UPD$$       update record
+IO.DEL$  EQU      1<<IO.DEL$$       delete record
+IO.FRM$  EQU      1<<IO.FRM$$       format disk
+*
+* command function values
+*
+IO.POS$$ EQU      0                 position
+IO.REW$$ EQU      1                 rewind
+IO.TST$$ EQU      2                 test I/O complete
+IO.WAI$$ EQU      3                 wait only
+IO.HLT$$ EQU      4                 halt I/O
+IO.BRK$$ EQU      5                 break service
+IO.CFS$$ EQU      6                 configuration status
+IO.CFD$$ EQU      7                 configure device
+*
+IO.POS$  EQU      1<<IO.POS$$       position
+IO.REW$  EQU      1<<IO.REW$$       rewind
+IO.TST$  EQU      1<<IO.TST$$       test I/O complete
+IO.WAI$  EQU      1<<IO.WAI$$       wait only
+IO.HLT$  EQU      1<<IO.HLT$$       halt I/O
+IO.BRK$  EQU      1<<IO.BRK$$       break service
+IO.CFS$  EQU      1<<IO.CFS$$       configuration status
+IO.CFD$  EQU      1<<IO.CFD$$       configure device
+*
+* Terminal Configuration Parameter Block
+*
+         OFFSET   0
+TCSB.STATERE      DS.B     1        status/error field
+TCSB.CHAN         DS.B     1        channel type code
+TCSB.DEVICE       DS.B     1        device type code
+TCSB.DRIVER       DS.B     1        driver code
+TCSB.ATMASK       DS.W     1        attributes mask
+TCSB.PARAM        DS.W     1        parameter mask
+TCSB.ATWORD       DS.W     1        attributes word
+TCSB.WIDTH        DS.W     1        0) line width
+TCSB.LINES        DS.L     1        1) lines per page
+TCSB.WRTIME       DS.L     1        2) write timeout
+TCSB.RDTIME       DS.L     1        3) read timeout
+TCSB.XONOF        DS.W     1        4) xon/xoff characters
+TCSB.BREAK        DS.B     1        5) break equivalent
+TCSB.DISCARD      DS.B     1        6) discard output
+TCSB.REPRINT      DS.B     1        7) reprint line
+TCSB.CANCEL       DS.B     1        8) cancel line
+TCSB.TERMS        DS.L     1        9) read terminators
+TCSB.EOLN         DS.L     1        10) end-of-line string
+TCSB.BUADS        DS.B     1        11) baud rate code
+TCSB.NULLS        DS.B     1        12) null padding
+TCSB.CLASS        DS.B     1        13) terminator class
+TCSB.TCODE        DS.B     1        14) terminal code
+TCSB.RESV         DS.B     $1A
+TCSB.SIZE         DS.B     0        size of iosb
+*
+* IO service macro
+*
+IOS      MACRO
+         NOLIST
+         OPT      MEX
+         LIST
+         IFNC     '\1',''
+         LEA      \1,A0
+         ENDC
+         TRAP     #2
+         NOLIST
+         OPT      NOMEX
+         LIST
+         ENDM
+         LIST

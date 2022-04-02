@@ -1,0 +1,163 @@
+OPDTOF   IDNT     2,2      Convert and round a double precision real into single precision
+         TTL      Convert and round a double precision real into single precision
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1986, 1987, 1988, 1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Convert and round a double precision real into single precision
+*
+* Last modified by KRIS on 26-Nov-1990 14:00:06
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+*  Convert double precision real into single precision, round the mantissa
+*
+*    entry conditions (stack):
+*
+*      4(sp)  = 64-bit double precision real
+*
+*    exit conditions:
+*
+*      d4     = 32-bit single real value
+*      ccr    = n and z flags conditionally set, v = 0
+*
+*    stack usage:
+*                          offset
+*                            16    return address <- sp
+*         double real        12
+*   sp -> return address      8
+*         saved d0/d1         0
+*
+         SECTION  8
+
+         XDEF     P_CVTDF
+         XREF     P_DFOVRFL
+DBL      EQU      12
+P_CVTDF
+         MOVEM.L  D0-D1,-(SP)       save regs
+         MOVE.L   DBL(SP),D4        upper longword
+         MOVE.L   D4,D0             copy to process the mantissa
+         AND.L    #$FFFFF,D0        mask non-manitssa bits
+         AND.L    #$7FF00000,D4     mask exponent
+         CMP.L    #$7FF00000,D4     a NAN ?
+         BEQ      ILLEGAL           good bye!
+         SUB.L    #$38000000,D4     correct exponent's base
+         BLE.S    UNDERFLOW
+         ASL.L    #3,D0             make space for missing bits
+         MOVE.B   DBL+4(SP),D1      upper byte of lower longword
+         ROL.B    #3,D1             rotate most significant bits
+         AND.B    #7,D1             mask not interresting bits
+         OR.B     D1,D0             get mantissa in full
+*
+* round the mantissa
+*
+         MOVE.L   DBL+4(SP),D1      the lower longword in full
+         AND.L    #$1FFFFFFF,D1     three bits are alread processed
+         BEQ.S    GLUEIT            no need to round
+         BCLR     #28,D1            clear the highest rounded bit
+         BEQ.S    GLUEIT            if it is zero the value is ready
+         TST.L    D1                anything else is set ?
+         BNE.S    ROUNDUP           yes!
+GETEVEN
+         BTST     #0,D0             is it already even ?
+         BEQ.S    GLUEIT            yes, no need to round up
+ROUNDUP
+         ADDQ.L   #1,D0             rounding up
+         BCLR     #23,D0            make sure mantissa is in range
+         BEQ.S    GLUEIT            no overflow, so continue
+*
+* rounding caused the overflow of the mantissa, we have to bump the exponent
+* and shift the mantissa
+*
+         ASR.L    #1,D0             shift the mantissa
+         ADD.L    #$100000,D4       increase the exponent
+GLUEIT
+         CMP.L    #$0FE00000,D4     check for overflow
+         BHI.S    OVRFL             value too big
+         ASL.L    #3,D4             8 bits in exponent - it's ready
+         TST.B    DBL(SP)           check the sign bit
+SIGN
+         BPL.S    POSITIVE          branch if not negative
+         BSET     #31,D4            set the sign bit
+POSITIVE
+         OR.L     D0,D4             put mantissa in its place
+         MOVEM.L  (SP)+,D0-D1
+         MOVE.L   (SP),8(SP)        copy the return address
+         ADDQ.W   #8,SP             we return without the parameter
+         TST.L    D4                won't work for negative  zero
+         RTS
+UNDERFLOW
+*
+*  There is an exponent underflow - check if we can get a gradual one
+*
+         CMP.L    #$FE000000,D4     twenty-three times too small ?
+         BGT.S    NONZERO           still in range
+         CLR.L    D4                the result is zero
+         BRA      SIGN              fall in common code
+NONZERO
+*
+* The number must be denormalized.
+*
+         BSET     #20,D0            append the implied bit
+         MOVE.L   DBL+4(SP),D1      the lower longword in full
+         NEG.L    D4                shift counter
+         SWAP     D4                move it to lower word
+         ASR.W    #4,D4
+         SUBQ.W   #3,D4             matissa is alread shifted by 2 bits
+         BGE.S    SHIFTRIGHT        still need to shift it
+SHIFTLEFT
+         ADDQ.W   #1,D4             increase the counter
+         BEQ.S    UNDEROUND         zero means mantissa is ready
+         ROXL.L   #1,D1             extended shift left
+         ROXL.L   #1,D0             on both registers
+         BRA      SHIFTLEFT         try again
+SHIFTRIGHT
+         LSR.L    #1,D0             shift and set the x-bit
+         ROXR.L   #1,D1             append the x-bit
+         BCC.S    NOSTICKY
+         BSET     #16,D4            set the sticky bit
+NOSTICKY
+         DBRA     D4,SHIFTRIGHT
+UNDEROUND
+*
+* Round the denormalized value
+*
+         CLR.W    D4                exponent is zero
+         BCLR     #31,D1            the sign bit is set ?, clear it
+         BEQ.S    UNDEREADY         it was cleared, mantissa is ready
+*
+* Check "sticky bit" - it is set if d1 <> 0 or upper word of d4 is <> 0
+*
+         SWAP     D4                load "sticky bit" in lower word
+         BNE.S    ADDONE            rounding up
+         TST.L    D1                check the "other" sticky bit
+         BNE      ROUNDUP           it is set - round up
+         BRA      GETEVEN           round to even
+ADDONE
+         CLR.L    D4                exponent is zero
+         BRA      ROUNDUP
+UNDEREADY
+         CLR.L    D4                exponent is zero
+         BRA      GLUEIT
+OVRFL
+* the double real value is too big to fit in the single format
+         JSR      P_DFOVRFL(PC)
+ILLEGAL
+* the double real is a not-a-number
+         JSR      P_DFOVRFL(PC)
+         END

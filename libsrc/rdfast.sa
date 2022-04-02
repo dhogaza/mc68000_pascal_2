@@ -1,0 +1,60 @@
+RDFAST   IDNT     2,2      Fast read an input line
+         TTL      Fast read an input line
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1986, 1987, 1988, 1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Fast read an input line
+*
+* Last modified by KRIS on 26-Nov-1990 14:05:48
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+* procedure p_rdsfst(var f:text;
+*                    var p:string_array_pointer;
+*                    var len:integer);
+*
+* fast read a line from the input text file.
+*
+         INCLUDE  LIBDEF
+         INCLUDE  LIBMAC
+*
+         XREF     P_GETCH
+
+         PROC     P_RDSFST,<F,ADDRESS,P,ADDRESS,LEN,ADDRESS>
+         BEGIN    P_RDSFST,A0/A3/A4/D0/D1
+         CHECKIO  F,INPUT
+         BTST     #S.TEXT,F.STATUS(A4)       is this a text file?
+         BEQ.S    ER                yup
+         BTST     #S.DEF,F.STATUS(A4)        buffer is defined
+         BNE.S    RDS1              yes
+         JSR      P_GETCH(PC)       nope - get next character/load buffer
+RDS1:
+         MOVEA.L  P(A6),A0          address of actual parameter
+         MOVE.L   F.POINT(A4),(A0)  return the pointer to string
+         MOVEA.L  LEN(A6),A0        address of second returned parameter
+         MOVE.L   F.IOS+I.BUFEND(A4),D0      pointer to last character read
+         SUB.L    F.POINT(A4),D0    calculate the length of the string
+         ADDQ.L   #1,D0
+         ADD.L    D0,F.POINT(A4)    pointing at the end of buffer
+         MOVE.L   D0,(A0)           return the size of the string
+         BCLR     #S.DEF,F.STATUS(A4)        buffer is not defined
+         ENDPR    P_RDSFST
+ER:
+         MERROR   <'READFAST used for non text file'>
+         END

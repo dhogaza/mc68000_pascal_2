@@ -1,0 +1,60 @@
+ENTLIB   IDNT     2,2      Library entry and exit for Pascal routines
+         TTL      Library entry and exit for Pascal routines
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Library entry and exit for Pascal routines
+*
+* Last modified by KRIS on 26-Nov-1990 14:08:48
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+* Routines called at entry and exit of Pascal routines to mark them
+* as library routines, not to be included in the walkback
+*
+         PAGE
+         INCLUDE  LIBDEF
+         SECTION  8
+*
+* procedure p_entlib;
+*
+*       Mark a library entrance
+*
+* procedure p_exitlb;
+*
+*       Mark a library exit
+*
+         XDEF     P_ENTLIB
+P_ENTLIB EQU      *
+         ADD.W    #1,G.LIBLEV(A5)   we are entering a library routine
+         RTS
+*
+         XDEF     P_EXITLB
+P_EXITLB EQU      *
+         SUB.W    #1,G.LIBLEV(A5)   we just left one
+         RTS
+*
+* Return a pointer to the library work area
+*
+         XDEF     P_LIBPOI
+P_LIBPOI EQU      *
+         MOVE.L   G.LIB(A5),4(SP)   return the library pointer
+         RTS
+         END

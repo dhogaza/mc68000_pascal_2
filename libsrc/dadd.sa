@@ -1,0 +1,226 @@
+DADD     IDNT     2,2      Double precision add/subtract routines
+         TTL      Double precision add/subtract routines
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1985, 1986, 1987, 1988, 1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Double precision add/subtract routines
+*
+* Last modified by KRIS on 26-Nov-1990 14:01:19
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+*
+*	dadd.s -- double-precision adder/subtracter.
+
+         XDEF     P_DADD
+         XDEF     P_DSUB
+         XREF     P_DTOX
+         XREF     P_XTOD
+         XREF     P_OVRFLO
+         XREF     P_FPPERR
+
+         SECTION  8
+
+*-------------------------------|
+P_DSUB
+         LINK     A6,#0
+         MOVEM.L  D0-D7/A0,-(SP)
+IS_SUB
+         MOVEQ    #-1,D7
+         BRA.S    FETCH
+
+*-------------------------------|
+P_DADD
+         LINK     A6,#0
+         MOVEM.L  D0-D7/A0,-(SP)
+IS_ADD
+         MOVEQ    #0,D7
+
+*-------------------------------|
+FETCH
+         MOVEM.L  8(A6),D0-D1/D4
+         MOVE.L   20(A6),D5
+         MOVEQ    #0,D3
+         LEA      P_DTOX(PC),A0
+UNPACK_B
+         JSR      (A0)              * p_dtox
+TRADE
+         EXG      D0,D4
+         EXG      D1,D5
+         EXG      D2,D6
+         BLE      B_SPECIAL
+UNPACK_A
+         JSR      (A0)              * p_dtox
+         BLE      A_SPECIAL
+
+*-------------------------------|
+CMP_EXP
+         CMP.W    D4,D0
+         BNE.S    CHOOSE
+CMP_HIGH
+         CMP.L    D5,D1
+         BNE.S    CHOOSE
+CMP_LOW
+         CMP.L    D6,D2
+         BEQ.S    EQUAL
+CHOOSE
+         BHI.S    A_GREATER
+B_GREATER
+         EXG      D0,D4
+         EXG      D1,D5
+         EXG      D2,D6
+         OR.W     D7,D3             * ??!!??
+A_GREATER
+         SWAP     D3
+         SWAP     D7
+         MOVE.W   D0,D7
+         SUB.W    D4,D7
+         BEQ.S    OPERATION
+
+         CMP.W    #64,D7
+         BGE      SMALL
+ALIGN
+         SUBQ.W   #1,D7
+LOOP
+         LSR.L    #1,D5
+         ROXR.L   #1,D6
+         BCC.S    SLIP
+STICK
+         MOVE.W   #1,D3
+SLIP
+         DBRA     D7,LOOP
+         CLR.W    D7
+OPERATION
+         OR.W     D3,D6             * ??!!??
+WHICH
+         SWAP     D0
+         SWAP     D4
+         SWAP     D7
+         EOR.W    D0,D4
+         EOR.W    D7,D4
+         BEQ.S    ADDITION
+SUBTRACTION
+         SUB.L    D6,D2
+         SUBX.L   D5,D1
+         BRA.S    SIGN
+ADDITION
+         ADD.L    D6,D2
+         ADDX.L   D5,D1
+         BCC.S    SIGN
+FIXUP
+         ROXR.L   #1,D1
+         ROXR.L   #1,D2
+         BCC.S    ADJUST
+STUCK
+         OR.W     #$0001,D2
+ADJUST
+         ADD.L    #$00010000,D0
+SIGN
+         SWAP     D3
+         EOR.W    D3,D0
+         SWAP     D0
+PACK
+         JSR      P_XTOD(PC)
+         BVS.S    OVERFLOW
+THROW
+         MOVEM.L  D0-D1,16(A6)
+RESTORE
+         MOVEM.L  (SP)+,D0-D7/A0
+RELEASE
+         UNLK     A6
+RETURN
+         MOVE.L   (SP),8(SP)
+         ADDQ.W   #8,SP
+         RTS
+
+*-------------------------------|
+EQUAL
+         SWAP     D0
+         SWAP     D4
+         EOR.W    D0,D4
+         SWAP     D0
+         EOR.W    D7,D4
+         BEQ.S    DOUBLE
+NOTHING
+         MOVEQ    #0,D0
+         MOVEQ    #0,D1
+         MOVE.B   #0,D2
+         AND.B    #$60,D2
+         CMP.B    #$20,D2
+         BNE.S    THROW
+DOWN
+         BSET     #31,D0
+         BRA.S    THROW
+
+*-------------------------------|
+DOUBLE
+         ADDQ.W   #1,D0
+         BRA.S    PACK
+
+*-------------------------------|
+SMALL
+         MOVEQ    #1,D6
+         MOVEQ    #0,D5
+         BRA.S    WHICH
+
+*-------------------------------|
+OVERFLOW
+         JSR      P_OVRFLO(PC)
+*-------------------------------|
+B_SPECIAL
+         BNE.S    B_RESERVED
+B_ZERO
+         JSR      (A0)              * p_dtox
+         BNE.S    PACK
+BOTH_ZERO
+         AND.L    D4,D0
+         BRA.S    PACK
+B_RESERVED
+         MOVE.L   D5,D3
+         OR.L     D6,D3
+         BNE.S    B_RESULT
+B_INFINITY
+         JSR      (A0)              * p_dtox
+         BGE.S    B_RESULT
+BOTH_RESERVED
+         MOVE.L   D1,D3
+         OR.L     D2,D3
+         BNE.S    PACK
+BOTH_INFINITY
+         EOR.L    D7,D4
+         EOR.L    D0,D4
+         BPL.S    PACK
+MAKE_NAN
+*		movl		#0x7FF40002, d0
+*		moveq		#0, d1
+*		bras		throw
+         JSR      P_FPPERR(PC)
+
+*-------------------------------|
+A_SPECIAL
+         BNE.S    PACK
+*-------------------------------|
+B_RESULT
+         CLR.W    D7
+         EOR.L    D7,D4
+         EXG      D0,D4
+         EXG      D1,D5
+         EXG      D2,D6
+         BRA      PACK
+         END

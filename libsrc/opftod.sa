@@ -1,0 +1,108 @@
+OPFTOD   IDNT     2,2      Convert a single precision real in double precision
+         TTL      Convert a single precision real in double precision
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1987, 1988, 1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Convert a single precision real in double precision
+*
+* Last modified by KRIS on 26-Nov-1990 14:00:00
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+*  Convert a single precision real to double precision real
+*
+*    entry conditions:
+*      d4.l = 32-bit single precision input value
+*
+*    exit conditions:
+*      4(sp) = 64-bit double precision real
+*      ccr = (n and z flags conditionally set, v = 0)
+*
+*    stack usage:
+*                         offset
+*   sp -> return address   12
+*                           8    returned value
+*                           4    return address
+*         dynamic link      0
+*
+*
+*
+*
+         INCLUDE  LIBDEF
+*
+*
+         SECTION  8
+DBL      EQU      8
+*
+* the conversion is done according to the following scheme
+*
+*               single real        double real
+*
+* sign bit          b31                b63
+*                                    b60-63 depend on exponent value
+* exponent        b23-30             b52-59
+* mantissa        b00-b22            b29-51
+*                                    b00-28 always cleared
+*
+         XDEF     P_CVTFD
+P_CVTFD
+         SUBQ.L   #4,SP             make room for returned value
+         MOVE.L   4(SP),-(SP)       copy return address
+         LINK     A6,#0
+*
+         ADD.W    #1,G.LIBLEV(A5)
+*
+*
+         MOVEM.L  D0,-(SP)          save d0
+* convert mantissa - lower longword
+         MOVE.L   D4,D0             copy of single value
+         ROR.L    #3,D0             three upper bits are ready
+         AND.L    #$E0000000,D0     lower longword is ready
+         MOVE.L   D0,DBL+4(A6)      save the not result
+* convert exponent
+         MOVE.L   D4,D0             new copy of the value
+         ASR.L    #3,D0             get next 16 bits of mantissa
+         MOVE.W   D0,DBL+2(A6)      and store it
+         CLR.W    D0
+         SWAP     D0                get exponent and mantissa upper bits
+         ROR.L    #4,D0             save mantissa bits
+         AND.W    #$FF,D0           leave the exponent only
+         ADD.W    #896,D0           correction value of the exponent
+         ROL.L    #4,D0             restore mantissa bits
+         TST.L    D4                check the sign
+         BPL.S    POSITIVE          branch if mantissa/sign are ready
+         BSET     #15,D0            make it negative
+POSITIVE
+         MOVE.W   D0,DBL(A6)        push ready result
+*
+*
+* we have to decrease g.liblev now because we wish to set the CCR register
+* and return it to user code
+*
+         SUB.W    #1,G.LIBLEV(A5)
+*
+         MOVEM.L  (SP)+,D0          movem doesn't change the sr
+         UNLK     A6
+*
+*
+* set processor's condition codes according to fpc status
+*
+         TST.L    D4                won't work for negative zero
+         RTS
+         END

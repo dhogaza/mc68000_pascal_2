@@ -1,0 +1,393 @@
+TRAPS    IDNT     2,2      System trap handler
+         TTL      System trap handler
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1981, 1982, 1983, 1984, 1985, 1986, 1987, 1988
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* System trap handler
+*
+* Last modified by KRIS on 26-Nov-1990 14:03:22
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+         PAGE
+*
+* Register and trap program exceptions.
+*
+         INCLUDE  LIBDEF
+         IFNE     VERSADOS
+         INCLUDE  VDOSDE
+         ENDC     versados
+         INCLUDE  PASMAC
+         IFNE     CONCURR
+         INCLUDE  CPPDATA
+         ENDC     concurr
+         INCLUDE  TRAPDEF
+         SECTION  8
+
+         XREF     ERSTK$$
+
+         PROC     P_TRAPS
+
+         BEGIN    P_TRAPS,A0-A2/A4/D0/D1
+         MOVE.L   G.LIB(A5),A4
+         TST.L    L.ERRA(A4)        do we have an error area?
+         BNE.S    HAVEIT            yes, don't allocate one
+         MOVE.L   L.HEAP(A4),L.ERRA(A4)
+         ADDI.L   #ER.SIZE+ERSTK$$,L.HEAP(A4)
+HAVEIT   EQU      *
+         IFNE     VERSADOS
+         IFEQ     PIC
+         ERQ      TRPVCT$,P_TRPVCT  establish trap vectors
+         ERQ      EXPVCT$,P_EXCVCT  establish exception vectors
+         ENDC     nopic
+         IFNE     PIC
+         XREF     P_OWN
+*
+* Trap and execption vector tables contain addresses at the link time.
+* Following code is responsible to change all used vectors (those
+* not set to 0) to their values at run-time.
+* Since the offset of vector tables from the current code may be larger
+* then 32K bytes, the explicit pc-relative mode is not used to access
+* those addresses.
+*
+         MOVE.L   #EXCVCT,D0        "link time" address
+         LEA      EXCVCT(PC),A0     run time address
+         NEG.L    D0
+         ADD.L    A0,D0             value used to patch vectors
+         MOVE.L   G.OWN(A5),A1      pointer to read/write segment
+         ADD.L    #P_EXCVCT-P_OWN,A1         run-time address of start of tables
+         LEA      ENDVCT(PC),A2     end of tables
+SETTRAP
+         CMP.L    A0,A2             are we done ?
+         BEQ.S    TRAPRDY           yes, let's exit
+         MOVE.L   (A0)+,D1          vector value
+         BEQ.S    NOTUSED           don't patch it if zero
+         ADD.L    D0,D1             change the value to run time one
+NOTUSED
+         MOVE.L   D1,(A1)+          change to vector value
+         BRA.S    SETTRAP           loop...
+TRAPRDY
+         MOVE.L   G.OWN(A5),A0      pointer to read/write segment
+         ADD.L    #P_EXCVCT-P_OWN,A0         run-time address of start of tables
+         ERQ      EXPVCT$           establish exception vectors
+         ADD.L    #P_TRPVCT-P_EXCVCT,A0      address of exception vectors
+         ERQ      TRPVCT$           establish trap vectors
+         ENDC     pic
+         XREF     P_FPC
+         MOVE.L   #P_FPC,D0
+         BEQ      NOFPC
+         JSR      P_FPC(PC)
+NOFPC
+         ENDC     versados
+         IFNE     STNDALON
+         XREF     P_ERHAND
+         MOVE.L   #P_ERHAND,L.TPHAND(A4)     set trap handler for later
+         IFNE     MC68010!MC68020
+         MOVE.L   #DEFVBR$$,A0
+         MOVEC.L  A0,VBR
+         ENDC     mc68010 or mc68020
+         IFNE     MC68881
+         XDEF     P_68881
+P_68881  EQU      1
+         XREF     P_FPCTRL
+         FMOVE.L  #P_FPCTRL,CONTROL enable all possible fpc's exceptions
+         ENDC     mc68881
+         ENDC     stndalon
+         ENDPR    P_TRAPS
+         PAGE
+* Trap and exception vectors.
+*
+* The values of these constants are specified in the macro "trapdef"
+*
+         TRAPDEF  1
+*
+* Exception vectors
+*
+         IFNE     STNDALON
+         IFNE     MC68000
+         ORG      8                 start of exceptions
+         ENDC     mc68000
+         IFNE     MC68010!MC68020
+         SECTION  0
+         XDEF     DEFVBR$$
+DEFVBR$$ EQU      *                 start of exceptions
+         DS.L     2                 two unused longwords
+         ENDC     mc68010 or mc68020
+         ENDC     stndalon
+         IFEQ     PIC
+*
+* the exception vector table
+*
+         XDEF     P_EXCVCT
+P_EXCVCT
+         ENDC     nopic
+         IFNE     PIC
+EXCVCT
+         ENDC     pic
+         IFNE     VERSADOS
+*
+* VERSAdos configuration
+*
+         DC.L     P_TRAPLC+E_BUS    bus error
+         DC.L     P_TRAPLC+E_ADDR   address error
+         DC.L     P_TRAPLC+E_ILLEG  illegal instruction
+         DC.L     P_TRAPLC+E_ZDIV   divide by zero
+         DC.L     P_TRAPLC+E_RANGE  check instruction, range error
+         DC.L     P_TRAPLC+E_STACK  trapv instruction
+*        dc.l     p_traplc+e_priv   privilege instruction
+         DC.L     0                 let us run the debugger
+         DC.L     P_TRAPLC+E_ILLEG  line 1010 emulator
+         DC.L     P_TRAPLC+EF_FLINE f-line emulator
+         IFEQ     PIC
+         XDEF     P_TRPVCT
+P_TRPVCT
+         ENDC     nopic
+         IFNE     PIC
+TRPVCT
+         ENDC     pic
+         DC.L     0                 trap 2, already used
+         DC.L     0                 trap 3, already used
+         DC.L     0                 trap 4, already used
+         DC.L     P_TRAPLC+E_TRAP   trap 5
+         DC.L     P_TRAPLC+E_TRAP   trap 6
+         DC.L     P_TRAPLC+E_TRAP   trap 7
+         DC.L     P_TRAPLC+E_TRAP   trap 8
+         DC.L     P_TRAPLC+E_TRAP   trap 9
+         DC.L     P_TRAPLC+E_TRAP   trap 10
+         DC.L     P_TRAPLC+E_TRAP   trap 11
+         DC.L     P_TRAPLC+E_USER   trap 12, library error
+         DC.L     P_TRAPLC+E_PTR    trap 13, pointer error
+         DC.L     P_TRAPLC+E_CASE   trap 14, case error
+         DC.L     P_TRAPLC+E_RANGE  trap 15, range error
+         ENDC     versados
+         IFNE     STNDALON
+*
+* Exception vectors used by Motorola VMEBUGs.
+*
+         IFNE     MC68000
+* Exormacs locations
+V_BRKPT  EQU      $FE9E6E           vect=4 breakpoints (illegal instruction)
+V_TRACE  EQU      $FE8808           vect=9 trace operation (trace)
+V_SYSCAL EQU      $FE9F7C           vect=47 system calls (trap 15)
+         ENDC     mc68000
+         IFNE     MC68010
+* VME-10X locations
+V_BRKPT  EQU      $F13014           vect=4 breakpoints (illegal instruction)
+V_TRACE  EQU      $F12B26           vect=9 trace operation (trace)
+V_ABORT  EQU      $F12540           vect=31 abort pushbutton (autovector 7)
+V_SYSCAL EQU      $F1472A           vect=47 system calls (trap 15)
+         ENDC     mc68010
+         IFNE     MC68020
+* VME-130 locations
+V_BRKPT  EQU      $FFF089FE         vect=4 breakpoints (illegal instruction)
+V_TRACE  EQU      $FFF0857A         vect=9 trace operation (trace)
+V_SYSCAL EQU      $FFF0B234         vect=47 system calls (trap 15)
+V_ABORT  EQU      $FFF00116         vect=64 abort pushbutton
+         ENDC     mc68020
+
+*
+* Stand-alone configuration
+*
+         DC.L     P_TRAPLC+E_BUS    bus error
+         DC.L     P_TRAPLC+E_ADDR   address error
+*        dc.l     p_traplc+e_illeg  illegal instruction
+         DC.L     V_BRKPT           vmebug's breakpoints
+         DC.L     P_TRAPLC+E_ZDIV   divide by zero
+         DC.L     P_TRAPLC+E_RANGE  check instruction, range error
+         DC.L     P_TRAPLC+E_STACK  trapv instruction
+*        dc.l     p_traplc+e_priv   privilege instruction
+         DC.L     0                 let us run the debugger
+*        dc.l     p_traplc+e_trace  trace mode
+         DC.L     V_TRACE           vmebug's trace operation
+         DC.L     P_TRAPLC+E_ILLEG  line 1010 emulator
+
+         IFEQ     MC68881
+         DC.L     P_TRAPLC+E_ILLEG  line 1111 emulator
+         ENDC     nomc68881
+         IFNE     MC68881
+         DC.L     P_TRAPLC+EF_FLINE f-line emulator
+         ENDC     mc68881
+* vector 12, offset $30
+         DC.L     P_TRAPLC+E_UNEXIN unexpected interrupt
+
+         IFEQ     MC68881
+         DC.L     P_TRAPLC+E_UNEXIN unexpected interrupt
+         ENDC     nomc68881
+         IFNE     MC68881
+         DC.L     P_TRAPLC+EF_PROT  coprocessor protocol violation
+         ENDC     mc68881
+
+         DC.L     P_TRAPLC+E_UNEXIN unexpected interrupt
+         DC.L     P_TRAPLC+E_UNININ unitialized interrupt
+         DCB.L    8,P_TRAPLC+E_UNEXIN        unassigned, reserved
+         DC.L     P_TRAPLC+E_SPURIN spurious interrupt
+         DCB.L    6,P_TRAPLC+E_UNEXIN        first six autovectors (unexpected)
+
+         IFEQ     MC68010
+         DC.L     P_TRAPLC+E_UNEXIN seventh autovector (unexpected)
+         ENDC     nomc68010
+         IFNE     MC68010
+         DC.L     V_ABORT           10xbug's abort pushbutton
+         ENDC     mc68010
+
+         DCB.L    5,P_TRAPLC+E_TRAP traps 0-4
+         DC.L     P_TRAPLC+E_TRAP   trap 5
+         DC.L     P_TRAPLC+E_TRAP   trap 6
+         DC.L     P_TRAPLC+E_TRAP   trap 7
+         DC.L     P_TRAPLC+E_TRAP   trap 8
+         DC.L     P_TRAPLC+E_TRAP   trap 9
+         DC.L     P_TRAPLC+E_TRAP   trap 10
+         DC.L     P_TRAPLC+E_TRAP   trap 11
+         DC.L     P_TRAPLC+E_USER   trap 12, library error
+*        dc.l     p_traplc+e_ptr    trap 13, pointer error
+         DS.L     1
+         DC.L     P_TRAPLC+E_CASE   trap 14, case error
+*        dc.l     p_traplc+e_range  trap 15, range error
+         DC.L     V_SYSCAL          vmebug's system calls
+
+         IFNE     MC68881
+* mc68881's exception vectors
+         DC.L     P_TRAPLC+EF_UCOND branch/set on unordered condition
+         DC.L     P_TRAPLC+EF_INEX  inexact result
+         DC.L     P_TRAPLC+EF_DIVZ  floating-point divide by zero
+         DC.L     P_TRAPLC+EF_UNDER underflow
+         DC.L     P_TRAPLC+EF_OPERR operand error
+         DC.L     P_TRAPLC+EF_OVERF overflow
+         DC.L     P_TRAPLC+EF_NAN   signaling "nan"
+         ENDC     mc68881
+         IFEQ     MC68881
+         DCB.L    7,P_TRAPLC+E_UNEXIN        unassigned, reserved
+         ENDC     nomc68881
+
+         DCB.L    9,P_TRAPLC+E_UNEXIN        unexpected interrupt
+
+         IFNE     MC68020
+         DC.L     V_ABORT           130bug's abort pushbutton
+         ENDC     mc68020
+         IFEQ     MC68020
+         DC.L     P_TRAPLC+E_UNEXIN unexpected interrupt
+         ENDC     nomc68020
+
+         DCB.L    $4C,P_TRAPLC+E_UNEXIN      unexpected interrupt
+
+         IFNE     MC68000
+         DC.L     $FE8028           debugger vector (?)
+         ENDC     mc68000
+         IFEQ     MC68000
+         DC.L     P_TRAPLC+E_UNEXIN unexpected interrupt
+         ENDC     nomc68000
+
+         DCB.L    $71,P_TRAPLC+E_UNEXIN      unexpected interrupt
+
+         IFNE     MC68000
+         DC.L     IGNORE            exormacs only
+         ENDC     mc68000
+         IFEQ     MC68000
+         DC.L     P_TRAPLC+E_UNEXIN unexpected interrupt
+         ENDC     nomc68000
+TRPEND   EQU      *
+         ENDC     stndalon
+
+ENDVCT
+         IFNE     STNDALON
+         PAGE
+* For rom-based stand-alone systems, it may be necessary to specify
+* interrupt addresses at link time.  These may be specified below if
+* desired.  Each interrupt is specified by a macro call of the form
+*
+* intrpt  address
+*
+* This sends the interrupt into a patch area which is used by the
+* waitint routine if the "romints" flag is set.
+*
+INTRPT   MACRO
+         ORG      \1
+         DC.L     INTR\@
+         SECTION  15
+INTR\@   DS.B     6
+         ENDM
+*
+* Insert interrupt definitions here
+*
+         ENDC     stndalon
+         PAGE
+*
+* Receive the traps.
+*
+         SECTION  8
+         XDEF     P_TRAPLC
+         TRAPDEF  0
+HAVETRAP EQU      *
+         IFNE     VERSADOS
+         MOVE.L   A0,-(SP)          save a0 for standard interface
+         MOVE.L   D0,-(SP)          so we can turn off traps
+         XREF     P_ERHAND
+         IFEQ     PIC
+         ERQ      TRPVCT$,NOTRAPS   empty table
+         ERQ      EXPVCT$,NOTRAPS
+         MOVE.L   (SP)+,D0          restore registers
+         JMP      P_ERHAND          call the error handler
+         ENDC     nopic
+         IFNE     PIC
+         ERQ      TRPVCT$,NOTRAPS(PC)        empty table
+         ERQ      EXPVCT$,NOTRAPS(PC)
+         MOVE.L   (SP)+,D0          restore registers
+         JMP      P_ERHAND(PC)      call the error handler
+         ENDC     pic
+*
+* Empty trap vectors
+*
+NOTRAPS  DCB.L    14,0
+         ENDC     versados
+         IFNE     STNDALON
+         ORI.W    #$0700,SR         really turn interrupts off.
+         MOVE.L   A0,-(SP)
+         MOVE.L   A1,-(SP)
+         XREF     P_GETWRK
+         IFEQ     PIC
+         JSR      P_GETWRK
+         ENDC     nopic
+         IFNE     PIC
+         JSR      P_GETWRK(PC)
+         ENDC     pic
+         MOVE.L   (SP)+,A1
+         ADD.W    #H.LIB+L.TPHAND,A1         get library work area
+         TST.L    (A1)              check error address
+         BNE.S    CONT              ok if handler exists
+         STOP     #$2700            stop if no handler
+*
+CONT     MOVE.L   (A1),A0           address for the jump
+         CLR.L    (A1)              turn off further traps
+         IFNE     CONCURR
+         ADDQ.B   #1,TRAPNG         handling a trap
+         ENDC     concurr
+         MOVE.L   (SP)+,A1          restore A1
+         JMP      (A0)              call the error handler
+*
+* ignore spurious I/O interrupts
+*
+IGNORE   RTE
+         ENDC     stndalon
+         IFNE     PIC
+P_VECTOR SECTION  15
+
+P_EXCVCT DS.B     TRPVCT-EXCVCT
+P_TRPVCT DS.B     ENDVCT-TRPVCT
+         ENDC     pic
+         END

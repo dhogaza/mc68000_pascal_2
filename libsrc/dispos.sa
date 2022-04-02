@@ -1,0 +1,286 @@
+DISPOS   IDNT     2,2      Dynamic memory allocation - Dispose()
+         TTL      Dynamic memory allocation - Dispose()
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1981, 1982, 1983, 1984, 1985, 1986, 1987, 1988
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Dynamic memory allocation - Dispose()
+*
+* Last modified by KRIS on 26-Nov-1990 14:05:15
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+* Dynamic memory allocation routines -- New and Dispose
+*
+* These routines control all allocation and deallocation on the heap.
+*
+* Initially, the heap and the stack share the same space.  The stack
+* is allocated at the top of that space and grows downward, while the
+* heap is allocated at the bottom and grows upward.  The stack pointer
+* (SP) points to the current top of the stack, and the library field
+* L.HEAP points to the current top of the heap.
+*
+* As the heap area is allocated, L.HEAP is incremented and the space is
+* allocated from the top of the heap.
+*
+* When a block of memory is returned to the heap by "dispose", it is
+* placed on a list headed by "L.FREE".  This list is sorted in order of
+* increasing address, and any adjacent blocks are merged.  If a returned
+* block is on the top of the heap, it is removed and "L.HEAP" is adjusted
+* to make that space available for use by the stack or heap at some later
+* time.
+*
+* Once this free list exists, it is searched prior to any memory allocation,
+* and if the requested block can be allocated from a block on the free list
+* it is.  The first block large enough to contain the new block is used, and
+* any space not used is returned to the free list.
+*
+* The whole process is complicated somewhat by the fact that the minimum
+* size block which can be linked on the free list is 8 bytes.  To avoid
+* losing small bits of memory, such blocks are simply allocated along
+* with the requested block and the test for equality really becomes
+* "Is it within 8 bytes of matching".  This has a consequence that no
+* block less than 8 bytes can be allocated.
+*
+* Additional complication arises because all heap allocated data is
+* filled with an "improbable" value to aid error detection.
+*
+* This module contains "dispose"
+         PAGE
+         INCLUDE  LIBDEF
+         INCLUDE  LIBMAC
+*
+M$LEN    EQU      4                 offset of size word
+*
+* p_dispos -- dispose()
+*
+         PROC     P_DISPOS,<DADDR,ADDRESS,DLEN,INTEGER>,P_LDISPO
+
+         BEGIN    P_DISPOS,A0-A4/D0-D2
+         MOVE.L   G.LIB(A5),A4      point to library work area
+         IFNE     STNDALON
+         IFNE     CONCURR
+*
+* Lock system tables if necessary
+*
+         PEA      L.SGATE(A4)       get the gate
+         BEQ.S    NOLOCK            if zero, no lock defined
+         JSB      LOCK              lock system tables
+NOLOCK   ADDQ.L   #4,SP
+         ENDC     concurr
+         ENDC     stndalon
+         MOVE.L   DADDR(A6),A0      get address of pointer
+         MOVE.L   (A0),D0           get address of block to dispose of
+         MOVE.L   D0,A0             save address
+         IFNE     LIBCHECK
+         MOVE.L   #IMPROB,D1        improbable value ready for use
+*
+* First we validate the pointer, giving as explicit a diagnostic
+* as possible.
+*
+         CMP.L    #NIL,D0           check for a nil pointer
+         BNE.S    DIS1              it's not
+         ERROR    E.DISNIL          attempt to dispose of a nil pointer
+DIS1     BTST     #0,D0             check for an odd pointer
+         BEQ.S    DIS2              a regulation even model
+DISBAD   ERROR    E.DISBAD          dispose argument never allocated with new
+DIS2     CMP.L    L.GLOBA(A4),D0    see if it points into the heap
+         BCS.S    DISBAD            below the heap
+         CMP.L    L.HIGH(A4),D0     see if this was ever in the heap
+         BCC.S    DISBAD            no, can't have been valid
+         CMP.L    -4(A0),D1         see if improbable value
+         BNE.S    DIS3              no
+DOUBL    ERROR    E.DOUBLE          pointer already disposed
+DIS3     CMP.L    L.HEAP(A4),D0     see if in current heap
+         BCC.S    DOUBL             no, probable double dispose
+         CMP.L    -4(A0),A0         check for valid pointer
+         BEQ.S    DISGO             it is, we can actually dispose of it
+*
+* Pointer check failed, see if an existing block
+*
+         SUB.L    #4,D0             actual start of block
+         MOVE.L   L.FREE(A4),A1     start of free list
+BADCHK   CMP.W    #0,A1             end of chain?
+         BEQ.S    DISBAD            yep, bad pointer
+         CMP.L    D0,A1             an existing block?
+         BEQ.S    DOUBL             yep, double dispose
+         MOVE.L   (A1),A1           next item on the chain
+         BRA.S    BADCHK
+         ENDC     libcheck
+*
+* Now we have a validated pointer, and can dispose of it
+*
+* First set up the start of block and length.
+*
+* From here on, A0 is the actual block address, D0 the length
+*
+DISGO    SUB.L    #4,D0             ignore check word
+         MOVE.L   D0,A0             a0 has actual block address
+         MOVE.L   DLEN(A6),D0       length as advertised
+         ADD.L    #11,D0            add check and round up
+         AND.B    #$F8,D0           to multiple of 8 bytes
+*
+* Now search the current free list to find where it goes
+*
+* After the search, registers have the following uses
+*
+*       A0      block being disposed of
+*       A1      following block
+*       A2      preceeding block
+*       A3      block preceeding A2 (if any)
+*
+         LEA      L.FREE(A4),A1     start of free list
+         MOVE.L   A1,A2             all start here
+DISSRCH  MOVE.L   A2,A3             save second preceeding
+         MOVE.L   A1,A2             save preceeding
+         MOVE.L   (A1),A1           get next on the list
+         CMP.W    #0,A1             end of list?
+         BEQ.S    DISFOUND          yep
+         CMP.L    A0,A1             is this beyond the new block?
+         BCS.S    DISSRCH           no, keep looking
+         IFNE     LIBCHECK
+         BEQ.S    DOUBL             shouldn't happen, after pointer check
+         ENDC     libcheck
+*
+* We have the place where it fits.  There are two tasks now.
+* The first is merging with the blocks on either side of it, and
+* the second is keeping track of the space to be cleared to improb.
+*
+* From here on, A0 points to the block being considered (with all
+* merges taken into account), and A4 points to the start of the area
+* to be cleared.
+*
+* First check the previous block and merge if possible
+*
+DISFOUND MOVE.L   A2,A4             use a4 as scratch for now
+         ADD.L    M$LEN(A2),A4      end of previous block
+         CMPA.L   A0,A4             compare with start of new block
+         BEQ.S    MRGLO             exact match, merge the blocks
+         IFNE     LIBCHECK
+         BCC.S    DOUBL             oops, shouldn't happen
+         ENDC     libcheck
+         ADD.W    #7,A4             see if within tolerance
+         CMPA.L   A0,A4
+         BCS.S    NOMRGLO           no, can't merge with lower block
+*
+* Merge with previous block
+*
+         SUB.W    #7,A4             clear from end of previous block
+MRGLO    ADD.L    A0,D0             compute new length from end of current
+         SUB.L    A2,D0             to start of previous
+         MOVE.L   A2,A0             previous block is now current
+         MOVE.L   D0,M$LEN(A0)      set new length into block
+         BRA.S    CHKHI             and go to check for high end
+*
+* No merge, link in this block
+*
+NOMRGLO  MOVE.L   A1,(A0)           set next link in block
+         MOVE.L   D0,M$LEN(A0)      and length
+         MOVE.L   A0,(A2)           link previous to the new block
+         LEA      8(A0),A4          clear data area of block
+         MOVE.L   A2,A3             this is the real prevous block
+*
+* Now we check and see if we can merge with the following block
+*
+* A2 at exit will indicate end of clear area
+*
+CHKHI    MOVE.L   A0,A2             a2 is now free, compute end of block
+         ADD.L    D0,A2             a2 is also clear area end
+         CMP.W    #0,A1             is there a next block?
+         BEQ.S    DISCLEAR          no, on to clearing storage
+         CMPA.L   A1,A2             next block, see if adjacent
+         BEQ.S    MRGHI             exactly so, merge
+         IFNE     LIBCHECK
+         BHI      DISBAD            shouldn't happen, but better safe...
+         ENDC     libcheck
+         ADD.W    #7,A2             add in margin
+         CMPA.L   A1,A2             see if it matches this time
+         BCC.S    MRGHI             it does, so merge it
+         SUB.W    #7,A2             reset a2 to end of current block
+         BRA.S    DISCLEAR          and clear what we have
+*
+* The blocks are adjacent, so merge them
+*
+MRGHI    LEA      8(A1),A2          clear to end of link data
+         MOVE.L   (A1),(A0)         link past the block
+         MOVE.L   M$LEN(A1),D0      compute new length
+         ADD.L    A1,D0             from start of previous
+         SUB.L    A0,D0             to end of next block
+         MOVE.L   D0,M$LEN(A0)      updated length to merged block
+*
+* Now clear the block to an improbable value
+*
+DISCLEAR EQU      *
+         IFNE     LIBCHECK
+         CMP.L    A2,A4             we may have none, so test is first
+         BCC.S    CLEARED           all done
+         MOVE.W   D1,(A4)+          clear a word to improb
+         BRA.S    DISCLEAR
+CLEARED  EQU      *
+         ENDC     libcheck
+*
+* The dispose is now done, unless this is the last block on the
+* list, in which case we compare it with l.heap and adjust l.heap
+* downward if we can.
+*
+         TST.L    (A0)              end of the chain?
+         MOVE.L   G.LIB(A5),A4      recover library pointer
+         BNE.S    DISRET            no, just return
+         MOVE.L   A0,A1
+         ADD.L    D0,A1             end of current block
+         MOVE.L   L.HEAP(A4),A2
+         CMP.L    A1,A2             check end of block with end of heap
+         BEQ.S    ADJUST            they match, adjust l.heap
+         IFNE     LIBCHECK
+         BCS      DISBAD            shouldn't happen
+         ENDC     libcheck
+         ADD.W    #8,A1             now check for the margin
+         CMP.L    A1,A2
+         BCC.S    DISRET            still no go
+         IFNE     LIBCHECK
+         SUB.W    #8,A1             it works, fill margin with improb
+CLR1     MOVE.W   D1,(A1)+
+         CMP.L    A1,A2
+         BCS.S    CLR1
+         ENDC     libcheck
+*
+* This was the last block, adjust l.heap
+*
+ADJUST   CLR.L    (A3)              mark previous block as end
+         MOVE.L   A0,L.HEAP(A4)     heap points to start of this block
+         IFNE     LIBCHECK
+         MOVE.L   D1,(A0)+          clear link area
+         MOVE.L   D1,(A0)
+         ENDC     libcheck
+         MOVE.L   L.SCHK(A4),A1     location of stack check word
+         CMP.W    #0,A1             is there one?
+         BEQ.S    DISRET            no
+         ADD.W    #TRAPMIN-4,A0     compute new overflow check
+         MOVE.L   A0,(A1)           and store it
+DISRET   EQU      *
+         IFNE     STNDALON
+         IFNE     CONCURR
+         TST.L    L.SGATE(A4)       see if we have to unlock
+         BEQ.S    NOUNLOCK          not if it's empty
+         JSB      UNLOCK
+NOUNLOCK EQU      *
+         ENDC     concurr
+         ENDC     stndalon
+         ENDPR    P_DISPOS
+         END

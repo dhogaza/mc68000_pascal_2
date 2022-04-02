@@ -1,0 +1,171 @@
+FROUND   IDNT     2,2      Round Single Real to 16-bit Integer
+         TTL      Round Single Real to 16-bit Integer
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Round Single Real to 16-bit Integer
+*
+* Last modified by KRIS on 26-Nov-1990 13:57:13
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+         PAGE
+
+         INCLUDE  LIBDEF
+         INCLUDE  LIBMAC
+         INCLUDE  FPPDEF
+
+         XDEF     P_FROUND
+
+***********************************************************
+*
+*  round(x)  --  round real value to integer (p_fround)
+*
+*    entry conditions:
+*      D4.L = 32-bit real input value
+*
+*    exit conditions:
+*      D4.L = 32-bit integer
+*      CCR = (N and Z flags conditionally set, V = 0)
+*
+*    error conditions:
+*      "invalid operand"  if  x.exponent = 255
+*      "integer overflow" if  not(-2^31 < round(x) < 2^31)
+*          (or if integer=2,  not(-2^15 < round(x) < 2^15))
+*
+*    algorithm:
+*      The exponent is left rotated into d4.b for range testing.
+*      If in range, the shift count is also in d4.b.  Exponent
+*      values of 126, 127, and 158 (if fraction = -2^31)
+*      receive special handling.
+*
+***********************************************************
+
+
+P_FROUND:
+         ROL.L    #8,D4             ;sign to bit 7
+         BMI.S    ODDEXPON          ;bit 31 is LSB of exponent
+
+         ADD.B    D4,D4             ;force sign to x-flag
+         BPL.S    TEST126           ;no integer part exists
+
+         BSET     #31,D4            ;set implied bit (it was zero)
+         BCS.S    NEGEVEN           ;split off negative values
+
+         NOT.B    D4                ;invert exponent for right shift
+         ADDI.B   #159,D4           ;drives exp 128 --> 30, 158 --> 0,
+         BLE.S    OVERROR           ;exp 143 and greater now negative
+
+POSROUND:
+         LSR.L    D4,D4             ;variable shift right 1..30 places
+         BCC.S    POSEXIT           ;if rounding bit = 0
+
+         ADDQ.L   #1,D4             ;round up
+         BMI.S    OVERROR           ;+2147483647.5 rounds into overflow
+
+POSEXIT  RTS
+
+********************************
+
+NEGEVEN:
+         NOT.B    D4                ;invert exponent for right shift
+         ADDI.B   #159,D4           ;drives exp 128 --> 30, 158 --> 0,
+
+         BLE.S    TESTHI            ;exp 159 and greater now negative
+
+NEGROUND LSR.L    D4,D4             ;variable shift right 1..30 places
+         BCC.S    NEGEXIT           ;if rounding bit = 0
+
+         ADDQ.L   #1,D4             ;round up (overflow cannot occur!)
+
+NEGEXIT  NEG.L    D4                ;2's complement result
+         RTS
+
+********************************
+
+TEST126  CMPI.B   #126,D4
+         BEQ.S    MAKEONES
+
+MAKEZERO MOVEQ    #0,D4
+         RTS
+
+******
+
+TEST127  CMPI.B   #126,D4
+         BLT.S    MAKEZERO
+
+         ROL.L    #1,D4             ;drive bit 30 to bit 31
+         BMI.S    MAKETWOS          ;if round bit is set
+
+MAKEONES SUBX.L   D4,D4             ;minus to -1, plus to 0
+         BMI.S    EXITONE
+
+         MOVEQ    #1,D4             ;convert 0 to +1
+EXITONE  RTS
+
+
+MAKETWOS SUBX.B   D4,D4             ;test sign
+         BMI.S    MINUSTWO
+
+         MOVEQ    #2,D4
+         RTS
+
+MINUSTWO MOVEQ    #-2,D4
+         RTS
+
+********************************
+
+TESTHI   BNE.S    OVERROR           ;if exponent > 142 (cannot be 255)
+         CLR.B    D4                ;remove exponent
+         NEG.L    D4                ;$80000000 will remain $80000000
+         BPL.S    OVERROR           ;other values will become positive
+         RTS
+
+********************************
+
+ODDEXPON ADD.B    D4,D4             ;force sign to x-flag
+         BPL.S    TEST127           ;value may lie between 1 and 2
+
+         BCS.S    NEGODD            ;split off negative values
+
+         NOT.B    D4                ;invert exponent for right shift
+         ADDI.B   #158,D4           ;drives exp 128 --> 30, 158 --> 0,
+         BGT.S    POSROUND          ;exp 159 and greater now negative
+         BRA.S    TEST255           ;look for invalid operand
+
+NEGODD   NOT.B    D4                ;invert exponent for right shift
+         ADDI.B   #158,D4           ;drives exp 128 --> 30, 158 --> 0,
+         BGT.S    NEGROUND          ;exp 159 and greater now negative
+
+********************************
+
+TEST255:
+         CMPI.B   #159,D4           ;original exp of 255 now = 159
+         BEQ.S    INVERROR
+
+OVERROR:
+         LIBFRAME
+         MERROR   <'Integer overflow in round()'>
+
+INVERROR:
+         LIBFRAME
+         MERROR   <'Invalid operand in round()'>
+
+
+         END

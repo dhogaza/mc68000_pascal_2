@@ -1,0 +1,374 @@
+CALLTA   IDNT     2,2      Call task subroutine
+         TTL      Call task subroutine
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Call task subroutine
+*
+* Last modified by KRIS on 26-Nov-1990 14:07:11
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+* procedure calltask(fname: str8 {filename to load})
+*
+* Pascal callable routine to load a new task and wait for it's
+* termination.  The Pascal work segment 'PAW$' and all open files
+* are passed to the subtask when it is opened, and any files open
+* at the end are passed back to the main task.
+*
+* Fname specifies the file name of the task image (.lo) which contains
+* the new instruction space.  It must be linked using the special
+* initialization routine "CALLTASK" which will replace "LINKDE",
+* "INITIA" and "TERM".  The called task will begin execution at
+* its normal starting location with the heap and library work area
+* left intact.  The current stack pointer will be passed in A1,
+* and the current global pointer will be left in A5.
+*
+* The command line will be passed on.
+*
+* The routine will search for the new task image in the user's default
+* directory, and if not found there, in the system directory.  This
+* is the normal search sequence for commands.  This means that the user
+* cannot run the calling task from some remote and explicitly named
+* directory or catalog.
+*
+* The general approach is:
+*
+* 1.    Establish an ASQ and ASR in case they are not there
+* 2.    Load the new task.
+* 3.    Declare the segment "PAW$" shareable.
+* 4.    Transfer all open files to the new task.
+* 5.    Start the new task.
+* 6.    Wait for the task to pass a message back
+* 7.    Retrieve all open files
+* 8.    Terminate the subtask
+*
+         PAGE
+         INCLUDE  PASMAC
+         INCLUDE  LIBDEF
+         INCLUDE  VDOSDE
+         INCLUDE  FHSDEF
+         INCLUDE  LOADDE
+         INCLUDE  EVNTDE
+         SECTION  8
+         OPT      BRS
+*
+*       Constants
+*
+STR8     EQU      8                 file name length
+*
+         IFGE     FH.SIZE-SG.SIZE-4
+FS.SIZE  EQU      FH.SIZE           max of fh.size and sg.size+4
+         ENDC
+         IFLT     FH.SIZE-SG.SIZE-4
+FS.SIZE  EQU      SG.SIZE+4
+         ENDC
+*
+         XREF     WORK$$            workspace address
+         XREF     P_EXIT            abort routine
+*
+* Dumb checking macro, just aborts
+*
+DUMBCHK  MACRO
+         BEQ      DUM\@
+         MOVE.W   D0,A0
+         ERQ      ABORT$
+DUM\@    EQU      *
+         ENDM
+         PAGE
+*
+* Long-term register assignments:
+*
+*       A4      Library work area address
+*       A0      current packet
+*
+         PROC     CALLTASK,<FNAME,STR8>
+
+         VAR      FS.PKT,FS.SIZE    fhs and seg packet (overlayed)
+         VAR      LO.PKT,LO.SIZE    loader packet
+
+         BEGIN    CALLTASK,A0-A4/D0-D7
+         MOVE.L   G.LIB(A5),A4
+
+         ERQ      DEASQ$            deallocate an existing queue
+         IFEQ     PIC
+         ERQ      GTASQ$,ASQPKT(PC) establish the asq and asr
+         ENDC     nopic
+         IFNE     PIC
+         LEA.L    ASRROUT(PC),A1
+         MOVE.L   G.OWN(A5),A0      pointer to read/write segment
+         XREF     P_OWN
+         ADDA.L   #ASQPKT-P_OWN,A0  calculate the asq packet address
+         MOVE.L   A1,PATLOC(A0)
+         ERQ      GTASQ$            establish the asq and asr
+         ENDC     pic
+         PAGE
+*
+* We are going to use the values from the load module to fill in the
+* task control block, so we don't need to use that.
+*
+         LEA      LO.PKT+LO.FH(A6),A0        fhs packet for the loader
+         MOVE.L   L.VOLN(A4),FH.VOLN(A0)     user default volume
+         MOVE.W   L.USER(A4),FH.USERN(A0)    current user number
+         MOVE.L   L.CAT(A4),FH.CATNM(A0)     user default catalog
+         MOVE.L   L.CAT+4(A4),FH.CATNM+4(A0)
+         MOVE.L   FNAME(A6),FH.FILEN(A0)     requested file name
+         MOVE.L   FNAME+4(A6),FH.FILEN+4(A0)
+         MOVE.W   #'LO',FH.EXT(A0)  use .lo extension only
+         CLR.W    FH.RESV(A0)
+         LEA      LO.PKT(A6),A0
+         MOVE.W   #LO.ASG$+LO.CMD$,LO.OPT(A0)
+         MOVE.B   L.COML+1(A4),LO.CLL(A0)    set command line length
+         LEA.L    COMMAND(PC),A1
+         MOVE.L   A1,LO.CMD(A0)     set command line address
+         MOVE.L   A0,A1             save for later use
+         LOAD
+         BEQ      LOADED            All went well, it's loaded
+*
+* If there was some sort of error, we will try again with system
+* default values before giving up.
+*
+         LEA      LO.PKT+LO.FH(A6),A0        start of fhs block again
+         MOVE.L   #'    ',D0        we will use blanks a lot
+         MOVE.L   D0,FH.VOLN(A0)    system default volume
+         CLR.L    FH.USERN(A0)      system library number
+         MOVE.L   D0,FH.CATNM(A0)   blank catalog
+         MOVE.L   D0,FH.CATNM+4(A0)
+         LEA      LO.PKT(A6),A0     back to the loader packet
+         LOAD
+         BEQ      LOADED
+         MERROR   <'Unable to load subtask.'>
+         PAGE
+*
+* We have the task loaded, in a dormant state.  We should now make the
+* work segment sharable and share it with the new task
+*
+LOADED   LEA      FS.PKT(A6),A0     working with the segment packet
+         CLR.W    SG.OPT(A0)        setting only sharable attributes
+         MOVE.W   #SG.LSH$,SG.ATTR(A0)       make it locally sharable
+         MOVE.L   #'PAW$',SG.NAME(A0)        work segment
+         ERQ      DCLSHR$           should now be sharable
+*
+* Ignore the error caused returned by RMS68K for segment which already
+* has been transformed to a shareable one.
+*
+         PAGE
+*
+* Now it's time to send the logical units to the new task.
+* Note that the "CLU" operation requires an explicit session
+* number unlike all other uses of the session number
+*
+         LEA      FS.PKT(A6),A0     the previous trap destroys A0
+         MOVE.W   #FH.UCMD$<<8+FH.CLU$,FH.CODE(A0)
+         CLR.W    FH.OPT(A0)        send without keeping
+         CLR.L    FH.STAT(A0)
+         MOVE.L   LO.TCB+TK.NAME(A1),FHC.TN(A0)       task name and session
+         MOVE.L   LO.TCB+TK.SES(A1),FHC.TS(A0)
+*
+         MOVE.L   L.LUNS(A4),D7     logical unit mask
+         BCLR     #0,D7             clear out the "interractive" flag
+         MOVE.L   #1,D6             check logical units
+MOVELU   BCLR     D6,D7
+         BEQ      NEXTMOVE          empty, try the next
+         MOVE.B   D6,FH.LUN(A0)     move this one
+         MOVE.B   D6,FHC.LUB(A0)
+         FHS
+NEXTMOVE ADD.L    #1,D6
+         TST      D7                all gone?
+         BNE.S    MOVELU            no, keep going
+         PAGE
+* Set up the library to use the current task as the father and
+* the new task as the current task
+*
+         MOVE.L   L.FATHER(A4),-(SP)         save the father
+         MOVE.L   L.TASKN(A4),L.FATHER(A4)   the current task is the father
+         MOVE.L   LO.PKT+LO.TCB+TK.NAME(A6),L.TASKN(A4)
+*
+* Now we simply set the initial registers and start the task
+*
+         LEA      LO.PKT+LO.TCB(A6),A0       use tcb from loader
+         MOVE.W   #STK.MSP$+STK.REG$,TK.OPT(A0)       specify registers
+*
+* Explicit use of the current task and session name does not
+* appear to work.  You must use zero and let the system do
+* the defaulting.
+*
+         CLR.L    TK.MON(A0)        specify self as monitor
+         CLR.L    TK.MSES(A0)       and own session
+         MOVE.L   A7,A1             pass current stack pointer
+         MOVEM.L  D0-D7/A0-A6,STK.REG(A0)    current registers to packet
+         ERQ      START$            start the new task
+         DUMBCHK
+         PAGE
+* Next action is to wait for a message from the task we just
+* started.  This is issued just prior to termination, and
+* says that it is time to get the open files back.
+*
+* The ASR must be disabled after its call or it keeps getting
+* an interrupt until the event is read.  The only reason we
+* have an ASR at all in this case is because the system seems to
+* insist on one.
+*
+         ERQ      WTEVNT$           wait for an event
+         ERQ      RDEVNT$,FS.PKT(A6)         read the event
+         MOVE.B   FS.PKT+EV.CODE(A6),D0      check the event kind
+         CMP.B    #5,D0             some kind of termination?
+         BNE      USEREVNT          no, probably user event
+         CLR.L    D0                get the d0 code
+         MOVE.W   FS.PKT+EVT.D0(A6),D0
+         SWAP     D0                in the upper half of d0
+         MOVE.B   FS.PKT+EVT.TCOD(A6),D1     termination code
+         CMP.B    #1,D1             normal termination?
+         BNE      WASABORT          no, was an abortion
+         MOVE.W   #TERM$,D0         normal, pass the termination through
+         ERQ
+WASABORT MOVE.W   FS.PKT+EVT.ACOD(A6),A0     pass through the abort code
+         MOVE.W   #ABORT$,D0        abort us all.
+         ERQ
+*
+USEREVNT CMP.B    #3,D0             see if actually a user event
+         BEQ      RLYWAS            yes
+         MOVE.W   D0,A0             no, abort it anyway
+         ERQ      ABORT$
+*
+* Stop the task and recover the open files.
+*
+* Note that we have to use "stop" to make sure that the task is
+* really available for passing logical units back.  If we rely on
+* the fact that we called "suspnd" in the dependent task, we don't
+* know that that code has in fact executed.
+*
+* This code doesn't work with VERSAdos systems prior to 3.0
+*
+RLYWAS   ERQ      STOP$,LO.PKT+LO.TCB(A6)    stop the subtask
+         LEA      FS.PKT(A6),A0     the previous trap destroys A0
+         MOVE.W   #FH.UCMD$<<8+FH.CLU$,FH.CODE(A0)
+         MOVE.W   #FHC.REC$,FH.OPT(A0)       receive logical unit
+         CLR.L    FH.STAT(A0)
+         MOVE.L   LO.PKT+LO.TCB+TK.NAME(A6),FHC.TN(A0)         task name and session
+         MOVE.L   LO.PKT+LO.TCB+TK.SES(A6),FHC.TS(A0)
+*
+         MOVE.L   L.LUNS(A4),D7     logical unit mask
+         BCLR     #0,D7             clear out the "interractive" flag
+         MOVE.L   #1,D6             check logical units
+GETLU    BCLR     D6,D7
+         BEQ      NEXTGET           empty, try the next
+         MOVE.B   D6,FH.LUN(A0)     move this one
+         MOVE.B   D6,FHC.LUB(A0)
+         FHS
+NEXTGET  ADD.L    #1,D6
+         TST      D7                all gone?
+         BNE.S    GETLU             no, keep going
+*
+* Terminate the routine and wait for the message.
+*
+* If we just terminate the task using "TERMT", which seems like
+* the obvious thing to do, we get a message printed at the terminal.
+* The solution is to get the task going again, then let it terminate.
+* To do this we have to use "START", followed by "RESUME" in case the
+* task had not executed the "SUSPND" by the time it was stopped.
+*
+         MOVE.W   #5,A0             enable asr and asq
+         ERQ      SETASQ$
+         LEA      LO.PKT+LO.TCB(A6),A0       use tcb from loader
+         MOVE.W   #STK.MSP$,TK.OPT(A0)       specify monitor only
+         CLR.L    TK.MON(A0)        specify self as monitor
+         CLR.L    TK.MSES(A0)       and own session
+         ERQ      START$
+* We have to make sure that the subtask is in the 'suspend' state.
+* If we resume a task, that is not in 'suspend' state, the request is
+* ignored and both tasks will wait forever: the current one for
+* the termination message, the subtask for a 'resume' state.
+RESTART
+         ERQ      RESUME$
+         CMP.W    #$A,D0            was the task suspended ?
+         BEQ.S    RESTART           no, so try again
+         ERQ      WTEVNT$           wait for the message
+         ERQ      RDEVNT$,FS.PKT(A6)         get the termination message
+         IFNE     PIC
+*
+* Restore the adddress of the read/write segment
+*
+         ERQ      RCVSA$,SEG2(PC)   where is SEG2 ?
+SEAOWN
+         TST.L    (A0)+             bump address by 4 bytes
+         CMP.L    #P_OWN,(A0)       check if this is the p_own
+         BNE      SEAOWN            no, keep looking
+         CMP.L    #'pown',4(A0)
+         BNE      SEAOWN
+         CMP.L    #'pown',-4(A0)
+         BNE      SEAOWN
+         MOVE.L   A0,G.OWN(A5)      restore the pointer
+         ENDC     pic
+         XREF     P_PMA
+         LEA      P_PMA(PC),A0      load pma address
+         MOVE.L   A0,L.PMA(A4)      restore it
+         MOVE.L   L.FATHER(A4),L.TASKN(A4)   restore task name
+         MOVE.L   (SP)+,L.FATHER(A4)
+*
+* If l.abort is non-zero, the called task quit with an exitst call,
+* so call the termination routine, which will actually terminate
+* the program
+*
+         TST.W    L.ABORT(A4)       see if called task aborted
+         BEQ.S    NOABORT           no
+         JSR      P_EXIT(PC)        yes, terminate this task
+NOABORT  EQU      *                 all normal
+         ENDPR    CALLTASK          so quit
+*
+* Asq definition packet
+*
+         IFEQ     PIC
+ASQPKT   DC.L     0                 task, ourself
+         DC.L     0                 sesson, ourself
+         DC.B     5                 asr and asq enabled
+         DC.B     EVT.SIZE          termination message is biggest
+         DC.L     EVT.SIZE          only one allowed
+         DC.L     ASRROUT           current asr routine
+         ENDC     nopic
+         IFNE     PIC
+P_ASQPKT SECTION  15
+ASQPKT   DC.L     0                 task, ourself
+         DC.L     0                 sesson, ourself
+         DC.B     5                 asr and asq enabled
+         DC.B     EVT.SIZE          termination message is biggest
+         DC.L     EVT.SIZE          only one allowed
+PATLOC   EQU      *-ASQPKT
+         DC.L     0                 current asr routine
+         SECTION  8
+SEG2     DC.L     0                 current task
+         DC.L     0                 session number (ignored)
+         DC.W     $2000             use a0 for returned info (rcvsa$)
+         DC.W     0                 seg attributes
+         DC.L     'SEG2'            default read/write segment's name
+         DC.L     0
+         DC.L     0
+         DC.L     0
+         ENDC     pic
+*
+* ASR routine, a simple one
+*
+ASRROUT  MOVE.W   #0,A0             disable asr
+         ERQ      RTEVNT$
+*
+* Command line
+*
+COMMAND  COMLINE                    132
+         END

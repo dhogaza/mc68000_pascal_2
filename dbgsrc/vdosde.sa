@@ -1,0 +1,247 @@
+*        include vdosde
+         NOLIST
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1981, 1982, 1983, 1984, 1985, 1986, 1987, 1988
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Defines constants and structures for VERSADOS system calls
+*
+* Last modified by KRIS on 26-Nov-1990 14:09:12
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+         PAGE
+* Definition of Trap 1 directives.
+*
+* Used in memory management and task control
+*
+GTSEG$   EQU      1                 allocate a segment
+DESEG$   EQU      2                 deallocate a segment
+TRSEG$   EQU      3                 transfer a segment
+ATTSEG$  EQU      4                 attach a sharable segment
+SHRSEG$  EQU      5                 grant shared segment access
+MOVELL$  EQU      6                 move logical data
+DCLSHR$  EQU      7                 declare a segment sharable
+SNPTRC$  EQU      8                 shapshot of system trace
+RCVSA$   EQU      9                 receive segment attributes
+GTTASKID$         EQU      10       get target tasks's task_id
+CRTCB$   EQU      11                create task control block
+GTTASKNM$         EQU      12       get target task's taskname and sessions
+*                                        number
+START$   EQU      13                task to ready from dormant
+ABORT$   EQU      14                task aborts itself
+TERM$    EQU      15                task terminates itself
+TERMT$   EQU      16                task is terminated
+SUSPND$  EQU      17                task moves to suspend
+RESUME$  EQU      18                task to ready from suspend
+WAIT$    EQU      19                task moves to wait
+WAKEUP$  EQU      20                task to ready from wait
+DELAY$   EQU      21                task moves to delay
+RELINQ$  EQU      22                task to ready from run
+TSKATTR$ EQU      23                receive task user number and attributes
+SETPRI$  EQU      24                change priority
+STOP$    EQU      25                task to dormant
+EXPVCT$  EQU      26                announce exception vectors
+TRPVCT$  EQU      27                announce trap vectors
+TSKINFO$ EQU      28                receive copy of tcb
+RQSTPA$  EQU      29                request periodic activation
+DELAYW$  EQU      30                "delay", "wtevnt", and "wait" functions
+*                                        are performed
+GTASQ$   EQU      31                allocate asynch service que
+DEASQ$   EQU      32                deallocate asynch service que
+SETASQ$  EQU      33                change ASQ/ASR status
+RDEVNT$  EQU      34                read event from ASQ
+QEVNT$   EQU      35                queue event to ASQ
+WTEVNT$  EQU      36                task to wait for event state
+RTEVNT$  EQU      37                return after ASR service
+GTEVNT$  EQU      38                get an event
+RESVCT$  EQU      39                claim reserved vectors
+CRXTCB$  EQU      40                create xtcb in order to use mc86020
+*                                        coprocessor interface
+ATSEM$   EQU      41                attach to semaphore
+WTSEM$   EQU      42                wait on semaphore
+SGSEM$   EQU      43                signal semaphore
+DESEM$   EQU      44                detach from semaphore
+CRSEM$   EQU      45                create semaphore
+DESEMA$  EQU      46                detach from all semaphores
+*
+ABORTC$  EQU      49                critical task aborts itself
+*
+SERVER$  EQU      51                task is made a server
+DSERVE$  EQU      52                deallocate server function
+DERQST$  EQU      53                set user/server request status
+AKRQST$  EQU      54                server acknowledge request
+*
+CDIR$    EQU      58                configure a new directive
+SUPER$   EQU      59                temporary transfer to supervisor
+*                                        mode
+*
+CISR$    EQU      61                configure ISR
+SINT$    EQU      62                simulate interrupt
+CEXMSK$  EQU      63                set coprocessor exmon mask
+EXMON$   EQU      64                attach exception monitor
+DEXMON$  EQU      65                detach exception monitor
+EXMMSK$  EQU      66                set exception monitor mask
+RSTATE$  EQU      67                receive task state
+PSTATE$  EQU      68                modify task state
+REXMON$  EQU      69                run task under monitor cont.
+CPSTAT$  EQU      70                put co-processor task state
+CRSTAT$  EQU      71                get co-processor task state
+MOVEPL$  EQU      72                move from physical address
+STDTIM$  EQU      73                set date and time
+GTDTIM$  EQU      74                get date and time
+FLUSHC$  EQU      75                flush user cache
+         PAGE
+* Control blocks for segment directives
+*
+*
+* Memory Segment Block
+*
+         OFFSET   0
+*
+SG.TSK   DS.L     1                 task name
+SG.SES   DS.L     1                 session
+SG.OPT   DS.W     1                 directive options
+SG.ATTR  DS.W     1                 segment attributes
+SG.NAME  DS.L     1                 segment name
+SG.ADDR  DS.L     1                 logical address
+SG.LEN   DS.L     1                 segment length
+SG.SIZE  DS.B     0                 size of segment block
+RSG.BUF  DS.L     1                 buffer for rcvsa$ only
+RSG.SIZE DS.B     0                 size of rcvsa block only
+*
+* Segment data buffer for rcvsa$
+*
+         OFFSET   0
+SB.NAME  DS.L     1                 segment name
+SB.ATTR  DS.W     1                 segment attributes
+SB.BEG   DS.L     1                 beginning logical address
+SB.END   DS.L     1                 ending logical address
+SB.PHYS  DS.L     1                 physical address
+*
+* Segment attributes
+*
+SG.RO$$  EQU      14                read only
+SG.LSH$$ EQU      13                locally shareable
+SG.GSH$$ EQU      12                globally shareable
+SG.IO$$  EQU      11                segment is I/O space
+SG.ROM$$ EQU      10                segment is physical ROM
+*
+SG.RO$   EQU      1<<SG.RO$$        read only
+SG.LSH$  EQU      1<<SG.LSH$$       locally shareable
+SG.GSH$  EQU      1<<SG.GSH$$       globally shareable
+SG.IO$   EQU      1<<SG.IO$$        segment is I/O space
+SG.ROM$  EQU      1<<SG.ROM$$       segment is physical rom
+*
+* Segment options
+*
+SG.ASP$  EQU      $8000             attributes specified
+SG.LOG$  EQU      $4000             logical address specified
+SG.PHY$  EQU      $2000             log addr = phys addr
+SG.PRM$  EQU      $1000             make segment permanent
+SG.NOPM$ EQU      $800              remove permanent status
+SG.LEN$  EQU      $400              length is specified
+SG.WAIT$ EQU      $400              wait for memory (gtseg$)
+SG.LRG$  EQU      $200              take largest available
+SG.PHLC$ EQU      $100              use physical addr specified
+SG.PART$ EQU      $80               partition specified
+         PAGE
+* Control blocks for semaphore directives
+*
+* Semaphore parameter block
+*
+         OFFSET   0
+*
+SM.NAME  DS.L     1                 semaphore name
+SM.KEY   DS.L     1                 semaphore key
+SM.CNT   DS.B     1                 initial count
+SM.TYPE  DS.B     1                 semaphore type
+SM.SIZE  DS.B     0                 size of semaphore block
+         PAGE
+* Definitions for task control directives
+*
+* Basic task control block (common part)
+*
+         OFFSET   0
+TK.NAME  DS.L     1                 name of task
+TK.SES   DS.L     1                 session
+TK.OPT   DS.W     1                 directive options
+TK.MON   DS.L     1                 monitor task name
+TK.MSES  DS.L     1                 monitor session
+TK.SIZE  DS.B     0                 size of basic block
+*
+* Create task control block (crtcb$)
+*
+         OFFSET   TK.SIZE
+CTK.IPRI DS.B     1                 initial priority
+CTK.LPRI DS.B     1                 limit priority
+CTK.ATTR DS.W     1                 task attributes
+CTK.ENTR DS.L     1                 task entry point
+CTK.ID   DS.W     1                 user generate id
+CTK.SIZE DS.B     0                 size of task control block
+*
+CTK.MSP$ EQU      $8000             monitor specified
+CTK.MPR$ EQU      $4000             monitor propagated
+*
+* Start task block (start$)
+*
+         OFFSET   TK.SIZE
+STK.REG  DS.B     60                new registers
+STK.SIZE DS.B     0
+*
+STK.MSP$ EQU      $8000             monitor specified
+STK.MPR$ EQU      $4000             monitor propagated
+STK.REG$ EQU      $2000             registers specified
+*
+* Queue event to task
+*
+         OFFSET   0
+QE.TNAME DS.L     1                 destination task name
+QE.TSES  DS.L     1                 destination task session
+QE.OPT   DS.W     1                 options
+QE.ADDR  DS.L     1                 event address
+QE.SIZE  DS.B     1                 size of block
+         PAGE
+*
+* control block for gtdtim
+*
+         OFFSET   0
+GT.DATE  DS.L     1                 date in days since 1980
+GT.TIME  DS.L     1                 milliseconds from midnight
+GT.SIZE  DS.B     0                 size of block
+         PAGE
+*
+* executive request generation macro
+*
+*
+ERQ      MACRO
+         NOLIST
+         OPT      MEX
+         LIST
+         IFNC     '\2',''
+         LEA      \2,A0
+         ENDC
+         IFNC     '\1',''
+         MOVE.L   #\1,D0
+         ENDC
+         TRAP     #1
+         NOLIST
+         OPT      NOMEX
+         LIST
+         ENDM
+         LIST

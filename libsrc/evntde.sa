@@ -1,0 +1,68 @@
+*        include evntde
+         NOLIST
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Definition of standard event values and formats
+*
+* Last modified by KRIS on 26-Nov-1990 14:09:46
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+* Structures of events
+*
+         PAGE
+*
+* Event codes
+*
+EV.IOC$  EQU      1                 I/O completion message
+EV.ISR$  EQU      2                 return from ISR
+EV.USR$  EQU      3                 user created event
+EV.TMO$  EQU      4                 timeout
+EV.TRM$  EQU      5                 subtask termination
+EV.SRV$  EQU      7                 server task request
+EV.EMN$  EQU      $C                exception monitor event
+*
+* Event message formats
+*
+         OFFSET   0
+EV.LEN   DS.B     1                 event length
+EV.CODE  DS.B     1                 event code
+EV.SIZE  DS.B     0                 size of common part
+*
+* User created event
+*
+         OFFSET   EV.SIZE
+EVU.NAME DS.L     1                 task name
+EVU.SES  DS.L     1                 task session
+EVU.MSG  DS.B     0                 message (variable length)
+*
+* Subtask termination event
+*
+         OFFSET   EV.SIZE
+EVT.NAME DS.L     1                 task name
+EVT.SES  DS.L     1                 task session
+EVT.TNAM DS.L     1                 terminating task name
+EVT.TSES DS.L     1                 terminating session
+EVT.TCOD DS.B     1                 termination code
+EVT.ACOD DS.W     1                 abort code
+EVT.D0   DS.W     1                 upper half of D0
+EVT.SIZE DS.B     0                 size of this event
+         LIST

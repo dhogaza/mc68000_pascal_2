@@ -1,0 +1,40 @@
+.title	p2_HEADER	Pascal-2 Compiler "Encrypted" Header
+.ident	\0045.1\
+;
+; NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+;
+;  Copyright (C) 1984 Oregon Software, Inc.
+;  All Rights Reserved.
+;
+;  This program is the property of Oregon Software.  The program or
+;  parts of it may be copied and used only as provided under a signed
+;  license agreement with Oregon Software.  Any support purchased from 
+;  Oregon Software does not apply to user-modified programs.  All copies 
+;  of this program must display this notice and all copyright notices. 
+;  
+;  
+;  Release version: 0045  Level: 1
+;  Processor: All
+;  System: VMS
+;
+; Pascal-2 Compiler "Encrypted" Header
+;
+; Last modified by KRIS on 21-Nov-1990 15:35:42
+; Purpose:
+.if eq 1
+Update release version for PC-VV0-GS0 at 2.3.0.1
+.endc
+
+$B131::
+	.word	^o17617,^o115333,^o115564,^o144302,^o45752,^o161470,^o65517
+	.word	^o154544,^o107676,^o161643,^o74206,^o145703,^o31723,^o123222
+	.word	^o130660,^o37334,^o120732,^o31101,^o141543,^o7712,^o42665
+	.word	^o73235,^o15515,^o131417,^o21362,^o117527,^o167073,^o160467
+	.word	^o1165,^o126332,^o125104,^o57576,^o15067,^o56412,^o160226
+	.word	^o65472,^o171751,^o121332,^o47511,^o26102,^o161544,^o41040
+	.word	^o117760,^o47005,^o603,^o130360,^o130412,^o11733,^o147342
+	.word	^o137552,^o102554,^o46026,^o132742,^o37303,^o34636,^o112612
+	.word	^o151072,^o73346,^o167572,^o173211,^o24161,^o117225,^o133026
+	.word	^o164163,^o34126,^o174021,^o114127,^o157617,^o75717,^o50322
+	.word	^o5756,^o131313,^o151213,^o113512,^o54076
+	.end

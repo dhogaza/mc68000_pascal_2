@@ -1,0 +1,36 @@
+segment seg1
+;$0* matches sections 0-9
+  section $0* $10* $11* $12* $13* $14*
+;%1..%15 match the first 15 .RO files from the command line.
+  include %1 
+  include %2 
+  include %3 
+  include %4 
+  include %5 
+  include %6 
+  include %7 
+  include %8 
+  include %9 
+  include %10 
+  include %11
+  include %12
+  include %13
+  include %14
+  include %15
+;%1..%10 match the first 10 library files from the command line.
+  lib %L1
+  lib %L2
+  lib %L3
+  lib %L4
+  lib %L5
+  lib %L6
+  lib %L7
+  lib %L8
+  lib %L9
+  lib %L10
+  end
+segment seg2
+  section $15*
+  like seg1
+  end
+end

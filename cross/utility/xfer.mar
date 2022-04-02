@@ -1,0 +1,1640 @@
+.title	xfer
+.ident	/V0045/
+;************************************************************************
+;
+;	This software is licensed for use only at a single site.  It
+;	may be copied  with the inclusion of this  copyright notice.
+;	This software, or any other  copies thereof, may not be made
+;	available to  or distributed to  any person or  site without
+;	written approval of an  authorized representative of  Oregon
+;	Minicomputer Software, Inc.   Ownership of this  software is
+;	held by Oregon Minicomputer Software, Inc.   The information
+;	in this software is subject to change without notice. Oregon
+;	Minicomputer Software assumes no responsibility for  the use
+;	or reliability of its software if modified without the prior
+;	written consent of Oregon Minicomputer Software, Inc.
+;
+;	Copyright (C) 1982 Oregon Minicomputer Software, Inc.
+;	Oregon Software and OMSI PASCAL are trademarks
+;	of Oregon Minicomputer Software, Inc.
+;
+;************************************************************************
+;
+; Last modified on 21-Nov-1990 17:20:50 by KRIS
+; Purpose:
+.if eq 1
+
+Update release version for PU-VV0-GS0 at 2.3.0.1
+
+.endc
+.page
+.sbttl	Data definitions -- Buffers
+.enabl	debug
+;
+;
+; Buffers
+;
+; A "buffer" is a data structure used to control I/O.  The first two long
+; words are used by the queue instructions to place the buffer in various
+; queues.  Below is a map of a buffer:
+;
+;	+--------------------------------+
+;	!   used by queue instructions   !	<-- Reference point
+;	+--------------------------------+
+;	!   used by queue instructions   !
+;	+--------------------------------+
+;	!   data length  !  I/O status   !	Buf$_iosb
+;	+--------------------------------+
+;	!                !  terminator   !	Buf$_term
+;	+--------------------------------+
+;	!    length of data in buffer    !	Buf$_len
+;	+--------------------------------+
+;	!   D   !   C    !   B   !   A   !	Buf$_buf (start of data)
+;	+--------------------------------+
+;	:                                :
+;	:              data              :
+;	:                                :
+;	+--------------------------------+
+;						Buf$_size (length of
+;
+line_length	=	140			; Maximum line length
+buf$_iosb	=	8			; I/O status block
+buf$_term	=	12			; Line terminator
+buf$_len	=	16			; Length of data
+buf$_buf	=	20			; Start of data
+buf$_size	=	buf$_buf+line_length	; Size of a buffer
+.page
+.sbttl	Data definitions -- Queues
+;
+;
+; Queues.
+;
+; Data flow through this program is controlled by the use of several
+; queues.  The data, represented by "buffers" is sent to various queues
+; to cause the actual transfer of data to/from a device.
+;
+; The free list is where inactive buffers are stored until needed.  If
+; the free list is empty when a buffer is requested, a new buffer is
+; allocated from dynamic memory.
+;
+	.psect	data	noexe
+
+Q_free:		.address	Q_free,Q_free
+;
+Q_m68k_in:	.address	Q_m68k_in,Q_m68k_in
+;
+Q_m68k_out:	.address	Q_m68k_out,Q_m68k_out
+;
+Q_user_out:	.address	Q_user_out,Q_user_out
+;
+Q_log:		.address	Q_log,Q_log
+;
+Q_command:	.address	Q_command,Q_command
+.page
+.sbttl	Data definitions -- Event flags and Channels
+;
+; Event flags.
+;
+; Event flags are used to synchronize various events.
+;
+m68k_out_efn	=	1		; Output to M68K
+m68k_in_efn	=	2		; Input from M68K
+user_out_efn	=	3		; Output to user
+user_in_efn	=	4		; Input from user
+mbx_efn		=	5		; Mailbox
+cc_efn		=	6		; ^C processing
+command_efn	=	7		; User XFER command found
+m68k_in_avail	=	8		; Data available from M68k
+timer_efn	=	9		; Timer efn
+;
+;
+; Channels.
+;
+; Channels are filled in by the $ASSIGN directive which associates a
+; physical device with a logical channel.  All I/O is performed using
+; these channels.
+;
+	.psect	data
+
+m68k_out_chan:	.word	0		; Output to M68K
+m68k_in_chan:	.word	0		; Input from M68K
+user_out_chan:	.word	0		; Output to user
+user_in_chan:	.word	0		; Input from user
+mbx_chan:	.word	0		; Mailbox
+;
+;
+; Logical names.
+;
+; These logical names identify the user's terminal and the link to
+; the M68K.
+;
+user_in:	.ascid	/SYS$INPUT/	; User's input terminal
+user_out:	.ascid	/SYS$OUTPUT/	; User's output terminal
+m68k_name:	.ascid	/LNK$M68K/	; Terminal which links to M68K
+.page
+.sbttl	Error checking
+;
+;
+; The following macro is used to check for error status returns
+;
+	.psect	code
+
+.macro	check	sts=R0
+	movzwl	sts,-(SP)
+	bsbw	io_check
+.endm	check
+
+io_check:
+	blbs	4(SP),10$		; Did I/O complete with success?
+	$exit_s	4(SP)			; Nope, signal failure
+10$:	movl	(SP)+,(SP)		; Kill status
+	rsb				; Return to caller
+;
+; Exception handler -- provided mostly for debugging
+;
+
+	.entry	syserr,^m<>		; Exception handler
+
+	movl	4(ap),r0		; Point to signal array
+	cmpl	#ss$_ssfail,4(r0)	; System service failure?
+	bneq	10$			; nope?
+	movl	8(r0),r0		; Get real error
+	$exit_s	r0
+
+10$:	movl	#ss$_resignal,r0	; Resignal error
+	ret				; Return
+.page
+.sbttl	Translate a logical name
+;
+;
+; This subroutine, called with the XLATE macro, translates a
+; logical name to its physical device.  When called, the address
+; of the string descriptor for the logical name is in R2.
+;
+
+.macro	xlate	lname
+	movab	lname,R2
+	bsbw	xlate
+.endm	xlate
+
+	.psect	code
+
+xlate:					; Translate logical name
+	movl	#63,xl$_len		; Set max length of result
+	movab	xl$_name,xl$_addr	; Point to name string result
+	$trnlog_s -			; Translate the name
+		lognam=(R2),-		; Source name
+		rsllen=xl$_len,-	; Result length
+		rslbuf=xl$_buff		; Result string descriptor
+	cmpb	#^X1B,xl$_name		; Special logical name?
+	bneq	10$			; Nope
+	subl	#4,xl$_len		; Correct for size
+	addl	#4,xl$_addr		; Skip over RMS IFI header
+10$:	rsb				; Return to caller
+
+	.psect	data
+
+xl$_buff:				; Result string descriptor
+xl$_len:	.long	63		; String length
+xl$_addr:	.address xl$_name	; String address
+xl$_name:	.blkb	63		; Text of string
+.page
+.sbttl	Initialize channels
+;
+;
+; Create the mailbox and assign channels to establish the link to
+; the M68K.  Note that this routine destroys the contents of R2.
+;
+	.psect	code
+
+init:
+	xlate	user_in			; Translate SYS$INPUT
+	$assign_s -			; Assign device
+		devnam=xl$_buff,-	; Real device name
+		chan=user_in_chan	; Channel
+	xlate	user_out		; Translate SYS$OUTPUT
+	$assign_s -
+		devnam=xl$_buff,-	; Real device name
+		chan=user_out_chan	; Channel
+;
+; Generate a unique mailbox name and create a mailbox
+;
+	$gettim_s	bintime		; Get the time of day
+	$fao_s	-			; Convert to ASCII
+		ctrstr=mbx_image,-	; Image of mail box name
+		outlen=mbx_len,-	; Length of result name
+		outbuf=mbx_name,-	; Resulting name
+		p1=bintime		; Parameter is time
+	$crembx_s -			; Create a mailbox
+		chan=mbx_chan,-		; Mailbox channel
+		lognam=mbx_name		; Unique mailbox name
+
+	xlate	m68k_name		; Translate the link's name
+	$assign_s -			; Assign device with mailbox
+		devnam=xl$_buff,-	; Real link terminal name
+		chan=m68k_in_chan,-	; Channel
+		mbxnam=mbx_name		; Associate the mailbox with it
+	$assign_s -			; Assign output channel
+		devnam=xl$_buff,-	; Real terminal name
+		chan=m68k_out_chan	; Channel
+	bsbw	set_m68k_char		; Set link charactersitics
+	rsb				; Return to caller
+
+	.psect	data
+
+mbx_name:				; String descriptor for mailbox name
+mbx_len:	.long	63		; Max string length
+		.address	10$	; Address of string
+10$:		.blkb	63		; Mailbox name text
+bintime:	.long	0,0		; Internal system time
+mbx_image:	.ascid	/LNK$!UL/	; Image of mailbox name
+.page
+.sbttl	Set link's terminal charactersitics
+;
+; Set the terminal characteristics (including speed) for the
+; terminal port connected to the M68K.
+;
+.dsabl	debug
+	$ttdef				; Define terminal characteristics
+	$dcdef				; Define device characteristics
+	$fabdef				; Define fields in a FAB
+	$rabdef				; Define fields in a RAB
+	$namdef				; Define fields in a name block
+.enabl	debug
+
+set_m68k_char:
+
+	$qiow_s	-
+		func=#io$_setmode,-	; Set terminal characteristics
+		chan=m68k_out_chan,-	; On the link
+		efn=#m68k_out_efn,-	; Event flag
+		P1=tt_char,-		; Characteristics buffer
+		P2=#8,-			; Use short form of buffer
+		P3=#tt$c_baud_4800
+
+	rsb				; Return to caller
+
+	.psect	data
+
+tt_char:				; Terminal characteristics buffer
+term_class:	.byte	dc$_term	; This is a terminal
+term_type:	.byte	dt$_ttyunkn	; Of an unknown type
+term_width:	.word	line_length	; Length of a line
+term_char:	.long	tt$m_lower!-	; Lower case permitted
+			tt$m_mechtab!-	; Mechanical tabs
+			tt$m_noecho!-	; Do not echo input (back to m68k)
+			tt$m_nobrdcst!-	; No broadcast to terminal
+			tt$m_modem!-	; 68K line behaves as a modem
+			tt$m_mechform	; Mechanical forms
+		.long	0		; Prevent setting extended charactersitics
+.page
+.sbttl	Allocate a buffer
+;
+; Return the address of a buffer in R11.
+;
+; If a buffer is available in the free list, it is removed and returned
+; to the caller.  If a new buffer is required, it is carved out of the
+; current free block.  If there is not enough room in the free block,
+; a new free block is allocated at the end of the P0 region.
+;
+	.psect	code
+
+get_buffer:
+
+	remque	@Q_free,R11		; Get next buffer in free list
+	bvs	10$			; Free list is empty
+	brb	30$			; Free list was not empty
+
+10$:	movl	free_ptr,R11		; Point to next available buffer
+	addl	#buf$_size,free_ptr	; Point past end of new buffer
+	cmpl	free_ptr,free_end	; Does buffer cross end of available space?
+	blequ	20$			; Nope, it fits in the area
+	$expreg_s -			; Add virtual memory at end of P0 region
+		pagcnt=#10,-		; Ask for 5KB
+		retadr=free_start	; Find out new memory limits
+	movl	free_start,free_ptr	; New buffer comes from start of area
+	brb	10$			; There is now enough room
+
+20$:	incl	free_count		; Increment count of buffers in use
+
+30$:	clrl	buf$_len(R11)		; Buffer has zero length
+	clrl	buf$_iosb(R11)		; No I/O status
+	clrl	buf$_term(R11)		; Clear terminator
+	rsb				; Return with address in R11
+
+	.psect	data
+
+free_count:	.long	0		; Count of buffers allocated
+free_ptr:	.address 0		; Pointer to next block
+;
+; The order of the following pair of values must not be changed
+;
+free_start:	.address	0	; Start of data area
+free_end:	.address	0	; End of data area
+.page
+.sbttl	Process control-C's typed by user
+;
+; Enable a control-C trap on the user's terminal
+;
+	.psect	code
+
+enable_cc:
+
+	$qio_s	-
+		func=#io$_setmode!io$m_ctrlcast,- ; Catch control-C's
+		chan=user_in_chan,-	; On the user's terminal
+		efn=#cc_efn,-		; Event flag
+		P1=cc_typed		; AST to signal ^C
+	rsb
+;
+; This AST routine is entered when a ^C is typed on the user's terminal.
+; The output queues to both the M68K and the user are cleared, and a break
+; is send to the M68K.  This is actually kind of tricky since a break is
+; not really a character.
+;
+
+.entry	cc_typed,^M<R11>
+
+	movb	#1,control_c		; Signal ^C received
+	bbcc	#0,intercept,10$	; Branch if not intercepting data
+	$setef_s #m68k_in_avail		; Wake up process waiting for input
+
+10$:	remque	@Q_m68K_out,R11		; Remove item from m68k output queue
+	bvs	20$			; The queue is empty
+	insque	(R11),@Q_free+4		; Send entry to free list
+	brb	10$			; Zap the entire queue
+
+20$:	remque	@Q_user_out,R11		; Remove item destined for user
+	bvs	30$			; Queue is empty
+	insque	(R11),@Q_free+4		; Send entry to free list
+	brb	20$			; Delete all pending output
+
+30$:;;;	$waitfr_s	#m68k_out_efn	; Wait for link to quiet
+	bisl	#tt$m_notypeahd,term_char ; Prevent output from M68K
+	$qiow_s	-
+		func=#io$_setmode,-	; Set terminal characteristics
+		chan=m68k_out_chan,-	; On the link to the M68K
+		efn=#m68k_out_efn,-	; Event flag
+		P1=tt_char,-		; Terminal characteristics buffer
+		P3=#tt$c_baud_50	; Slow down output to terminal
+
+	$qiow_s	-
+		func=#io$_writepblk!io$m_canctrlo,-	; Write binary data
+		chan=m68k_out_chan,-	; To the M68K
+		efn=#m68k_out_efn,-	; Event flag
+		P1=Break_msg,-		; Send a break (a slow null)
+		p2=#break_size		; Length of data
+
+	bicl	#tt$m_notypeahd,term_char ; Re-enable output from M68K
+	bsbw	set_m68k_char		; Set reasonable characteristics
+	bsbw	enable_cc		; Re-enable control-C's
+	ret				; Return from AST
+
+	.psect	data
+
+control_c:	.byte	0		; Set when ^C received
+break_msg:	.byte	0		; Null to simulate break
+break_size=.-break_msg			; Length of data
+.page
+.sbttl	Write data to user's terminal
+;
+;
+; Write information to the user's terminal.
+;
+; If logging is enabled then the data is also sent to the log file
+;
+	.psect	code
+
+.entry	write_user,^M<R2,R3,R11>
+
+	blbs	user_out_active,40$	; Branch if write in progress
+10$:	remque	@Q_user_out,R11		; Anything for user?
+	bvs	40$			; Nope
+	movab	buf$_buf(R11),R3	; Point to buffer
+	movl	buf$_len(R11),R2	; Get length
+	tstw	buf$_term(R11)		; Terminator?
+	beql	30$			; Nope
+	addl3	R2,R3,R0		; Point to terminator
+	movb	#13,(R0)+		; Fill in <CR>
+	movb	#10,(R0)+		; Fill in <LF>
+	addl	#2,R2			; Count it
+
+30$:	incb	user_out_active		; Mark a write in progress
+	$qio_s	-
+		func=#io$_writevblk,-	; Write a line
+		chan=user_out_chan,-	; To the user's terminal
+		efn=#user_out_efn,-	; Event flag
+		iosb=buf$_iosb(R11),-	; I/O status block
+		astadr=user_written-	; AST address
+		astprm=R11,-		; AST parameter
+		P1=buf$_buf(R11),-	; Buffer address
+		P2=R2,-			; Buffer length
+		P4=#0			; Carriage control char
+	
+
+40$:	ret				; Return to caller
+.page
+;
+;
+; This AST routine is entered after each line is written to the user's terminal
+;
+
+.entry	user_written,^M<R11>
+
+	clrb	user_out_active		; Write no longer in progress
+	movl	4(AP),R11		; Point to buffer just written
+	check	buf$_iosb(R11)		; Check status of write
+	blbc	logging,20$		; Branch if not logging
+	insque	(R11),@Q_log+4		; Send buffer to log file queue
+	bneq	10$			; Was queue empty?
+	$dclast_s astadr=write_log	; Yes, so initiate write operation
+10$:	brb	30$			; And exit
+
+20$:	insque	(R11),@Q_free+4		; Send buffer to free list
+30$:	$dclast_s astadr=write_user	; Start up another write request
+	ret				; Return from AST
+
+	.psect	data
+
+user_out_active:	.byte	0	; Write to user in progress
+.page
+.sbttl	Write data to M68K
+;
+;
+; Write a buffer to the M68K
+;
+	.psect	code
+
+.entry	write_m68K,^M<R11>
+
+	remque	@Q_m68k_out,R11		; Get next buffer to write
+	bvs	20$			; Nothing to do
+
+10$:	$qio_s	-
+		func=#io$_writevblk!io$m_canctrlo,- ; Write a line
+		chan=m68k_out_chan,-	; To the M68K
+		efn=#m68k_out_efn,-	; Event flag
+		iosb=buf$_iosb(R11),-	; I/O status block
+		astadr=m68k_written,-	; AST completion routine
+		astprm=R11,-		; Identify what got written
+		P1=buf$_buf(R11),-	; Buffer address
+		P2=Buf$_len(R11),-	; Buffer length
+		P4=#^X2B		; send data with <CR>, but no <LF>
+
+20$:	ret				; Return to caller
+;
+; AST routine called after each line is sent to M68K
+;
+
+.entry	M68k_written,^M<R2,R3,R4,R5,R11>
+
+	movl	4(AP),R11		; Point to buffer just written
+	movw	Buf$_len(R11),echo_len	; Remember length of line last written
+	movc3	echo_len,buf$_buf(R11),echo_buf ; Copy text of line last written
+	insque	(R11),@Q_free+4		; Send buffer to free list
+	$dclast_s astadr=write_m68k	; Check for more data to send
+	ret				; Return from AST routine
+
+	.psect	data
+
+echo_len:	.word	0		; Length of line last written to M68K
+echo_buf:	.blkb	line_length	; Text of line last written to M68K
+.page
+.sbttl	Write data to the log file
+;
+;
+; Write a line to the log file and dispose of the buffer
+;
+	.psect	code
+
+.entry	write_log,^M<R11>
+	blbs	log_active,20$		; Branch if write in progress
+	remque	@Q_log,R11		; Get next buffer to write
+	bvc	10$			; Was queue empty?
+	brb	20$			; Yes, so just exit
+
+10$:	incb	log_active		; Mark a write in progress
+	$rab_store -
+		rab=log_rab,-		; Modify the log file RAB
+		ctx=R11,-		; Remember which buffer
+		RBF=Buf$_buf(R11),-	; Buffer address
+		RSZ=Buf$_len(R11)	; Buffer length
+	$put	-
+		RAB=log_rab,-		; Write to log file
+		SUC=log_written		; AST completion routine
+
+20$:	ret				; Return to caller
+;
+;
+; AST routine entered after each line is written to log file
+;
+
+.entry	log_written,^M<R11>
+
+	clrb	log_active		; Log file no longer active
+	movl	4(AP),R0		; Point to RAB which completed
+	movl	rab$l_ctx(R0),R11	; Point to buffer just written
+	check	rab$l_sts(R0)		; Check completion status
+	insque	(R11),@Q_free+4		; Send buffer to free list
+	$dclast_s astadr=write_log	; Check for more to write
+	ret				; Return from AST routine
+
+	.psect	data
+
+log_active:	.byte	0		; Set when write to log file in progress
+.page
+.sbttl	Read a line from the user's terminal
+;
+;
+; Read data from the user.  If the user terminates the line with an escape
+; then the line is a command.  Otherwise, the line is sent to the M68K.
+;
+	.psect	code
+
+.entry	read_user,^M<R11>
+	bsbw	get_buffer		; Get a buffer pointer in R11
+	$qio_s	-
+		func=#io$_readvblk,-	; Read a line
+		chan=user_in_chan,-	; From the user's terminal
+		efn=#user_in_efn,-	; Event flag
+		iosb=buf$_iosb(R11),-	; I/O status block
+		astadr=user_typed,-	; AST completion routine
+		astprm=R11,-		; Describe buffer just written
+		P1=buf$_buf(R11),-	; Buffer address
+		P2=#line_length		; Max length to read
+	ret				; Return to caller
+;
+; AST routine entered after each line is read from the user.
+;
+
+.entry	user_typed,^M<R11>
+
+	movl	4(AP),R11		; Point to buffer just read
+	movzwl	buf$_iosb+2(R11),buf$_len(R11) ; Copy length of data just read
+	check	buf$_iosb(R11)		; Check status of read
+	cmpw	#^X1b,buf$_term(R11)	; Check line terminator
+	bneq	20$			; Branch if not escape
+	insque	(R11),@Q_command+4	; Escape, send to command queue
+	bneq	10$			; Was queue empty?
+	$setef_s	#command_efn	; Wake up the command wait routine
+10$:	brb	40$			; All done
+
+20$:	insque	(R11),@Q_m68K_out+4	; Send buffer to M68K
+	bneq	30$			; Was queue empty
+	$dclast_s astadr=write_m68k	; Initiate the write
+30$:	$dclast_s astadr=read_user	; Initiate a read from user
+40$:	ret				; Return from AST
+.page
+.sbttl	Read mailbox associated with terminal
+;
+;
+; Read a message from the mailbox associated with the terminal which
+; is the link to the M68K.  When the VMS terminal driver receives
+; unsolicited input from the M68K, it sends a message to the mailbox
+; to tell us about the unexpected data.  When the mail is received,
+; the junk mail is disgarded (if necessary), and a read is issued to
+; actually receive the data sent by the 68K.
+;
+	.psect	code
+
+.entry	read_mbx,^M<R11>
+
+	bsbw	get_buffer		; Point R11 to new buffer
+	$qio_s	-
+		func=#io$_readvblk!io$m_now,- ; Read a message with no wait
+		chan=mbx_chan,-		; From the mailbox
+		efn=#mbx_efn,-		; Event flag
+		iosb=buf$_iosb(R11),-	; I/O status block
+		astadr=mail_man,-	; AST completion routine
+		astprm=R11,-		; Which letter is it?
+		P1=buf$_buf(R11),-	; Buffer address
+		P2=#Line_length		; Buffer length
+	ret				; Return to caller
+;
+; AST routine entered when mail is received.
+;
+
+	$msgdef				; Define system message types
+
+.entry	mail_man,^M<R11>
+
+	movl	4(AP),R11		; Point to the letter
+	cmpw	#ss$_endoffile,buf$_iosb(R11) ; Any mail?
+	bneq	5$			; Yes
+	bsbw	enable_mbx		; Nope, wait for more mail
+	insque	(R11),@Q_free+4		; Dispose of buffer
+	brb	20$			; And exit
+
+5$:	cmpw	#msg$_trmunsolic,buf$_buf(R11) ; Junk mail?
+	bneq	10$			; Yes, toss it
+;
+; insert code here to check for possible M68K system crash (hangup)
+;
+	$dclast_s astadr=read_m68k	; It's an invitation!
+10$:	insque	(R11),@Q_free+4		; Send the buffer to free list
+	$dclast_s astadr=read_mbx	; Wait for more mail
+20$:	ret				; Return from AST
+;
+; Set write attention on the mailbox to receive notice of mail delivery
+;
+enable_mbx:
+	$qio_s -
+		func=#io$_setmode!io$m_wrtattn,- ; Set write attention
+		chan=mbx_chan,-		; For the mailbox
+		efn=#mbx_efn,-		; Event flag
+		P1=read_mbx		; AST routine to handle mail
+	rsb				; Return to caller
+.page
+.sbttl	Read data from M68K
+;
+;
+; Read a line from the M68K.  If data is not being intercepted, it
+; is routed directly to the user's terminal.  If a command is in process,
+; the data is queued and the "data available" event flag is set.
+; If the read operation timed out, the mailbox is enabled, otherwise
+; a new read operation is attempted.
+;
+	.psect	code
+
+.entry	read_m68k,^M<R11>
+
+	bsbw	get_buffer		; Point to new buffer with R11
+	$qio_s	-
+		func=#io$_readvblk!io$m_timed!io$m_nofiltr,- ; Timed read
+		chan=m68k_in_chan,-	; From the M68K
+		efn=#m68k_in_efn,-	; Event flag
+		iosb=buf$_iosb(R11),-	; I/O status block
+		astadr=m68k_typed,-	; AST completion routine
+		astprm=R11,-		; Description of buffer read
+		P1=buf$_buf(R11),-	; Buffer address
+		P2=#line_length,-	; Max buffer length
+		P3=prompt_delay,-	; Time to wait for line
+		P4=#read_term		; Line terminator mask
+	ret				; Return to caller
+
+	.psect	data
+
+prompt_delay:	.word	2		; Seconds to wait for prompt
+read_term:	.long	0,<1@10>	; Terminator is line-feed
+.page
+;
+; This AST routine is invoked whenever a line is read from the M68K.
+;
+	.psect	code
+
+.entry	M68K_typed,^M<R2,R3,R4,R5,R10,R11>
+
+	movl	4(AP),R11		; Point to buffer just read
+	movzwl	buf$_iosb(R11),R10	; Get status of read
+	movzwl	buf$_iosb+2(R11),R1	; Get length of data
+	bneq	5$			; Data does exist
+	blbs	ignore_blank,30$	; Branch if ignoring blank lines
+	brb	10$			; Else continue to process it
+
+5$:	clrb	ignore_blank		; Don't ignore blank lines
+	movab	buf$_buf(R11),R2	; Point to first byte
+	addl	R1,R2			; Point to terminator
+7$:	cmpb	#13,-(R2)		; Was there a <CR>?
+	bneq	10$			; Nope (?)
+	decl	R1			; Don't count the <CR> in length
+	incw	buf$_term(R11)		; Make sure there is a terminator
+	movb	#1,ignore_blank		; Ignore next blank line, if any
+	brb	7$			; Keep ignoring <CR>'s at end of line
+
+10$:	movzwl	R1,buf$_len(R11)	; Fill in the length
+	cmpw	R1,echo_len		; Data match length of last line sent?
+	bneq	40$			; Nope
+	cmpc3	R1,echo_buf,buf$_buf(R11) ; Text match?
+	bneq	40$			; Nope
+	movw	#-1,echo_len		; Prevent another echo match
+	blbc	logging,30$		; Branch if not logging
+	insque	(R11),@Q_log+4		; Yes, send echoed line to log file
+	bneq	20$			; Queue empty?
+	$dclast_s astadr=write_log	; Yes, initiate output to log file
+20$:	brw	100$			; And finish up
+
+30$:	insque	(R11),@Q_free+4		; Send buffer to free list
+	brw	100$			; And finish up
+
+40$:	blbs	intercept,60$		; Branch if data being intercepted
+	tstw	buf$_term(R11)		; Terminator?
+	bneq	43$			; Yes, so something was read
+	tstl	buf$_len(R11)		; Anything?
+	beql	30$			; Nope, skip empty read
+43$:	insque	(R11),@Q_user_out+4	; No, send it to user's terminal
+	bneq	50$			; Was queue empty?
+	$dclast_s astadr=write_user	; Yes, so initiate write to user
+50$:	brb	100$			; And finish up
+
+60$:	insque	(R11),@Q_m68k_in+4	; Place data in M68k input queue
+;;;	bneq	70$			; Queue was not empty
+	$setef_s	#m68k_in_avail	; Wake up routine waiting for data
+70$:	brb	120$			; Wait for next char
+
+100$:	cmpl	#ss$_timeout,R10	; Did operation time out?
+	beql	110$			; Yes, so enable the mailbox
+105$:	$dclast_s astadr=read_m68k		; No, assume more data present
+	brb	120$			; And exit
+110$:;;;	$dclast_s astadr=read_mbx	; Wait for mail from M68K
+120$:	ret				; Return from AST
+
+	.psect	data
+
+intercept:	.byte	0		; Data from 68K not to go to user
+ignore_blank:	.byte	0		; Ignore next line if blank
+.page
+.sbttl	Command dispatch
+;
+;
+; When the user terminates a line of input with an escape character, then
+; this routine is called to process the command.  If no command is present,
+; the user is prompted for a command.  An empty command simply returns back
+; to interactive mode.  Some commands take optional file name arguments.
+; If a file name is present after the command, file_name_len is set to the
+; length of the name, and the text is placed in file_name.
+;
+	.psect	code
+
+do_command:				; Process user command
+
+	movw	prompt_delay,prompt_delay_save ; Save current delay factor
+	movw	#2,prompt_delay		; Reset delay time
+	clrb	control_c		; Assume no ^C typed
+	movab	buf$_buf(R11),R2	; Point to command text
+	movl	buf$_len(R11),R3	; Get command length
+	bneq	10$			; Command exists
+;
+; Prompt user for command
+;
+	$qiow_s	-
+		func=#io$_readprompt,-	; Read with prompt
+		chan=user_in_chan,-	; From the user
+		efn=#user_in_efn,-	; Event flag
+		iosb=buf$_iosb(R11),-	; I/O status block
+		P1=buf$_buf(R11),-	; Data buffer
+		P2=#line_length,-	; Buffer length
+		P5=#prompt_msg,-	; Prompt text address
+		P6=#Prompt_len		; Prompt length
+	check	buf$_iosb(R11)		; check status of read
+	movzwl	buf$_iosb+2(R11),buf$_len(R11) ; Fill in length
+	movl	buf$_len(R11),R3	; Get command length
+	bneq	10$			; Command exists
+	insque	(R11),@Q_free+4		; Dispose of buffer
+	brw	end_command		; No command, user changed mind
+;
+; Convert command text to upper case
+;
+10$:	cmpb	(R2),#^A/a/		; Possibly lower case?
+	blssu	20$			; Nope
+	cmpb	(R2),#^A/z/		; Lower case letter?
+	bgtru	20$			; Nope
+	bicb	#^X20,(R2)		; Convert to upper case
+20$:	incl	R2			; Point to next character
+	sobgtr	R3,10$			; Convert entire string
+;
+; Pick out the command and the filename if any
+;
+	movl	buf$_len(R11),R6	; Get command length
+	clrw	file_name_len		; Assume no file name
+	locc	#^X20,R6,buf$_buf(R11)	; Find a space
+	beql	30$			; No space means no file name
+	subl	R0,R6			; Calculate length of command
+	skpc	#^X20,R0,(R1)		; Find next non-space
+	beql	30$			; Space but no name??
+	movw	R0,file_name_len	; Fill in file name length
+	movc3	R0,(R1),file_name	; Copy file name
+
+30$:	movc5	R6,-			; Copy command text
+		buf$_buf(R11),-		; Source address
+		#^X20,-			; Fill with spaces
+		#4,-			; Destination length
+		command_text		; Destination string
+;
+; Find the command
+;
+	movl	#command_table_len,r6	; Length of command table
+	matchc	#4,-			; Lookup the command (4 chars)
+		command_text,-		; Command to look for
+		R6,-			; Command table length
+		command_table		; Address of command table
+	beql	50$			; Match found
+;
+; Bad command.  Tell user and exit.
+;
+40$:	movl	#bad_command_len,buf$_len(R11) ; Length of text
+	movc3	buf$_len(R11),-		; Move text into buffer
+		bad_command,-		; Address of error message
+		buf$_buf(R11)		; Target address
+	insque	(R11),@Q_user_out+4	; Send the message to the user
+	bneq	45$			; Queue not empty
+	$dclast_s astadr=write_user	; Start up the output
+45$:	brw	end_command		; And terminate
+;
+; Check command and dispatch to routine to process it
+;
+50$:	subl	R2,R6			; Calculate offset from start of table
+	bitb	#3,R6			; Valid command?
+	bneq	40$			; Nope, die
+	bitb	#4,R6			; Valid command?
+	beql	40$			; Nope
+	cmpb	#^X1B,buf$_term(R11)	; Command terminate with <ESC>
+	beql	55$			; Yes, skip to new line for user
+	insque	(R11),@Q_free+4		; No, send buffer to free list
+	brb	60$			; And process command
+
+55$:	clrl	buf$_len(R11)		; Make a zero length line
+	incw	buf$_term(R11)		; Force <CR><LF>
+	insque	(R11),@Q_user_out+4	; Send buffer to user
+	bneq	60$			; Queue is not empty
+	$dclast_s astadr=write_user	; Start up the user
+
+60$:	movl	(r3),r0			; Get address of command routine
+	bneq	70$			; Command routine does exist
+	brw	end_command		; Command routine not yet written
+70$:	jsb	(r0)			; Call command routine
+
+end_command:				; End of command
+	$dclast_s astadr=read_user	; Initiate new read for user
+	movw	prompt_delay_save,prompt_delay ; Restore prompt delay factor
+	rsb				; Return to caller
+
+.page
+	.psect	data
+
+prompt_msg:
+	.ascii	/XFER>/			; Prompt message
+prompt_len=.-prompt_msg			; Prompt length
+prompt_delay_save: .word 0		; Old value of prompt_delay
+file_name_len:	.word	0		; Length of file name
+file_name:	.blkb	line_length	; File name
+command_text:	.long	0		; Command text
+bad_command:	.byte	13,10		; <CR>,<LF>
+		.ascii	/XFER -- That's not a valid command/
+		.byte	7,13,10		; Bell, <CR><LF>
+bad_command_len=.-bad_command		; Length of text
+;
+; Command dispatch table.
+;
+; Each command is a four characters long, and is followed by the address
+; of the routine to call to actually process the command.
+;
+
+command_table:
+
+	.ascii		/EXIT/		; Exit this program
+	.address	exit
+	.ascii		/STOP/		; Exit this program
+	.address	exit
+	.ascii		/QUIT/		; Exit this program
+	.address	exit
+	.ascii		/BREA/		; Break
+	.weak		break
+	.address	break
+	.ascii		/SEND/		; Send a file to the 68K
+	.weak		send
+	.address	send
+	.ascii		/FAST/		; Set fast prompting
+	.address	fast
+	.ascii		/ODT /		; Set fast prompting
+	.address	fast
+	.ascii		/SLOW/		; Set slow prompting
+	.address	slow
+	.ascii		/XMIT/		; Send file to 68K
+	.weak		xmit
+	.address	xmit
+	.ascii		/GET /		; Get file from M68K
+	.weak		get
+	.address	get
+	.ascii		/LOG /		; Log output to file
+	.address	log
+command_table_len=.-command_table	; Length of command table
+.page
+.sbttl	Indirect command processing
+;
+;
+; Some commands, like XMIT, permit indirect command files which are
+; specified with an "@" as shown below:
+;
+;	XFER> XMIT @filename.cmd
+;
+; The indirect command processor will detect the command file and
+; open up a file to read the command lines.  Each non-blank line
+; is placed in the FILE_NAME location.  When this routine is called,
+; R10 contains the address of the routine to call to process the
+; file name.  Lines in the command file starting with "!" are treated
+; as comments.
+;
+	.psect	code
+
+ind:					; Process indirect command file
+	movzwl	file_name_len,R1	; Get length of file name
+	bneq	10$			; File name exists
+5$:	brw	ind_done		; No file name exists
+
+10$:	cmpb	#^A/@/,file_name	; Indirect command file?
+	beql	20$			; Yes
+	jmp	(R10)			; No, call routine and exit
+;
+; Open the indirect command file
+;
+20$:	decl	R1			; Skip over @
+	beql	5$			; No file name given?
+	$fab_store -
+		fab=ind_fab,-		; Store in the fab
+		fns=R1			; Length of file name
+	$open	fab=ind_fab		; Open the file
+	$connect rab=ind_rab		; Connect the rab
+;
+; Get next file name
+;
+ind_loop:
+	$setsfm_s	#0		; Turn off errors
+	$get	rab=ind_rab		; Read line from file
+	$setsfm_s	#1		; Turn errors back on
+	cmpl	#rms$_eof,ind_rab+rab$l_sts ; End of file?
+	bneq	10$			; Not end of file
+5$:	$disconnect rab=ind_rab		; Disconnect the rab
+	$close	fab=ind_fab		; Close the file
+	brw	ind_done		; And exit
+
+10$:	check	ind_rab+rab$l_sts	; Check for funny status
+	movw	ind_rab+rab$w_rsz,file_name_len ; Set new name length
+	beql	ind_loop		; Ignore blank line
+	cmpb	#^A/!/,file_name	; Comment?
+	beql	ind_loop		; Yes, ignore it
+;
+; Call target routine with current file name
+;
+	jsb	(R10)			; Call target
+	blbs	control_c,5$		; Branch if ^C typed
+	$setimr_s -			; Wait for previous command to finish
+		efn=#timer_efn,-	; Event flag
+		daytim=ind_time		; Time to wait
+	$waitfr_s #timer_efn		; Wait for timer
+	brw	ind_loop		; And keep processing
+
+ind_done:				; All done
+	rsb				; Return to caller
+
+
+	.psect	rms_data,quad
+
+ind_fab:
+	$fab -
+		FAC=get,-		; This is an input file
+		DNM=<XMIT.CMD>,-	; Default name
+		FNA=file_name+1,-	; Address of file name
+		FOP=sqo,-		; Sequential operations
+		ORG=seq			; Sequential organization
+
+ind_rab:
+	$rab -
+		FAB=ind_fab,-		; Associated FAB
+		RAC=seq,-		; Sequential access
+		UBF=file_name,-		; Buffer is file name slot
+		USZ=line_length		; Max line length
+
+	.psect	data
+
+ind_time:	.long	-40000000,-1	; Wait 4 seconds
+.page
+.sbttl	Commands -- EXIT
+;
+;
+; Terminate the session.
+;
+	.psect	code
+
+exit:
+	bbcc	#0,logging,10$		; Branch if not logging
+5$:	$wait		rab=log_rab	; Wait for I/O to finish
+	cmpl	Q_log,Q_log+4		; Queue empty?
+	bneq	5$			; nope
+	blbs	log_active,5$		; Branch if log file active
+	$disconnect	rab=log_rab	; Disconnect previous stream
+	$wait		rab=log_rab	; Wait for disconnect to finish
+	$close		fab=log_fab	; Close the file
+
+10$:	$exit_s	#ss$_normal		; Normal termination
+	rsb				; No exit
+.page
+.sbttl	Commands -- FAST
+;
+;
+; The FAST command reduces the prompt delay to zero to cause faster
+; turn-around for interactive processing.
+;
+fast:
+	clrw	prompt_delay_save	; Don't wait for prompts
+	rsb
+
+.sbttl	Commands -- SLOW
+;
+;
+; The SLOW command sets the prompt delay factor to 2 seconds, its
+; normal value.  This routine is called whenever an XFER command
+; is executed to prevent problems which could cause commands like
+; XMIT to fail.
+;
+slow:
+	movw	#2,prompt_delay_save	; Wait 2 seconds for prompts
+	rsb
+.page
+.sbttl	Commands -- LOG
+;
+;
+; Enable/disable logging all I/O to a file.  If a file name is given,
+; then all data is sent to that file.  If no file name is given, then
+; logging is disabled.
+;
+
+log:
+	bbcc	#0,logging,10$		; Branch if not logging
+5$:	$wait		rab=log_rab	; Wait for I/O to finish
+	cmpl	Q_log,Q_log+4		; More to log?
+	bneq	5$			; Yup
+	blbs	log_active,5$		; Branch if log file active
+	$disconnect	rab=log_rab	; Disconnect previous stream
+	$wait		rab=log_rab	; Wait for disconnect to finish
+	$close		fab=log_fab	; Close the file
+
+10$:	tstw	file_name_len		; Any file name given?
+	beql	20$			; Nope, all done
+	$fab_store -			; Fill in filename info
+		fab=log_fab,-		; In logging FAB
+		fns=file_name_len	; File name length
+	$create	fab=log_fab		; Create the logging file
+	$connect rab=log_rab		; Connect the logging RAB
+	$wait	rab=log_rab		; Wait for connect to finish
+	movw	#2,prompt_delay_save	; Reset to "slow" mode
+	movb	#1,logging		; Mark that we are logging I/O
+20$:	rsb				; Return to caller
+
+	.psect	rms_data,quad
+;
+; Log file data
+;
+
+log_fab:
+	$fab -				; Log file FAB
+		fac=put,-		; This is an output file
+		dnm=<M68000.LOG>,-	; Default file name
+		fna=file_name,-		; File name address
+		fop=sqo,-		; Sequential operations only
+		mrs=line_length,-	; Max record size
+		org=seq,-		; Sequential organization
+		rat=cr,-		; Standard output formatting
+		rfm=var			; Variable length records
+
+log_rab:
+	$rab -				; Log file RAB
+		fab=log_fab,-		; FAB associated with RAB
+		rac=seq,-		; Sequential access
+		rop=asy			; No waiting
+
+	.psect	data
+
+logging:	.byte	0		; Logging flag
+.page
+.sbttl	Commands -- XMIT
+;
+;
+; Transmit a file to the M68K.
+;
+; If the command is of the form: XMIT @FILENAME, then the specified file
+; is assumed to contain a list of files to send.  A command of the form
+; XMIT FILENAME is sent to the 68000 for each file to send.  The data in
+; the file is formatted and checksummed and sent to the 68000.  The XMIT
+; program on the 68000 decodes the format and produces a file on the 68000.
+;
+	.psect	code
+
+flag_char = 1				; Command flag character
+
+xmit:					; Send a file to the 68000
+	movab	xmit_file,R10		; Address of target routine
+	bsbw	ind			; Call indirect command processor
+	rsb				; Return to caller
+.page
+;
+; This routine is called to XMIT each file
+;
+xmit_file:				; Send one file
+	movzwl	file_name_len,R1	; Get the file name length
+	$fab_store -
+		FAB=xmt_fab,-		; Store in XMIT FAB
+		FNS=R1			; Length of file name string
+	$parse	fab=xmt_fab		; Parse the device/directory
+;
+; Open the next file if wildcards are specified
+;
+xmit_wild:
+	$setsfm_s	#0		; Turn off automatic errors
+	$search	fab=xmt_fab		; Search for the file
+	cmpl	#rms$_nmf,R0		; Any more files?
+	bneq	2$			; Yes
+	$setsfm_s	#1		; No re-enable errors
+	brw	xmit_exit		; And exit
+
+2$:	$setsfm_s	#1		; Enable auto error reporting
+	check	R0			; Check search status
+	$open	fab=xmt_fab		; Open the file
+	movzbw	xmt_nam+nam$b_rsl,xname_len ; Fill in expanded name length
+	$connect rab=xmt_rab		; Connect the RAB
+	$clref_s #m68k_in_avail		; No input available
+;
+; Determine which type of file is being sent and determine defaults
+;
+xmit_init:
+	movb	#1,intercept		; Intercept data from M68K
+	clrl	xmit_count		; No lines sent yet
+	clrb	xmit_ro_flag		; Assume a text file
+	$rab_store -
+		RAB=xmt_rab,-		; Fill in XMIT RAB
+		UBF=xmit_line+3,-	; Assume text file buffer
+		USZ=#line_length-3	; Assume text file buffer length
+	cmpw	#256,-			; Longest record 256 bytes?
+		xmt_xab+xab$w_lrl	; (from file header)
+	beql	10$			; Yes, must be funny VMS .RO module
+	cmpb	#fab$c_fix,-		; Are fixed length records
+		xmt_fab+fab$b_rfm	; Being read?
+	bneq	xmit_tell		; No, it's a text file!
+10$:	incb	xmit_ro_flag		; Mark that a .RO file is being sent
+	movb	#9,xmit_ro_part		; Force read of new record
+	$rab_store -
+		RAB=xmt_rab,-		; Modify the RAB
+		UBF=xmit_ro_buff,-	; To use different buffer
+		USZ=#256		; With a different size
+;
+; Tell the user which file we're sending
+;
+xmit_tell:
+	bsbw	get_buffer		; Get a buffer
+	movc3	#line_length,-		; Copy result name
+		xrname,-		; From result field
+		xname			; To working buffer
+	movc3	#xmit_ann_len,-		; Length of announcement
+		xmit_ann_msg,-		; Message text
+		buf$_buf(R11)		; Is sent to buffer
+	movc3	xname_len,-		; Length of expanded name
+		xname,-			; Text of expanded name
+		(R3)			; Goes into buffer after announcement
+	movb	#10,(R3)+		; Add a line feed
+	movzwl	xname_len,buf$_len(R11)	; Copy length of variable part
+	addl	#xmit_ann_len+1,buf$_len(R11) ; Plus length of fixed part
+	incw	buf$_term(R11)		; Cause <CR><LF> at end
+	insque	(R11),@Q_user_out+4	; Send text to user
+	bneq	3$			; Queue is not empty
+	$dclast_s astadr=write_user	; Start up the operation
+;
+; Strip off the device, directory, and version number to obtain the file name
+; and extension.
+;
+3$:	locc	#^A/]/,-		; Search for end of directory
+		xname_len,-		; Length of expanded filename
+		xname			; Address of expanded file name
+	bneq	5$			; Should never fail
+	brw	xmit_abort		; Huh?
+5$:	tstb	(R1)+			; Skip over the "]"
+	movl	R1,xf_name_addr		; Fill in address of name part
+	decl	R0			; Count it
+	movl	R0,R6			; Copy count of remaining chars
+	locc	#^A/;/,-		; Search for the semi-colon
+		R0,-			; Length of remaining string
+		(R1)			; Start of filename
+	subl3	R0,R6,xf_name_len	; Fill in file name part length
+;
+; Make sure the name isn't too long
+;
+	locc	#^A/./,-		; Find the dot
+		xf_name_len,-		; File name length
+		@xf_name_addr		; Address of name
+	beql	7$			; No dot?
+	cmpl	#3,R0			; Two letter extension?
+	bgeq	6$			; Yes, that's ok
+	decl	R0			; Decrement count of remaining chars
+	decl	xf_name_len		; Decrement file name length
+6$:	subl3	R0,xf_name_len,R0	; Get length of name
+	cmpl	#9,R0			; Too long?
+	bgtr	7$			; Nope
+	movl	xf_name_addr,R0		; Point to file name
+	movb	9(R0),8(R0)		; Slide dot back
+	movb	10(R0),9(R0)		; first char of extension
+	movb	11(R0),10(R0)		; Second char of extension
+	decl	xf_name_len		; Decrement size of name
+;
+; Send a command to the 68K to run the XMIT program
+;
+7$:	bsbw	get_buffer		; Get a buffer
+	blbc	xmit_ro_flag,8$		; Branch if not object module
+	movl	#^A/XMO /,buf$_buf(R11)	; Yes, fill in name of object processor
+	brb	9$			; Continue
+
+8$:	movl	#^A/XMT /,buf$_buf(R11)	; Name of text file processor
+9$:	movab	buf$_buf+4(R11),R3	; Point to next available char
+	movc3	xf_name_len,-		; Length of file name
+		@xf_name_addr,-		; Copy file name
+		(R3)			; Into rest of buffer
+	movzwl	xf_name_len,buf$_len(R11) ; Set length of file name
+	addl	#4,buf$_len(R11) 	; Plus size of processor command
+	insque	(R11),@Q_m68k_out+4	; Send data to M68K
+	bneq	10$			; Queue not empty?
+	$dclast_s astadr=write_m68K	; Wake up output routine
+10$:	blbs	control_c,20$		; Branch if ^C typed
+	remque	@Q_m68k_in,R11		; Point to buffer
+	bvc	30$			; Something was available	
+	$waitfr_s #m68k_in_avail	; Wait for init command
+	$clref_s #m68k_in_avail		; Clear event flag
+	brb	10$			; Keep trying
+
+20$:	brw	xmit_abort		; Nothing??? Gasp!
+
+30$:	cmpw	#ss$_timeout,buf$_iosb(R11) ; Timeout?
+	beql	10$			; OOPS
+;;	cmpl	#2,buf$_len(R11)	; Any data?
+;;	bgtr	20$			; OOPS
+	cmpb	#flag_char,buf$_buf(R11) ; Flag character?
+;;	bneq	20$			; Nope
+	beql	40$			; Yes
+	insque	(R11),@Q_user_out+4	; No, send it to the user
+	bneq	35$			; Queue not empty
+	$dclast_s astadr=write_user	; Send line to user
+35$:	brw	10$			; And keep waiting
+
+40$:	cmpb	#^A/0/,buf$_buf+1(R11)	; Init?
+	bneq	20$			; Nope??
+	insque	(R11),@Q_free+4		; Dispose of buffer
+.page
+;
+;
+; Wait for a command from the M68K
+;
+xmit_loop:				; Main transfer loop
+	blbc	control_c,5$		; Branch if ^C typed
+	brw	xmit_abort		; Yes, abort output
+5$:	remque	@Q_m68k_in,R11		; Get next line from M68K
+	bvc	10$			; Data exists
+	$waitfr_s #m68k_in_avail	; Wait for data
+	$clref_s  #m68k_in_avail	; Clear the flag
+	brb	xmit_loop		; And keep trying
+;
+; Process a command from the M68K
+;
+10$:	cmpw	#ss$_timeout,buf$_iosb(R11) ; Timeout?
+	bneq	30$			; Nope
+	insque	(R11),@Q_free+4		; Yes, dispose of buffer
+	brb	xmit_loop		; And continue
+
+20$:	brw	xmit_abort		; Yes? what happened?
+
+30$:	tstl	buf$_len(R11)		; Empty line?
+	bneq	40$			; Nope
+	insque	(R11),@Q_free+4		; Yes, ignore it
+	brw	xmit_loop		; Read another line
+
+40$:	cmpb	#flag_char,buf$_buf(R11) ; Handshake?
+	beql	50$			; Yes
+	insque	(R11),@Q_user_out+4	; Nope, show it to the user
+	bneq	45$			; Queue is not empty
+	$dclast_s astadr=write_user	; Start up the output
+45$:	brw	xmit_loop		; And try for another line
+
+50$:	cmpb	#2,buf$_len(R11)	; At least 2 characters?
+	bgtr	20$			; Nope, so die
+	movb	buf$_buf+1(R11),R0	; Get command character
+	cmpb	#^A/0/,R0		; Init command?
+	bneq	55$			; Nope
+	brw	xmit_loop		; Yes, just ignore it
+
+55$:	movb	#^A/X/,diddle		; Assume this is a retransmission
+	cmpb	#^A/2/,R0		; Resend current line?
+	beql	60$			; Yes
+	cmpb	#^A/1/,R0		; Send new line?
+	beql	57$			; Yes
+	brw	80$			; Nope
+
+57$:	movb	#^A/~/,diddle		; Show line sent correctly
+	bsbw	xmit_get_line		; Get a new line
+60$:	movzwl	xmit_line_len,R0	; Get line length
+	movl	R0,buf$_len(R11)	; Set length in buffer
+	movc3	R0,xmit_line,buf$_buf(R11) ; Copy line into buffer
+	movl	R11,-(SP)		; Save pointer to this buffer
+	$setimr_s -			; Set a timer to wait for the slow 68000
+		efn=#timer_efn,-	; Event flag
+		daytim=xmit_time	; Time to delay
+	bsbw	get_buffer		; Get a buffer
+	movw	#-1,buf$_iosb(R11)	; Flag as special write
+	movzbl	#1,buf$_len(R11)	; Single character
+	movb	diddle,buf$_buf(R11)	; Idiot character
+	insque	(R11),@Q_user_out+4	; Send it to the user
+	bneq	65$			; Queue is not empty
+	$dclast_s astadr=Write_user	; Start up the output
+65$:	movl	(SP)+,R11		; Point back to buffer with data
+	$waitfr_s #timer_efn		; Wait for the timer
+	insque	(R11),@Q_m68k_out+4	; Send buffer to m68k
+	bneq	70$			; Not first item in queue
+	$dclast_s astadr=write_m68k	; Wake up the output process
+70$:	brw	xmit_loop		; And loop
+
+80$:	cmpb	#^A/3/,R0		; Termination?
+	bneq	xmit_abort		; Nope, unknown command???
+	brw	xmit_finish
+.page
+;
+;
+; Abort output because of strange error
+;
+xmit_abort:				; Abort processing
+	bsbw	get_buffer		; Get a buffer
+	movzbl	#xmit_abort_len,R0	; Length of abort message
+	movl	R0,buf$_len(R11)	; Fill in as buffer length
+	movc3	R0,-			; Abort message length
+		xmit_abort_msg,-	; Copy message text
+		buf$_buf(R11)		; Into output buffer
+	insque	(R11),@Q_user_out+4	; Send to user
+	bneq	10$			; Queue is not empty
+	$dclast_s astadr=write_user	; Send line to user
+10$:	bsbw	get_buffer		; Ger another buffer
+	movzbl	#1,buf$_len(R11)	; Send one char
+	movb	#^A/%/,buf$_buf(R11)	; Send a % to terminate XMIT
+	insque	(R11),@Q_m68k_out+4	; Send it to M68k
+	bneq	xmit_finish		; Queue not empty?
+	$dclast_s astadr=write_m68k	; Wake up output routine
+	bicl	#nam$m_wildcard,-	; Terminate wildcard processing
+		xmt_nam+nam$l_fnb	; By saying this is the last file
+;
+; Terminate this XMIT command
+;
+xmit_finish:
+	clrb	intercept		; No longer intercept data
+	$disconnect rab=xmt_rab		; Disconnect the RAB
+	$close	fab=xmt_fab		; Close the fab
+10$:	remque	@Q_m68k_in,R11		; Anything more?
+	bvs	20$			; nope
+	insque	(R11),@Q_user_out+4	; Yes, send it to the user
+	bneq	15$			; Queue is not empty
+	$dclast_s astadr=write_user	; Start up the output operation
+15$:	brb	10$			; Process all pending output
+20$:	blbs	control_c,xmit_exit	; Exit if ^C typed
+	bitl	#nam$m_wildcard,-	; Check if wildcards are specified
+		xmt_nam+nam$l_fnb	; In the name block
+	beql	xmit_exit		; Nope
+;
+; Wildcard command, set up timer to wait for 68000 to finish processing
+;
+	$setimr_s -			; Set a timer
+		efn=#timer_efn,-	; Event flag
+		daytim=ind_time		; Wait about 4 seconds
+	$waitfr_s	#timer_efn	; Wait for timer
+	brw	xmit_wild		; Find next file
+
+xmit_exit:
+	rsb				; Return to caller
+.page
+;
+;
+; Read the next line from the file being XMIT'ed.  If the end of the file
+; is reached, a "%" is placed into the buffer.  Otherwise, a line sequence
+; number and a checksum byte are added to the front of the line.
+;
+
+xmit_get_line:				; Read next line
+	blbc	xmit_ro_flag,10$	; Branch if not .RO file?
+	brw	xmit_get_ro		; Get next part of .RO record
+;
+; Read a line from a text file
+;
+10$:	$setsfm_s	#0		; Prevent errors
+	$get	rab=xmt_rab		; Read next record
+	$setsfm_s	#1		; Re-enable errors
+	cmpl	#rms$_eof,xmt_rab+rab$l_sts ; End of file?
+	beql	xmit_get_eof		; Yes, signal end of file
+	brw	xmit_compress		; And compress spaces
+;
+; End of the file.  Send a %
+;
+xmit_get_eof:
+	movb	#^A/%/,xmit_line	; Fill in buffer
+	movw	#1,xmit_line_len	; Length is 1
+	brw	xmit_get_done		; All done
+;
+; Get next part of a record from a .RO file
+;
+xmit_get_ro:
+	incb	xmit_ro_part		; This is the next part of the record
+	cmpb	#8,xmit_ro_part		; Time to read new record?
+	bgequ	10$			; Nope
+;
+; Read next 256 byte record from .RO file
+;
+	$setsfm_s	#0		; Turn off error checking
+	$get	rab=xmt_rab		; Read next record
+	$setsfm_s	#1		; Enable errors
+	cmpl	#rms$_eof,xmt_rab+rab$l_sts ; End of file?
+	beql	xmit_get_eof		; Yes, so just stop
+	movb	#1,xmit_ro_part		; This is the first part of the record
+	clrl	xmit_ro_ptr		; Start at position zero
+;
+; Convert this part of the record to HEX
+;
+10$:	movzbl	#64,R1			; Each line contains 64 chars
+	movw	R1,xmit_line_len	; So that's the line length
+	movb	#^A/A/,xmit_line+2	; No space compression
+	incw	xmit_line_len		; Count compression char
+	movl	xmit_ro_ptr,R2		; Get current position
+	movab	xmit_line+3,R3		; Set output pointer
+
+20$:	extzv	R2,#4,xmit_ro_buff,R0	; Get next nibble
+	addl	#4,R2			; Point to next nibble
+	movb	hex_table(R0),(R3)+	; Fill in HEX nibble
+	sobgtr	R1,20$			; Encode entire part of record
+
+	movl	R2,xmit_ro_ptr		; Save current position
+;
+; Compress lines of zeroes for object modules
+;
+	skpc	#^A/0/,#64,xmit_line+3	; Look for non-zero character
+	bneq	30$			; Not all zero
+	movb	#^A/Z/,xmit_Line+2	; Mark zero line
+	movw	#1,xmit_line_len	; Shorten the line
+30$:	brw	xmit_check		; Fill in line sequence and checksum
+;
+; Compress leading spaces
+;
+xmit_compress:
+	movw	xmt_rab+rab$w_rsz,xmit_line_len ; Get line length
+	skpc	#^X20,-			; Skip leading spaces
+		xmit_line_len,-		; Length of line
+		xmit_line+3		; First char
+	clrl	R6			; clear count of spaces
+	subw3	R0,xmit_line_len,R6	; calculate number of leading spaces
+	cmpw	#32,R6			; Too many?
+	bgtr	10$			; Nope
+	clrl	R6			; Yes, so say none
+	brb	20$			; And continue
+
+10$:	movw	R0,xmit_line_len	; Set new line length
+	movc3	R0,(R1),xmit_line+3	; Remove excess spaces
+20$:	movb	xmit_table(R6),xmit_line+2 ; Fill in compression byte
+	incw	xmit_line_len		; Count the extra char
+;
+; Add line sequence number and checksum
+;
+xmit_check:
+	check	xmt_rab+rab$l_sts	; Check I/O status
+	incl	xmit_count		; Count this line
+	bicl3	#^C31,xmit_count,R0	; Get low order 5 bits
+	movb	xmit_table(R0),xmit_line ; Fill in sequence byte
+	clrl	R0			; Clear checksum
+	movab	xmit_line+2,R2		; Point to text
+	movw	xmit_line_len,r1	; Get length of line
+	beql	30$			; empty line
+
+20$:	mull2	#3,R0			; Multiply current checksum by 3
+	addb	(R2)+,R0		; Add in current char
+	bicl2	#^C31,R0		; Keep 5 bits
+	sobgtr	R1,20$			; Loop through entire line
+
+30$:	movb	xmit_table(R0),xmit_line+1 ; Fill in checksum
+	addw2	#2,xmit_line_len 	; Calculate line length
+xmit_get_done:
+	rsb				; Return to caller
+.page
+	.psect	rms_data
+
+xmt_fab:
+	$fab -
+		XAB=xmt_xab,-		; XAB to get record size
+		FAC=get,-		; This is an input file
+		FOP=<nam,sqo>,-		; Sequential operations use NAM block
+		DNM=<.SA>,-		; Default file name
+		NAM=xmt_nam-		; Name block
+		FNA=file_name,-		; Address of file name
+		ORG=seq			; Sequential organization
+
+xmt_rab:
+	$rab -
+		FAB=xmt_fab,-		; Associated FAB
+		RAC=seq,-		; Sequential record accesses
+		UBF=xmit_line+3,-	; Buffer address
+		USZ=line_length-3	; Line length
+
+xmt_nam:
+	$nam -
+		ESA=xmt_exp_nam,-	; Expanded name addrss
+		ESS=line_length,-	; Expanded name field length
+		RSA=xrname,-		; Result filename address
+		RSS=line_length		; Max size of filename
+
+xmt_xab:
+	$xabfhc				; File header junk
+
+	.psect	data
+
+diddle:		.byte	0		; User mindless character
+xmit_line_len:	.word	0		; Length of current line
+xmit_line:	.blkb	line_length	; Current line
+xname_desc:				; Descriptor for file name
+xname_len:	.long	0		; Length of filename
+		.address xname		; Address of expanded name
+xrname:		.blkb	line_length	; Result file name
+xname:		.blkb	line_length	; Result file name for 68K
+xmt_exp_nam:	.blkb	line_length	; Expanded file name
+xf_name_addr:	.long	0		; Address of file name part
+xf_name_len:	.long	0		; Length of file name part
+xmit_ro_flag:	.byte	0		; Set if sending .RO file
+xmit_ro_part:	.byte	0		; Which part of line is being sent
+xmit_ro_ptr:	.address 0		; Pointer into current part of ro record
+xmit_ro_buff:	.blkb	256		; Buffer for .RO file records
+xmit_abort_msg:				; Abort message
+		.byte	13,10		; <CR><LF>
+	.ascii	/XFER -- XMIT aborted, try again please/
+	.byte	7,13,10			; Ring the bell
+xmit_abort_len	= .-xmit_abort_msg	; Length of text
+xmit_ann_msg:	.byte	13,10		; <CR><LF>
+	.ascii	/XFER -- Sending: /	; Announce file being sent
+xmit_ann_len	= .-xmit_ann_msg	; Length of text
+xmit_table:	.ascii	/ABCDEFGHIJKLMNOPQRSTUVWXYZ012345/ ; 5 bit conversions
+hex_table:	.ascii	/0123456789ABCDEF/
+xmit_count:	.long	0		; Count of lines sent
+xmit_time:	.long	-2000000,-1	; 2/10 of a second's delay
+.page
+.sbttl	Get command line
+;
+;
+; Read the command line specified with when the XFER program was run.
+; If the user creates a symbol of the form:
+;
+;	XFER :== $XFER
+;
+; Then the XFER command is treated as a foreign command, and a command
+; line can be specified as with: XFER TEST.RO.  What this routine does
+; is to check for such a command line and treat it as an XMIT command
+; so that the specified file is formatted and sent to the 68K.
+;
+	.psect	code
+
+get_cmd_line:				; Read command line
+
+	$clref_s	#command_efn	; No command is present
+	callg	cmd_args,g^lib$get_foreign ; Get the command line
+	tstw	cmd_length		; Any command line present?
+	beql	10$			; Nope
+	bsbw	get_buffer		; Yes, get a buffer
+	movzwl	cmd_length,buf$_len(R11) ; Set length of text
+	movl	#^A/XMIT/,buf$_buf(R11)	; Fill in XMIT command
+	movb	#^A/ /,buf$_buf+4(R11)	; Plus the space
+	addl	#5,buf$_len(R11)	; Adjust command size
+	movc3	cmd_length,-		; Copy command line
+		cmd_line,-		; From the command buffer
+		buf$_buf+5(R11)		; Into this buffer
+	insque	(R11),@Q_command+4	; Enter buffer in command queue
+	$setef_s	#command_efn	; Mark that a command is present
+10$:	rsb				; Return to caller
+
+	.psect	data
+
+cmd_args:	.long	3		; Three parameters
+		.address cmd_result	; Result string descriptor
+		.long	0		; No prompt string
+		.address cmd_length	; Result length
+
+cmd_length:	.word	0		; Length of result string
+cmd_result:	.long	line_length	; String descriptor for result
+		.address cmd_line	; Address of string
+cmd_line:	.blkb	line_length	; Result string
+.page
+.sbttl	main program
+;
+; This is the driver loop for XFER.  The initial I/O processes are
+; started, and a wait is made for a command from the user.
+;
+	.psect	code
+
+.entry	start,^M<R2,R3,R4,R5,R6,R6,R11>	; Start of main program
+
+	moval	syserr,(FP)		; Set exception vector
+	$setsfm_s	#1		; Generate system failure exceptions
+	$clref_s	#m68k_in_avail	; No input from 68k
+	clrb	log_active		; No logging active
+	clrb	logging			; No logging active
+	clrb	intercept		; Data goes to user
+	bsbw	init			; Initialize the channels
+	bsbw	enable_cc		; Enable ^C trap
+	bsbw	enable_mbx		; Enable the mailbox
+	$dclast_s astadr=read_m68k	; Await data from 68K
+	bsbw	get_cmd_line		; Look for a command line
+	tstw	cmd_length		; Was a command line specified?
+	bneq	wloop			; Yes, so don't read user now
+	$dclast_s astadr=read_user	; Start up input from user
+wloop:	$waitfr_s	#command_efn	; Wait for a command
+	$clref_s	#command_efn	; Clear flag
+10$:	remque	@Q_command,R11		; Get next entry
+	bvs	wloop			; Nothing more to do
+	bsbw	do_command		; Process the user's command
+	brb	10$			; Wait for something to happen
+
+done:	movl	#ss$_normal,r0		; Assume normal success
+	ret				; Terminate program
+
+	.end	start

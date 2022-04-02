@@ -1,0 +1,61 @@
+RDLN     IDNT     2,2      Read a line, Readln
+         TTL      Read a line, Readln
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Read a line, Readln
+*
+* Last modified by KRIS on 26-Nov-1990 14:05:56
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+* Pascal readln call
+*
+         INCLUDE  LIBDEF
+         INCLUDE  LIBMAC
+*
+* All this routine now does in undefine the current buffer.  The buffer
+* will be read later when it is needed.  Hence, lazy I/O.
+*
+* p_rdln -- readln(file)
+*
+*
+         PROC     P_RDLN,<F,ADDRESS>
+
+         BEGIN    P_RDLN,A0/A3/A4/D0/D1
+         CHECKIO  F,INPUT
+         BTST     #S.DEF,F.STATUS(A4)        is the current buffer defined
+         BNE.S    RLN2              yes, fine
+RLN1:    JSB      P_GETCH           else read to end of line
+RLN2:    BTST     #S.EOLN,F.STATUS(A4)       end line found ?
+         BEQ.S    RLN1              try next character
+         BCLR     #S.DEF,F.STATUS(A4)        now we just force the read of
+         ENDPR    P_RDLN            of a new buffer
+*
+* p_rdln_i -- readln(input)
+*
+         PROC     P_RDLN_I
+
+         BEGIN    P_RDLN_I
+         PEA      G.INPUT(A5)       push standard input
+         BSR.S    P_RDLN            readln(file)
+         ADDQ.L   #4,SP             kill temp on the stack
+         ENDPR    P_RDLN_I          of a new buffer
+         END

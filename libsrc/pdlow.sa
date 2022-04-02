@@ -1,0 +1,70 @@
+PDLOW    IDNT     2,2      Pascal-2 library debugging : low level interface
+         TTL      Pascal-2 library debugging : low level interface
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1986, 1987, 1988, 1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Pascal-2 library debugging : low level interface
+*
+* Last modified by KRIS on 26-Nov-1990 14:08:20
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+         PAGE
+         INCLUDE  LIBDEF
+         INCLUDE  LIBMAC
+*
+* procedure pd$ga5(var gptr: p2_globl_ptr);
+*  external;
+*
+* Return the global pointer (register a5)
+*
+         PROC     PD$GA5,<GPTR,ADDRESS>
+
+         BEGIN    PD$GA5,A0
+         MOVE.L   GPTR(A6),A0       return pointer to user
+         MOVE.L   A5,(A0)           pointer to global area
+         ENDPR    PD$GA5
+*
+* procedure pd$sgfil(var g_file_buff: integer);
+*  external;
+*
+* Return the global file variable (l.lfile)
+*
+         PROC     PD$SGFIL,<BPTR,ADDRESS>
+
+         BEGIN    PD$SGFIL,A0-A2
+         MOVE.L   BPTR(A6),A0       return pointer to user
+         MOVE.L   G.LIB(A5),A2      get library pointer
+         MOVE.L   L.LFILE(A2),A1    pointer to global file variable
+         MOVE.L   A1,(A0)
+         ENDPR    PD$SGFIL
+*
+* procedure pd$rgfil(g_file_buff: integer);
+*  external;
+*
+* Restore the global file variable (l.lfile)
+*
+         PROC     PD$RGFIL,<FIL,INTEGER>
+
+         BEGIN    PD$RGFIL,A0/A1
+         MOVE.L   FIL(A6),A0        return pointer to user
+         MOVE.L   G.LIB(A5),A1      get library area
+         MOVE.L   A0,L.LFILE(A1)    pointer to global file
+         ENDPR    PD$RGFIL
+         END

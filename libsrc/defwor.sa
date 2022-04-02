@@ -1,0 +1,54 @@
+DEFWOR   IDNT     2,2      Default workspace address
+         TTL      Default workspace address
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1981, 1982, 1983, 1984, 1985, 1986, 1987, 1988
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Default workspace address
+*
+* Last modified by KRIS on 26-Nov-1990 14:08:55
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+* This provides a default definition for the start of the stack and
+* heap area in case the user does not provide one.  As this routine
+* is in the Pascal library, which is always searched last, any value
+* provided by the user either in a .RO file or in the linker commands will
+* override. The default value is set to 0, which means that the
+* start address of the memory segment provided for stack, heap and global
+* data should be defined at the run-time by the rms68k's memory manager.
+*
+         OPT      NOCL
+         XDEF     WORK$$
+         IFNE     VERSADOS
+WORK$$   EQU      $0
+         ENDC     versados
+         IFNE     STNDALON
+* For the stand-alone package, we have to make work$$ contain the address
+* of the workspace, since there is no way to externally define an address
+* in a common section.  The common section still has to be the last thing
+* in the library so it will come last.
+*
+         SECTION  8
+WORK$$   DC.L     WORKSP
+ZZZ_WRK$ SECTION  15
+WORKSP   EQU      *
+         DC.W     0
+         ENDC     stndalon
+         END

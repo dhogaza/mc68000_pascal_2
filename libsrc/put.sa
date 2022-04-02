@@ -1,0 +1,177 @@
+PUT      IDNT     2,2      File put routine
+         TTL      File put routine
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1981, 1982, 1983, 1984, 1985, 1986, 1987, 1988
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* File put routine
+*
+* Last modified by KRIS on 26-Nov-1990 14:06:32
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+*
+* This performs a put operation on a file.  For text files, this means
+* write one character.  For record files, the current record is written
+* to the file.  Special processing must be performed for random i/o
+*
+* This simple job is complicated by differences between the Pascal-2
+* definition of a random access file and the VERSAdos definition.
+*
+* First, updating of a file is allowed only if that file is assigned
+* for "exclusive read/write".  We do not want to assign all random files
+* exclusively, so change the access (and open for output) when the
+* first "put" is executed after a seek.
+*
+* Second, VERSAdos allows random access only up to the next record past
+* the end of file.  This is not consistent with PDP-11 operating systems.
+* The solution is to fill in all intermediate records on such a put.
+* The desired record number is stored in the "i.recnum" field by
+* seek.
+*
+         PAGE
+         INCLUDE  LIBDEF
+         INCLUDE  LIBMAC
+*
+         PROC     P_PUT,<F,ADDRESS>
+
+         BEGIN    P_PUT,A0/A1/A3/A4/D0-D2
+         CHECKIO  F
+         BTST     #S1.RAN,F.STATUS+1(A4)     random access file
+         BNE.S    PUTRAND           yup
+         BTST     #S.EOF,F.STATUS(A4)        is this the end of the file?
+         BNE.S    ATEOF             yup
+         ERROR    E.NEOF
+ATEOF
+         BTST     #S.OUT,F.STATUS(A4)        are we open for output?
+         BNE      PUTATEND          yes, just write the record
+         ERROR    E.NOTOUT          not an output file
+*
+* random access file
+*
+PUTRAND
+         IFNE     VERSADOS
+         BTST     #S.OUT,F.STATUS(A4)        Are we open for output?
+         BNE.S    OUTALRDY          yes, already open
+         LEA      F.FHS(A4),A0      get fhs block
+         MOVE.W   #$0020,P.FUNC(A0) change access permission
+         MOVE.W   #$0007,P.OPT(A0)  to EREW
+         TRAP     #3
+         CHKERR   E.NOTRAN
+         LEA      F.IOS(A4),A0      back to the IOS block
+         BSET     #S.OUT,F.STATUS(A4)        Note that we can do output now
+OUTALRDY
+         ENDC     versados
+         BTST     #S.EOF,F.STATUS(A4)        is this the end of the file?
+         BEQ      UPDATE            no, use update instead of write
+*
+* Now fill in any records necessary
+*
+         MOVE.W   #$0101,I.FUNC(A0) Set file position function
+         MOVE.W   I.OPT(A0),D2      Save options
+         ORI.W    #$6000,I.OPT(A0)  Set random record option
+         MOVE.L   I.RECNUM(A0),D1   get desired record number
+         MOVE.L   #-1,I.RECNUM(A0)  seek to eof
+         IFNE     VERSADOS
+         TRAP     #2                call exec
+         ENDC     versados
+         IFNE     STNDALON
+         MOVE.L   A0,-(SP)          push I/O block
+         MOVE.B   #IO.TRAN,-(SP)    a transfer activity
+         MOVE.L   F.IODR(A4),A0     address of driver
+         JSR      (A0)
+         ADDQ.W   #2,SP             pop enumeration type
+         MOVE.L   (SP)+,A0          restore a0
+         MOVE.B   I.STATUS(A0),D0
+         ENDC     stndalon
+         MOVE.W   D2,I.OPT(A0)      Restore original options
+*
+* Now we have the last record in i.recnum
+*
+         SUB.L    I.RECNUM(A0),D1   distance from end of file.
+         SUB.L    #2,D1             one beyond plus dbra compensation
+         BLT.S    PUTATEND          all done
+         BTST     #S.TEXT,F.STATUS(A4)       can't do this for text
+         BEQ.S    EXTEND
+         ERROR    E.NEOF            so bitch
+EXTEND
+         MOVE.W   #$0002,I.FUNC(A0) write logical command
+         AND.W    #$9FFF,I.OPT(A0)  clear to write next
+FILL
+         IFNE     VERSADOS
+         TRAP     #2                call exec
+         ENDC     versados
+         IFNE     STNDALON
+         MOVE.L   A0,-(SP)          push I/O block
+         MOVE.B   #IO.TRAN,-(SP)    a transfer activity
+         MOVE.L   F.IODR(A4),A0     address of driver
+         JSR      (A0)
+         ADDQ.W   #2,SP             pop enumeration type
+         MOVE.L   (SP)+,A0          restore a0
+         MOVE.B   I.STATUS(A0),D0
+         ENDC     stndalon
+         DBNE     D1,FILL           fill another block
+         BEQ.S    PUTATEND          if there was no error
+         BTST     #S1.NOERR,F.STATUS+1(A4)   user error handling?
+         BNE.S    PUTATEND          yep, let him continue
+         ERROR    E.SEEK
+*
+* add a record to the end of a file
+*
+PUTATEND
+         BTST     #S.TEXT,F.STATUS(A4)
+         BNE.S    PUTTEXT
+*
+         CLR.L    D0                clear scratch register
+         MOVE.W   F.FHS+P.RLEN(A4),D0        get record size
+         ADD.L    D0,F.POINT(A4)    set pointer for p_putf
+*
+         JSB      P_PUTF            write next record to file
+         BRA.S    PUTEXIT           and continue
+*
+* update the current record
+*
+UPDATE
+         BTST     #S.TEXT,F.STATUS(A4)       trying to update a text file?
+         BEQ.S    DOUPD
+         ERROR    E.NEOF            can't put a text file except at eof
+DOUPD
+         MOVE.W   #$0008,I.FUNC(A0) set code/function to update
+         MOVE.W   I.OPT(A0),D1      save options
+         MOVE.W   #$2000,I.OPT(A0)  write current record
+         JSB      P_PUTFX           call special put entry point
+         MOVE.W   D1,I.OPT(A0)
+*
+* if file is a random access file, read the next record
+*
+         BTST     #S1.RAN,F.STATUS+1(A4)     random access file?
+         BEQ.S    PUTEXIT           nope
+         BCLR     #S.EOF,F.STATUS(A4)        prevent trouble reading last record
+         JSB      P_GETF            read next record
+         BRA.S    PUTEXIT           and exit
+*
+* add current character to text line
+*
+PUTTEXT
+         MOVE.L   F.POINT(A4),A1    get pointer to data
+         MOVE.B   (A1),D0           get current character (f^)
+         JSB      P_WCH             write character to record
+PUTEXIT
+         ENDPR    P_PUT
+         END

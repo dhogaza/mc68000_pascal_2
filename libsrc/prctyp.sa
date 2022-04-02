@@ -1,0 +1,120 @@
+PRCTYP   IDNT     2,2      Return the processor code
+         TTL      Return the processor code
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1987, 1988, 1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Return the processor code
+*
+* Last modified by KRIS on 26-Nov-1990 14:07:33
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+* Return the processor code
+*
+         INCLUDE  LIBDEF
+         INCLUDE  PASMAC
+         SECTION  13
+*
+* The function p_prctype returns the mc68000 processor code as
+* defined below:
+*
+*	1 - 68000
+*	2 - 68020
+*	3 - 68881
+*
+* The distingtion between mc68000/mc68010 and mc68020 is detected by
+* using the incompatibility between those processor in execution of the
+* instruction LEA (A0,D0*2),A0 which gives value 2 for mc68020 and value
+* 1 for mc68000/mc68010.
+*
+* The presence of 68881 is detected by catching the f-line emulator trap.
+*
+         FUNC     P_PRCTYP,<>,RES,INTEGER
+
+*
+* This routine is building a lot of mess on the stack, so we have to provide
+* special buffer for saved registers, which we can access through the frame
+* pointer (register a6).
+*
+         VAR      REGS,INTEGER*3
+
+         BEGIN    P_PRCTYP
+         MOVEM.L  D0/A0-A1,REGS(A6) save all used registers
+         MOVEA.L  #0,A0             since we are not going to fetch memory -
+         MOVEQ    #1,D0             - we can use any address
+*        lea      (a0,d0*2),a0
+         DC.W     $41F0,$0200       try the processor
+         MOVE.L   A0,D0             a0 contains 2 for 68020 or 1 for 68000/68010
+         MOVE.L   D0,RES(A6)        return the code
+         SUBQ.L   #1,D0             check if mc68000 or mc68010
+         BEQ.S    DONE              yes, nothing to do
+* The processor is mc68020. Check if there is a mc68881 available.
+*
+* Modifying the execption vectors is a little complicated because the
+* library exception table is allocated in read-only segment for the
+* non-pic version of the library.  Thus the following code makes a
+* copy of the modyfied exception table on the stack, uses it to announce
+* new vectors and then it resets the vector table to the original one.
+*
+         LEA.L    NO81(PC),A0       entry point for f-line exception
+         MOVE.L   A0,-(SP)          our execption vector for f-line
+         IFEQ     PIC
+         XREF     P_EXCVCT
+         LEA.L    P_EXCVCT,A1       address of the execption vectors
+         ENDC     nopic
+         IFNE     PIC
+*
+* For pic version library we could patch directly the libarary execption
+* vectors.  However for consistency with the non-pic library we are going
+* to use the same paradigm in changing f-line exception vector
+*
+         MOVE.L   G.OWN(A5),A1      pointer to read/write segment
+         XREF     P_OWN
+         ADD.L    #P_EXCVCT-P_OWN,A1         run-time address
+         ENDC     pic
+         MOVE.L   A1,A0             save this address for later
+         ADD.L    #$20,A1           address of the last execption vector
+COPYVCT
+         MOVE.L   -(A1),-(SP)       copy one vector
+         CMP.L    A0,A1             all copied?
+         BNE      COPYVCT           continue if not
+EXPVCT$  EQU      26                announce exception vectors
+         MOVE.L   SP,A0             address of the new exception table
+         MOVE.L   #EXPVCT$,D0       directive code
+         TRAP     #1                announce new vector table
+*        fnop                       let's see if there is an exception
+         DC.W     $F280,$0000       same as above, but legal for all assemblers
+         MOVE.L   #3,RES(A6)        nothing happend - mc68881 is there
+NO81
+         MOVE.L   A1,A0             address of the original execption vector
+         MOVE.L   #EXPVCT$,D0       directive code
+         TRAP     #1                announce new "old" vector table
+DONE
+         MOVEM.L  REGS(A6),D0/A0-A1 restore used registers
+         ENDPR    P_PRCTYP
+
+         IFNE     PIC
+*
+* This is an overlaid section, so its real size is defined in the module
+* TRAPS.  Note: p_excvct must be defined at very begin of this named section.
+*
+P_VECTOR SECTION  15
+P_EXCVCT EQU      *
+         ENDC     pic
+         END

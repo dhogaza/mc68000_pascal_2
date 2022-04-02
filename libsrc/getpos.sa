@@ -1,0 +1,66 @@
+GETPOS   IDNT     2,2      Get text file position
+         TTL      Get text file position
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1986, 1987, 1988, 1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Get text file position
+*
+* Last modified by KRIS on 26-Nov-1990 14:05:23
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+         INCLUDE  LIBDEF
+         INCLUDE  LIBMAC
+*
+* This routine is implemented to make the VersaDos library compatible with
+* other Pascal-2 libraries. Thus the procedure uses two parameters, although
+* the second one (addrh) is not used. The parameter addrl means the line
+* number.
+*
+*  procedure getpos(var f: text;
+*                   var addrl: integer;
+*                   var addrh: integer);
+*    external;
+*
+         PAGE
+         PROC     GETPOS,<F,ADDRESS,ADDRL,ADDRESS,ADDRH,ADDRESS>
+
+         BEGIN    GETPOS,A0/A1/A3/A4
+         CHECKIO  F
+         BTST     #S.TEXT,F.STATUS(A4)       are we a text file?
+         BNE.S    ISTEXT            yes!
+         CHKERR   E.SEEK,F.STATUS+1(A4),EXLAB
+ISTEXT:
+         BTST     #S.INP,F.STATUS(A4)        input is allowed ?
+         BEQ.S    GETNUM            no, so continue
+         BTST     #S.DEF,F.STATUS(A4)        buffer already defined ?
+         BNE.S    GETNUM            yes, so continue
+         MOVE.L   F(A6),-(SP)       push file variable
+         JSR      P_DEFINE(PC)      load the buffer
+         XREF     P_DEFINE
+         ADDQ.L   #4,SP             kill temp on stack
+GETNUM
+         MOVE.L   ADDRL(A6),A3      address of 1st parameter
+         MOVE.L   I.RECNUM(A0),(A3) return line number
+         ADD.L    #1,(A3)           record number starts with 1
+         MOVE.L   ADDRH(A6),A3      address of 2nd parameter
+         CLR.L    (A3)              clear not used parameter
+EXLAB:
+         ENDPR    GETPOS
+         END

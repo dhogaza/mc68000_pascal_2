@@ -1,0 +1,228 @@
+NEW      IDNT     2,2      Dynamic memory allocation - New()
+         TTL      Dynamic memory allocation - New()
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1981, 1982, 1983, 1984, 1985, 1986, 1987, 1988
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Dynamic memory allocation - New()
+*
+* Last modified by KRIS on 26-Nov-1990 14:05:07
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+* Dynamic memory allocation routines -- New and Dispose
+*
+* These routines control all allocation and deallocation on the heap.
+*
+* Initially, the heap and the stack share the same space.  The stack
+* is allocated at the top of that space and grows downward, while the
+* heap is allocated at the bottom and grows upward.  The stack pointer
+* (SP) points to the current top of the stack, and the library field
+* L.HEAP points to the current top of the heap.
+*
+* As the heap area is allocated, L.HEAP is incremented and the space is
+* allocated from the top of the heap.
+*
+* When a block of memory is returned to the heap by "dispose", it is
+* placed on a list headed by "L.FREE".  This list is sorted in order of
+* increasing address, and any adjacent blocks are merged.  If a returned
+* block is on the top of the heap, it is removed and "L.HEAP" is adjusted
+* to make that space available for use by the stack or heap at some later
+* time.
+*
+* Once this free list exists, it is searched prior to any memory allocation,
+* and if the requested block can be allocated from a block on the free list
+* it is.  The first block large enough to contain the new block is used, and
+* any space not used is returned to the free list.
+*
+* The whole process is complicated somewhat by the fact that the minimum
+* size block which can be linked on the free list is 8 bytes.  To avoid
+* losing small bits of memory, such blocks are simply allocated along
+* with the requested block and the test for equality really becomes
+* "Is it within 8 bytes of matching".  This has a consequence that no
+* block less than 8 bytes can be allocated.
+*
+* Additional complication arises because all heap allocated data is
+* filled with an "improbable" value to aid error detection.
+*
+* This module contains "new"
+         PAGE
+         INCLUDE  LIBDEF
+         INCLUDE  LIBMAC
+*
+M$LEN    EQU      4                 offset of size word
+*
+* p_new -- new()
+*
+         PROC     P_NEW,<PTR,ADDRESS,LEN,INTEGER>,P_LNEW
+
+         BEGIN    P_NEW,D0/A0
+         SUBQ.L   #4,SP             space for the returning pointer
+         MOVE.L   LEN(A6),-(SP)     size of requested block
+         BSR.S    P_INEW            allocate block
+         ADDQ.L   #4,SP             clean the size
+         MOVE.L   (SP)+,D0          get the pointer
+         CMP.L    #NIL,D0           nil pointer ?
+         BEQ.S    NEWOVFL           fatal error
+         MOVE.L   PTR(A6),A0        address of user pointer
+         MOVE.L   D0,(A0)           address of allocated block
+         ENDPR    P_NEW
+
+NEWOVFL  ERROR    E.NOMEM           heap overflow
+
+         FUNC     P_INEW,<NLEN,INTEGER>,NADDR,ADDRESS
+
+         VAR      HEAP_B,ADDRESS
+         VAR      SCHK_B,ADDRESS
+         VAR      HIGH_B,ADDRESS
+
+         BEGIN    P_INEW,A0-A4/D0-D2
+         MOVE.L   #NIL,NADDR(A6)    assume no success
+         MOVE.L   G.LIB(A5),A4      get library work area
+         IFNE     STNDALON
+*
+* Lock the system tables if necessary
+*
+         IFNE     CONCURR
+         TST.L    L.SGATE(A4)       do we have a gate?
+         BEQ.S    NOLOCK            not if it's zero
+         PEA      L.SGATE(A4)
+         JSB      LOCK              lock system tables
+         ADDQ.W   #4,SP
+NOLOCK   EQU      *
+         ENDC     concurr
+         ENDC     stndalon
+*
+* Get actual length, including check word and rounding
+*
+         MOVE.L   NLEN(A6),D0       get the length required
+         ADD.L    #11,D0            add check and round up
+         AND.B    #$F8,D0           to multiple of 8 bytes
+*
+* Now search free list for a block which is big enough.
+*
+         LEA      L.FREE(A4),A0     start at the head of the list
+         MOVE.L   A0,A1
+*
+NEWSRCH  MOVE.L   A1,A0             Set old pointer to next pointer
+         TST.L    (A0)              check for end of list
+         BEQ.S    NEWSTK            it is the end, get space from the stack
+         MOVE.L   (A0),A1           next pointer set to next block
+         CMP.L    M$LEN(A1),D0      can we fit it in here?
+         BHI.S    NEWSRCH           no, try the next block
+*
+* We have a block, carve out what we need.  If there is not
+* enough room in the remainder for a link and length field, the
+* user will get the whole block, and we will take care of the
+* length fudge in disposing of it.
+*
+         MOVE.L   M$LEN(A1),D1      Compute the amount left
+         SUB.L    D0,D1
+         CMP.L    #8,D1             this is the minimum for link + length
+         BLT.S    NEWALL            it won't fit, give him all of it
+         MOVE.L   A1,A2             compute the start of the new block
+         ADD.L    D0,A2
+         MOVE.L   (A1),(A2)         shorter block points to next block
+         MOVE.L   D1,M$LEN(A2)      length field of shorter block
+         MOVE.L   A2,(A0)           last block points to new block
+         BRA.S    NEWBLK            and we have a new block
+*
+NEWALL   MOVE.L   (A1),(A0)         link around current block
+*
+* We have a block, set up the check and initialize what was the
+* length field to an improbable value
+*
+NEWBLK   ADD.L    #4,A1             pointer goes past check field
+         IFNE     LIBCHECK
+         MOVE.L   A1,-4(A1)         store key value in check word
+         ENDC     libcheck
+         IFNE     STNDALON
+         IFNE     CONCURR
+         TST.L    L.SGATE(A4)       unlock the system tables if needed
+         BEQ.S    NOUNLOCK
+         JSB      UNLOCK
+NOUNLOCK EQU      *
+         ENDC     concurr
+         ENDC     stndalon
+         MOVE.L   A1,NADDR(A6)      return pointer as function value
+NEWEXIT
+         ENDPR    P_INEW            and all done
+*
+* If we couldn't find a useful block, allocate the space from the
+* bottom of the stack area and move the stack check appropriately.
+* In this case we also clear the entire allocated area to an
+* improbable value (thereby making it very probably indeed?).
+*
+* Note: register a3 is used as the pointer to the stack check value or
+*       is set to zero.
+*
+NEWSTK
+         MOVE.L   L.HEAP(A4),HEAP_B(A6)      save top of heap
+         MOVE.L   L.SCHK(A4),A3     address of stack check word
+         BEQ.S    NEWSTK1           nothing to save
+         MOVE.L   (A3),SCHK_B(A6)   save the stack limit
+NEWSTK1
+         MOVE.L   L.HIGH(A4),HIGH_B(A6)      save high water mark
+         MOVE.L   L.HEAP(A4),A1     current top of heap
+         MOVE.L   A1,D1             compute new top of heap
+         ADD.L    D0,D1             new top of heap
+         MOVE.L   D1,L.HEAP(A4)
+         IFNE     LIBCHECK
+         CMP.L    L.HIGH(A4),D1     check high water mark
+         BCS.S    NEWSTK2
+         MOVE.L   D1,L.HIGH(A4)     new high water mark
+NEWSTK2
+         CMP.W    #0,A3             is there a stack check ?
+         BEQ.S    NEWUNSH           unshared area
+         ADD.L    D0,(A3)           new overflow check
+NEWUNSH  MOVE.L   L.HCHK(A4),D2     heap check word
+         BEQ.S    NEWSHCHK          shared check
+         CMP.L    D1,D2             compare with overflow loc
+         BHI.S    NEWSTK3           fits, no further action
+         BRA.S    RESTORE           overflow
+NEWSHCHK
+         CMP.W    #0,A3             is there a stack check ?
+         BEQ.S    NEWSTK3           let's cross fingers
+         CMP.L    (A3),SP           check for overflow
+         BHI.S    NEWSTK3           no, we can continue
+*
+* Allocation of new memory block completed wihtout a success. Restore all
+* changed values in the library global area and return to the user.
+* Note that the function value is defined as NIL at this time.
+*
+RESTORE
+         MOVE.L   HEAP_B(A6),L.HEAP(A4)      restore top of heap
+         MOVE.L   HIGH_B(A6),L.HIGH(A4)      restore high water mark
+         CMP.W    #0,A3             is there a stack check ?
+         BEQ.S    NEWEXIT
+         MOVE.L   SCHK_B(A6),(A3)   restore it
+         BRA.S    NEWEXIT
+*
+* Now fill memory with improbability
+*
+NEWSTK3  MOVE.L   A1,A2             working copy of pointer
+         MOVE.L   #IMPROB,D1        a convenient place to keep this
+         LSR      #1,D0             generate length in words
+         SUB.L    #1,D0
+*
+NEWSTK4  MOVE.W   D1,(A2)+          clear a word
+         DBRA     D0,NEWSTK4        in fact, clear lots of them
+         ENDC     libcheck
+         BRA      NEWBLK
+         END

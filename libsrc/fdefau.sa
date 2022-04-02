@@ -1,0 +1,74 @@
+FDEFAU   IDNT     2,2      Get file default values
+         TTL      Get file default values
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Get file default values
+*
+* Last modified by KRIS on 26-Nov-1990 14:04:55
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+* Fill in the system defaults in the fhs block
+*
+         PAGE
+         INCLUDE  LIBDEF
+         INCLUDE  FHSDEF
+         INCLUDE  LIBMAC
+*
+* procedure p_fdefau(var block: fhs_block);
+*
+* Initialize and fill in defaults for a FHS block, using data saved from
+* the initial registers
+*
+         PROC     P_FDEFAU,<BLOCK,ADDRESS>
+         BEGIN    P_FDEFAU,A0/A1
+         MOVE.L   BLOCK(A6),A0      fhs block to initialize
+         MOVE.L   G.LIB(A5),A1      library work area pointer
+         MOVE.L   L.VOLN(A1),FH.VOLN(A0)     set default volume name
+         MOVE.W   L.USER(A1),FH.USERN(A0)    set default user number
+         MOVE.L   L.CAT(A1),FH.CATNM(A0)     first 4 chars of default catalog name
+         MOVE.L   L.CAT+4(A1),FH.CATNM+4(A0) second 4 chars
+         MOVE.L   #'&   ',FH.FILEN(A0)       assume temporary file
+         MOVE.L   #'    ',FH.FILEN+4(A0)     second 4 chars of file name
+         MOVE.W   #'SA',FH.EXT(A0)  default extension is "sa"
+         CLR.W    FH.PROT(A0)
+         ENDPR    P_FDEFAU
+         PAGE
+*
+* procedure p_usrtrm(var result: packed array [lo..hi: integer] of char);
+*
+* Return the user terminal for use with the default "#" device
+*
+         PROC     P_USRTRM,<RESULT,ADDRESS,LO,INTEGER,HI,INTEGER>
+         BEGIN    P_USRTRM,D0/A0/A1
+         MOVE.L   RESULT(A6),A0     address of result
+         MOVE.L   G.LIB(A5),A1      library pointer
+         MOVE.L   L.UTERM(A1),(A0)  store user terminal name
+         CMP.L    #4,HI(A6)         four characters in parameter ?
+         BLE.L    TRMDONE
+         MOVE.L   HI(A6),D0         upper bound of array
+         SUBQ.W   #4,D0             number of blanks
+FILLIT
+         MOVE.B   #' ',4(A0,D0)     fill the rest with blanks
+         DBF      D0,FILLIT
+TRMDONE
+         ENDPR    P_USRTRM
+         END

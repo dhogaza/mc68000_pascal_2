@@ -1,0 +1,93 @@
+TERM     IDNT     2,2      Terminate a program
+         TTL      Terminate a program
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1981, 1982, 1983, 1984, 1985, 1986, 1987, 1988
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Terminate a program
+*
+* Last modified by KRIS on 26-Nov-1990 14:04:20
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+         INCLUDE  LIBDEF
+         IFNE     VERSADOS
+         INCLUDE  VDOSDE
+         ENDC     versados
+         INCLUDE  LIBMAC
+*
+* Terminate a pascal-2 program
+*
+* The compiler generates code to call this routine when the logical end
+* of the program is reached.
+* This routine issues breaks to all active text output files and
+* exits back to the monitor.
+*
+         PROC     P_EXIT
+*
+* Flush buffers on output text files
+*
+
+         BEGIN    P_EXIT,A0/A1/A4/D0
+         IFNE     CONCURR
+         JSB      JOIN              wait for children if concurrent
+         ENDC     concurr
+         MOVEA.L  G.LIB(A5),A4      point to library work area
+         IFNE     VERSADOS
+         MOVEA.L  L.FILES(A4),A0    point to list of active files
+         LEA      L.FILES(A4),A1    address of pointer to file
+BRKLOOP  BTST     #S.OUT,F.STATUS(A0)        see if output file
+         BEQ.S    NEXTBRK           no, check the next one
+         BTST     #S.TEXT,F.STATUS(A0)       see if text file
+         BEQ.S    NEXTBRK
+         MOVE.L   A1,-(SP)          it's output text, so flush
+         JSB      P_LBREAK,4        and pop the stack
+NEXTBRK
+         LEA      F.NEXT(A0),A1     address of pointer to next file
+         MOVEA.L  F.NEXT(A0),A0     next file on the chain
+         MOVE.L   A0,D0             because movea doesn't set cc
+         BNE.S    BRKLOOP           exit
+         ENDC     versados
+*
+* Call a termination routine if one exists
+*
+         MOVE.L   L.TERM(A4),D0     d0 we can test
+         BEQ.S    NOTERM            if zero, no routine
+         MOVE.L   D0,A0             but in a0 we can use it
+         JSR      (A0)              call the routine
+NOTERM   EQU      *
+*
+* finally, terminate the program
+*
+         XDEF     P_TERM
+P_TERM   EQU      *
+         MOVE.L   G.LIB(A5),A4      check abort code
+         MOVE.W   L.ABORT(A4),A0    set up the abort code
+         IFNE     VERSADOS
+         MOVE.L   A0,D0             put in upper part of d0
+         BEQ.S    NOABORT           don't set msb if zero
+         BSET     #15,D0            set msb to stop a chain
+NOABORT  SWAP     D0
+         ADD.W    #TERM$,D0         term directive
+         ERQ
+         ENDC     versados
+         IFNE     STNDALON
+NOMORE   STOP     #$2700            just hang
+         BRA.S    NOMORE            you can't get there from here
+         ENDC     stndalon
+         END

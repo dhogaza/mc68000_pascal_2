@@ -1,0 +1,495 @@
+*        include libmac
+         NOLIST
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1981, 1982, 1983, 1984, 1985, 1986, 1987, 1988
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Pascal Support Library interface macros
+*
+* Last modified by KRIS on 22-Nov-1990 07:05:01
+* Purpose:
+         IFEQ     1
+Update release version for PC-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+* This file contains macros used by the support library only.
+* They provide an easy way to create a standard interface to the
+* Pascal code.
+*
+* Procedure Declaration Package
+*
+* These macros provide a simple way for the assembly language
+* programmer to generate the proper procedure entry and exit
+* code, address parameters, and declare local variables.
+* The rather limited (read "dumb") macro capability of the 68000
+* assembler means that there are some rather strange requirements
+* on the calling sequences.
+*
+* Briefly, the macros consist of:
+*
+*        proc     Declare a procedure entry and parameters
+*        func     Declare a function entry, parameters, and result
+*        var      Declare local variables
+*        begin    Begin the body and save registers
+*        endpr    End the body, restore registers, and return
+*
+* The required sequence is:
+*
+*        proc/func         one of these is required
+*        var               as many as required (or none)
+*        begin             required
+*
+*        <user code>
+*
+*        endpr             required
+*
+* Within the package, types are represented by constants equal to their
+* length in bytes, so "integer" would be equivalent to "2" (or maybe "4")
+* A set of standard types is defined at the end of this macro package.
+*
+         PAGE
+* Procedure declaration macro
+*
+*        proc     proc_name,<parameters>
+*
+* proc_name       The entry name of the current procedure
+* <parameters>    A list of parameter names and types, in the same
+*                 order as a pascal declaration.  The list must be
+*                 enclosed in angle brackets "<>".
+*
+* This macro begins any procedure declaration.  It specifies the name of
+* the procedure, and the parameters.  In the body of the procedure,
+* parameters are addressed as offsets relative to the frame pointer (A6)
+*
+* For example, if a procedure is declared
+*
+*        proc     extp,<i,integer,j,char>
+*
+* The parameter "i" would be refered to by "i(a6)"
+*
+PROC     MACRO
+POFF$$   SET      8
+PVOFF$$  SET      0
+         IFNC     '\2',''
+         PARAM$$  \2
+         ENDC
+         NOLIST
+         OPT      MEX
+         LIST
+         XDEF     \1
+\1       EQU      *
+         IFNC     '\3',''
+         XDEF     \3
+\3       EQU      *
+         ENDC
+         NOLIST
+         OPT      NOMEX
+         LIST
+         ENDM
+         PAGE
+* Function declaration macro
+*
+*        func     func_name,<parameters>,result_name,result_type
+*
+* func_name       The entry name of the current function
+* <parameters>    A list of parameter names and types, in the same
+*                 order as a pascal declaration.  The list must be
+*                 enclosed in angle brackets "<>".
+* result_name     The name for referencing the resulting value
+* result_type     length of result value
+*
+* This is identical to the "proc" macro, except that a result_name is
+* defined.  The result_name may be used within the function to refer to
+* the location where the function result is stored.  Like all parameters
+* and local variables, the result_name is relative to the frame pointer.
+*
+FUNC     MACRO
+         PROC     \1,<\2>
+         PARAM$$  \3,\4
+         ENDM
+         PAGE
+* Variable declaration macro
+*
+*        var      var_name,var_type,.......
+*
+* var_name        name of local variable
+* var_type        size of local variable
+*
+* This allocates space for a variable on the stack at procedure entry
+* time, and assigns "var_name" to the proper offset to reference it.
+* Local variables are not initialized.  They are referenced as offsets
+* relative to the frame pointer.
+*
+* As many variables as desired may be specified on a single macro
+* call, or multiple macro calls may be used.
+*
+VAR      MACRO
+         IFC      '\2',''
+         FAIL     1001              No type provided for \1
+         ENDC
+PVOFF$$  SET      PVOFF$$-(\2)
+         IFGT     (\2)-1
+PVOFF$$  SET      (PVOFF$$-1)&$FFFFFFFE
+         ENDC
+\1       EQU      PVOFF$$
+         IFNC     '\3',''
+         VAR      \3,\4,\5,\6,\7,\8,\9,\A,\B,\C,\D,\E,\F,\G,\H,\I,
+&        \J,\K,\L,\M,\N,\O,\P,\Q,\R,\S,\T,\U,\V,\W,\X,\Y       ;
+
+         ENDC
+         ENDM
+         PAGE
+* Code begin macro
+*
+*        begin    proc_name [,registers]
+*
+* proc_name       The same procedure name given in the proc/func
+* registers       A register save mask (if needed)
+*
+* This marks the beginning of the actual procedure code.  It generates
+* the procedure entry code, including register save and stack overflow
+* check.  The register mask is saved as a label r$proc_name.  The
+* limitations of the assembler preclude a simpler approach.
+*
+* This has been modified from the standard Pascal entry to skip the
+* stack check and increment the library level counter
+*
+BEGIN    MACRO
+         IFNE     PVOFF$$&1
+PVOFF$$  SET      PVOFF$$-1
+         ENDC
+PREG$$   SET      0
+         NOLIST
+         OPT      MEX
+         LIST
+         LINK     A6,#PVOFF$$
+         NOLIST
+         OPT      NOMEX
+         LIST
+         IFNC     '\2',''
+PREG$$   SET      1
+         NOLIST
+         OPT      MEX
+         LIST
+R$\1     REG      \2
+         MOVEM.L  R$\1,-(SP)
+         ENDC
+         NOLIST
+         OPT      MEX
+         LIST
+         ADD.W    #1,G.LIBLEV(A5)
+         NOLIST
+         OPT      NOMEX
+         LIST
+         ENDM
+         PAGE
+* Procedure end macro
+*
+*        endpr    proc_name
+*
+* proc_name       The same procedure name used in the "proc" macro
+*
+* This macro marks the end of executable code for the procedure.
+* It restores the registers, resets the stack pointer and frame
+* pointer, and returns to the caller.  It is the responsibility of
+* the caller to pop the parameters from the stack.
+*
+* The "proc_name" argument is required to get at the register save
+* mask for restoring registers.
+*
+* This has been modified to decrement the library level counter
+*
+ENDPR    MACRO
+         NOLIST
+         OPT      MEX
+         LIST
+         IFGT     PREG$$
+         MOVEM.L  (SP)+,R$\1
+         ENDC
+         UNLK     A6
+         SUB.W    #1,G.LIBLEV(A5)
+         RTS
+         NOLIST
+         OPT      NOMEX
+         LIST
+         ENDM
+         PAGE
+* Utility macro - parameter declaration
+*
+*        param$$  name,type,....
+*
+* name            parameter name
+* type            parameter size
+*
+* This macro assigns addresses to parameters for reference within
+* the body of the code.  It is called only from "proc" and "func".
+* This is very similar to "var", except that the first parameters
+* must have the highest address, and the only way to do this using
+* this assembler is a recursive call.
+*
+PARAM$$  MACRO
+         IFNC     '\3',''
+         PARAM$$  \3,\4,\5,\6,\7,\8,\9,\A,\B,\C,\D,\E,\F,\G,\H,\I,
+&        \J,\K,\L,\M,\N,\O,\P,\Q,\R,\S,\T,\U,\V,\W,\X,\Y       ;
+         ENDC
+         IFC      '\2',''
+         FAIL     1002              No type provided for \1
+         ENDC
+\1       EQU      POFF$$
+POFF$$   SET      (POFF$$+(\2)+1)&$FFFFFFFE
+         ENDM
+         PAGE
+*
+* the jsb macro is used to call an external support library procedure
+* the flag "extern" is used to determine if an external reference must
+* be made.
+*
+JSB      MACRO
+         NOLIST
+         OPT      MEX
+         LIST
+         IFNE     EXTERN
+         XREF     \1
+         ENDC
+         IFEQ     PIC
+         JSR      \1
+         ENDC     nopic
+         IFNE     PIC
+         JSR      \1(PC)
+         ENDC     pic
+         IFNC     '\2',''
+         ADD.W    #\2,SP
+         ENDC
+         NOLIST
+         OPT      NOMEX
+         LIST
+         ENDM
+*
+EXTERN   SET      1                 make external references
+         PAGE
+*
+* The chekio macro is used to verify that the file variable passed
+* to a routine is a valid file which can be processed for
+* input or output.  The macro loads the standard registers used
+* throughout the I/O package, does a pointer check to see if the
+* file is valid, and sees it the file is open for input or output,
+* depending on the first parameter.
+*
+* The format for the call is
+*
+* CHECKIO       FILE,INPUT   (OR OUTPUT)
+*
+* if the error may be trapped by user the call should be
+*
+* CHECKIO       FILE,INPUT(OR OUTPUT),ERRLABEL
+*
+* where FILE is the name chosen for the file variable parameter passed
+* to the routine.  ERRLABEL is the of error processing sequence (usually
+* close to the exit location).
+* This routine will load A4 with a pointer to this file.
+*
+*
+* Note that pointer check errors are always assumed to be file errors
+* if they occur within the library
+*
+CHECKIO  MACRO
+         NOLIST
+         OPT      MEX
+         LIST
+         MOVE.L   G.LIB(A5),A3
+         MOVE.L   \1(A6),A4
+         MOVE.L   (A4),A4
+         MOVE.L   A4,L.LFILE(A3)    save a copy for error handler
+         IFNE     LIBCHECK
+         ADD.W    #1,L.FCHECK(A3)
+         CMP.L    -4(A4),A4
+         BEQ.S    CK\@
+         TRAP     #13
+CK\@     SUB.W    #1,L.FCHECK(A3)
+         ENDC     libcheck
+         LEA      F.IOS(A4),A0
+         IFNE     LIBCHECK
+         IFC      '\2','OUTPUT'
+         BTST     #S.OUT,F.STATUS(A4)
+         BNE.S    CK1\@
+         NOLIST
+         OPT      NOMEX
+         LIST
+         IFNC     '\3',''
+         NOLIST
+         OPT      MEX
+         LIST
+         BTST     #S1.NOERR,F.STATUS+1(A4)   test the noerror bit
+         BEQ.S    CKE\@
+         MOVE.W   #E.NOTOUT,F.ERR(A4)        set the error word in file variable
+         BNE.S    \3
+CKE\@
+         NOLIST
+         OPT      NOMEX
+         LIST
+         ENDC
+         ERROR    E.NOTOUT
+         NOLIST
+         OPT      MEX
+         LIST
+CK1\@    EQU      *
+         ENDC
+         IFC      '\2','INPUT'
+         BTST     #S.INP,F.STATUS(A4)
+         BNE.S    CK1\@
+         NOLIST
+         OPT      NOMEX
+         LIST
+         IFNC     '\3',''
+         NOLIST
+         OPT      MEX
+         LIST
+         BTST     #S1.NOERR,F.STATUS+1(A4)   test the noerror bit
+         BEQ.S    CKE\@
+         MOVE.W   #E.NOTINP,F.ERR(A4)        set the error word in file variable
+         BNE.S    \3
+CKE\@
+         NOLIST
+         OPT      NOMEX
+         LIST
+         ENDC
+         ERROR    E.NOTINP
+         NOLIST
+         OPT      MEX
+         LIST
+CK1\@    EQU      *
+         ENDC
+         ENDC     libcheck
+         NOLIST
+         OPT      NOMEX
+         LIST
+         ENDM
+         PAGE
+*
+* The chkerr macro is similar to the error macro, except that a check
+* is made if the directive preceeding the macro failed.  The second and
+* third parameter for this macro are used to implement the user's error
+* handling.  Second parameter defines the location of the status field
+* of the file variable. The third one contains the label, used to pass
+* the control in case the error happend and the s1.noerr bit in file
+* status word is set. In case the second and third parameter are not
+* defined or the s1.noerr-bit is cleared, the error macro is used to
+* signal the fatal error.
+*
+CHKERR   MACRO
+         IFNE     LIBCHECK
+         NOLIST
+         OPT      MEX
+         LIST
+         BEQ.S    CHK\@
+         NOLIST
+         IFNC     '\2',''
+         IFC      '\3',''
+         FAIL     1003              chkerr : missing target label for user's error
+         ENDC
+         LIST
+         BTST     #S1.NOERR,\2
+         BNE.S    \3
+         NOLIST
+         ENDC
+         OPT      NOMEX
+         LIST
+         ERROR    \1
+         NOLIST
+         OPT      MEX
+         LIST
+CHK\@    EQU      *
+         NOLIST
+         OPT      NOMEX
+         LIST
+         ENDC     libcheck
+         ENDM
+         PAGE
+*
+* These macros are used for error reporting and processing.
+*
+* The 'error' macro is used to signal support library errors.
+* The parameter is the error code
+*
+ERROR    MACRO
+         NOLIST
+         OPT      MEX
+         LIST
+         TRAP     #12
+         DC.W     \1
+         NOLIST
+         OPT      NOMEX
+         LIST
+         ENDM
+         PAGE
+*
+* The "merror" macro is used to define an error with the message
+* included inline.
+*
+* It must be called with the argument in quotes, for example
+*
+*       merror  <'this is an error message'>
+*
+MERROR   MACRO
+         ERROR    E.UMSG+E$CODE
+         NOLIST
+         OPT      MEX
+         LIST
+         DC.L     MSE\@-MST\@
+MST\@    DC.B     \1
+MSE\@    EQU      *
+         DS.W     0
+         ENDM
+         PAGE
+*
+* some basic data types and constants
+*
+CHAR     EQU      1
+BOOLEAN  EQU      1
+SCALAR   EQU      1
+SHORTINT EQU      2
+LONGINT  EQU      4
+INTEGER  EQU      4
+POINTER  EQU      4
+ADDRESS  EQU      4
+REAL     EQU      4
+DOUBLE   EQU      8
+*
+RECORD   MACRO
+* \1
+P$$V1    SET      0
+         ENDM
+*
+FIELD    MACRO
+         IFGT     (\2)-1
+P$$V1    SET      (P$$V1+1)&$FFFFFFFE
+         ENDC
+\1       EQU      P$$V1
+P$$V1    SET      P$$V1+(\2)
+         ENDM
+*
+ENDREC   MACRO
+\1       EQU      P$$V1
+         ENDM
+*
+         RECORD   PROCEDURE
+         FIELD    PRC.SA,ADDRESS
+         FIELD    PRC.SL,ADDRESS
+         ENDREC   PROCEDURE
+*
+         SECTION  8                 place support library in low memory
+         LIST

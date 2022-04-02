@@ -1,0 +1,110 @@
+GETCMD   IDNT     2,2      Get command line
+         TTL      Get command line
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Get command line
+*
+* Last modified by KRIS on 26-Nov-1990 14:07:03
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+         PAGE
+         INCLUDE  LIBDEF
+         INCLUDE  PASMAC
+         SECTION  13
+*
+* Return the content of the command line used to invoke the program.
+* Fill the unused part of the buffer with blanks.
+*
+* procedure p_getcmd(var line: packed array [lo..hi: integer] of char;
+*                    var len: integer);
+*
+*
+         PROC     P_GETCMD,<LINE,ADDRESS,LO,INTEGER,HI,INTEGER,LEN,ADDRESS>
+*
+         BEGIN    P_GETCMD,A0/A1/D0/D1/D2
+*
+* Register usage:
+*  d0 - size/counter of user buffer
+*  d1 - number of printable characters in command line
+*
+         MOVE.L   HI(A6),D0         upper limit of the buffer
+         SUB.L    LO(A6),D0         minus lower limit
+         MOVE.L   G.LIB(A5),A0      get library work area
+         MOVE.W   L.COML(A0),D1     get command line length
+*
+* Copy all characters from the cmd buffer into user's one.  Ignore all
+* non-printable characters.
+*  a0 - points to user's buffer
+*  a1 - points to command buffer
+*  (sp) - contains the address following the last command byte
+*
+         LEA      CMDDATA(PC),A1    address of command line
+         MOVE.L   A1,A0             calculate the ending address
+         ADD.W    D1,A0             of command line
+         PEA      (A0)              and push it on stack
+         MOVE.L   LINE(A6),A0       address of parameter
+COPYLOOP
+         CMP.L    (SP),A1           end of command buffer ?
+         BEQ      RETLEN            exit the loop if yes
+         MOVE.B   (A1)+,D2          get next character
+         CMP.B    #' ',D2           check for control character
+         BGE.S    PRINTABLE
+         SUB.W    #1,D1             one less character in the line
+         BRA.S    COPYLOOP          and continue
+PRINTABLE
+         MOVE.B   D2,(A0)+          printable, send it on
+NEXTCHAR
+         DBRA     D0,COPYLOOP
+*
+* Do not count trailing control characters
+*
+NOCTRL
+         CMP.L    (SP),A1           end of command buffer ?
+         BEQ      RETLEN            exit the loop if yes
+         MOVE.B   (A1)+,D2          get next character
+         CMP.B    #' ',D2           check for control character
+         BGE.S    RETLEN
+         SUB.W    #1,D1             one less character in the line
+         BRA.S    NOCTRL            look for more of them
+RETLEN
+         ADDQ     #4,SP             cleanup the stack
+*
+* The command line is in user's buffer.  Register d0 contains number
+* of bytes to be filled.  Register d1 contains number of printable
+* characters in buffer or it indicates the buffer overflow.
+*
+         MOVE.L   LEN(A6),A1
+         EXT.L    D1
+         MOVE.L   D1,(A1)           return length in "len"
+*
+         TST.W    D0
+         BLT      DONE
+         MOVE.B   #' ',D1           clear character
+CLRLOOP
+         MOVE.B   D1,(A0)+          clear the remainder
+         DBRA     D0,CLRLOOP
+DONE
+
+         ENDPR    P_GETCMD
+*
+CMDDATA
+         COMLINE                    132
+         END

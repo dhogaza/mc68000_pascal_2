@@ -1,0 +1,185 @@
+FSQR     IDNT     2,2      Single Precision Real Square Function
+         TTL      Single Precision Real Square Function
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Single Precision Real Square Function
+*
+* Last modified by KRIS on 26-Nov-1990 13:58:11
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+         PAGE
+
+         INCLUDE  LIBDEF
+         INCLUDE  FPPDEF
+         INCLUDE  LIBMAC
+
+         XDEF     P_FSQR            ;fsqr
+
+***********************************************************
+*
+*  single precision real square function
+*
+*    entry conditions:
+*
+*      D4.L = real input argument
+*
+*    exit conditions:
+*
+*      D4.L = 32-bit real product
+*      CCR  = N and Z flags conditionally set, V = 0
+*
+*    error conditions:
+*
+*      "exponent overflow in square function"
+*      "invalid operand in square function"
+*
+*    comments:
+*
+*      Exponent underflow flushes the result immediately
+*      to zero rather than denormalizing.
+*
+***********************************************************
+
+P_FSQR:
+         MOVEM.L  D0-D4,-(SP)       ;save 5 long registers
+
+         ROL.L    #8,D4
+         BMI.S    D4XODD            ;if odd exponent
+
+*********************************
+
+         BSET     #31,D4            ;set implied bit
+         ADD.B    D4,D4
+         BNE.S    DOEXP
+
+         MOVEQ    #0,D3             ;make +0
+         BRA.S    EXITSQR
+
+********************************
+
+D4XODD:  ADD.B    D4,D4
+         ADDQ.B   #2,D4             ;is d4 infinity or NaN?
+         BEQ.S    INVALID           ;yes
+
+         SUBQ.B   #1,D4
+
+********************************
+
+DOEXP:   MOVEQ    #0,D0
+         MOVE.B   D4,D0             ;copy out exponent
+         ADD.W    D0,D0             ;double exponent
+         SUBI.W   #126,D0           ;bias correction
+
+         CLR.B    D4
+         MOVE.L   D4,D3             ;copy whole fraction
+         SWAP     D3
+         MULU     D3,D3             ;we know this is non-zero
+
+         MOVE.W   D4,D2             ;copy out low order
+         BEQ.S    SHORTCUT
+
+* since low order is non-zero, we have 2 additional multiplies
+
+         SWAP     D4
+         MULU     D2,D4             ;this is the inner product
+
+         MOVEQ    #0,D1             ;scratch register
+         ADD.W    D4,D4             ;word carry into x-flag
+         SWAP     D4
+         MOVE.W   D4,D1
+
+         ADDX.L   D1,D1             ;save carry in d1.upper
+
+         MULU     D2,D2             ;low order product
+         ADD.L    D4,D2             ;carry to x-flag
+         ADDX.L   D1,D3
+         BRA.S    TESTNORM
+
+SHORTCUT:
+         MOVEQ    #0,D2
+         TST.L    D3
+
+*** we now have a 48 bit product, the least 16 bits of which are in the
+*** high order word of d2.  It will be tested only if we have a "nearest
+*** even" rounding problem.
+
+TESTNORM:
+         BMI.S    NORMAL            ;if product is now normalized
+
+*** The product will be unnormalized by at most 1 bit.  If the exponent is
+*** negative, then signal underflow and test the trap flag.  If set, then
+*** bias the exponent and take the trap; otherwise return either a zero if
+*** more than 25 steps are required, or denormalize the result and round.
+
+         ADD.L    D3,D3             ;shift left
+         SUBQ.W   #1,D0             ;adjust exponent
+
+NORMAL:  TST.W    D0                ;test exponent
+         BLE.S    UNDERFLOW         ;if underflow
+
+* perform rounding to nearest even
+
+         ADDI.L   #$80,D3
+         BCC.S    NOOVER            ;if no rounding overflow
+
+         ROXR.L   #1,D3             ;restore the implied bit
+         ADDQ.W   #1,D0             ;adjust exponent
+         BRA.S    TESTOVR
+
+NOOVER:  TST.B    D3                ;test extra precision
+         BNE.S    TESTOVR           ;if low byte was not $80
+
+         SWAP     D2                ;get "sticky word"
+         TST.W    D2                ;is it zero?
+         BNE.S    TESTOVR           ;no
+
+         BCLR     #8,D0             ;yes -- apply nearest even
+
+TESTOVR:
+         CMP.W    #255,D0           ;test for overflow
+         BCC.S    OVERFLOW
+
+         CLR.B    D3
+         ADD.L    D3,D3             ;force off implied bit
+         MOVE.B   D0,D3             ;stash exponent
+         ROL.L    #7,D3
+         SWAP     D3                ;our ducks are now lined up
+EXITSQR:
+         MOVE.L   D3,16(SP)         ;replace old d4
+         MOVEM.L  (SP)+,D0-D4
+         RTS                        ;with ccr correctly set
+
+
+UNDERFLOW:
+         MOVEQ    #0,D3             ;set result to +0.0
+         BRA.S    EXITSQR           ;for proper exit
+
+INVALID:
+         ADDA.W   #20,SP
+         LIBFRAME
+         MERROR   <'Invalid operand in real square'>
+
+OVERFLOW:
+         ADDA.W   #20,SP
+         LIBFRAME
+         MERROR   <'Exponent overflow in real square'>
+
+         END

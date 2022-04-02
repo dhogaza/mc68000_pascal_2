@@ -1,0 +1,102 @@
+IOERRO   IDNT     2,2      User I/O error handling
+         TTL      User I/O error handling
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* User I/O error handling
+*
+* Last modified by KRIS on 26-Nov-1990 14:07:44
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+*  Give the user the ability to control his own I/O error recovery.
+*
+         PAGE
+         INCLUDE  LIBDEF
+         INCLUDE  LIBMAC
+*
+* procedure noioerror(var f: text);
+*  Disables the usual I/O error trapping
+*
+         PROC     P_NOIOER,<F1,ADDRESS>
+         BEGIN    P_NOIOER,A0/A3/A4
+         CHECKIO  F1
+         BSET     #S1.NOERR,F.STATUS+1(A4)   set the noerror bit
+         ENDPR    P_NOIOER
+*
+* function iostatus(var f: text): integer;
+*  Returns the status of the last I/O operation.  The returned value is
+*  loaded from the status field of the ios's parameter block, or from
+*  the field "f.err" in case the first one is equal to zero.
+*
+         FUNC     P_IOSTAT,<F2,ADDRESS>,RESULT,INTEGER
+         BEGIN    P_IOSTAT,A0/A3/A4/D0
+         CHECKIO  F2
+         CLR.L    D0                clear the scratch register
+         MOVE.B   F.IOS+I.STATUS(A4),D0      extended value of result
+         BNE.S    HAVERR            branch if ios/fhs error
+         MOVE.W   F.ERR(A4),D0      check the pascal error
+         NEG.L    D0                make it negative
+HAVERR
+         MOVE.L   D0,RESULT(A6)     return a longword value
+         ENDPR    P_IOSTAT
+*
+* function ioerror(var f: text): boolean;
+*  Check if any error occured during the last I/O transfer.  Two field
+*  within the file variable are checked by this routine : status field
+*  of the ios parameter block and f.err field provided for errors detected
+*  by pascal-2 library modules.  In case both fields are equal to zero
+*  the returned value is false.
+*
+         FUNC     P_IOERRO,<F3,ADDRESS>,BOLRES,BOOLEAN
+         BEGIN    P_IOERRO,A0/A3/A4/D0
+         CHECKIO  F3
+         CLR.L    D0                extend result as needed
+         CLR.B    BOLRES(A6)        assume no error
+         TST.B    F.IOS+I.STATUS(A4)         result of last i/o
+         BNE.S    FOUND             branch if there was an error
+         TST.W    F.ERR(A4)         check for pascal errrors
+         BEQ.S    OK                branch if it's ok too
+FOUND
+         MOVE.B   #1,BOLRES(A6)     set result to true
+OK
+         ENDPR    P_IOERRO
+*
+* Process a pascal internal error.  This routine checks if the "noerr" bit
+* of the file variable status field is set.  If the user wishes to trap
+* I/O errors himself, the error code (a 32-bit value - usualy negative)
+* passed on the stack is saved into 16-bit field "f.err" of the file variable.
+* If the "noerr" bit is cleared - a procedure parameter passed on the
+* stack is used to execute a call to abort the program.  Note that this
+* routine doesn't use any constant values, so all error codes and
+* error routine may be defined using pascal modules.
+*
+         PROC     P_SETERR,<F4,ADDRESS,ERCOD,INTEGER,ERPROC,PROCEDURE>
+         BEGIN    P_SETERR,A0/A3/A4/D0
+         CHECKIO  F4
+         MOVE.L   ERCOD(A6),D0      get the error code
+         MOVE.W   D0,F.ERR(A4)      set the error word in file variable
+         BTST     #S1.NOERR,F.STATUS+1(A4)   test the noerror bit
+         BNE.S    GOBACK            branch if user wish to continue
+         MOVE.L   ERPROC+PRC.SA(A6),A0       procedure entry point
+         JSR      (A0)              call the error routine and don't return
+GOBACK
+         ENDPR    P_SETERR
+         END

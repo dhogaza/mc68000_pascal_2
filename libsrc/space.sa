@@ -1,0 +1,89 @@
+SPACE    IDNT     2,2      Head space information routines
+         TTL      Head space information routines
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Head space information routines
+*
+* Last modified by KRIS on 26-Nov-1990 14:07:26
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+         PAGE
+*
+* Routines to deal with the space available for heap allocation
+*
+* function space: integer;
+*
+* The amount of space available between the top of the stack and the
+* top of the heap.
+*
+         INCLUDE  LIBDEF
+         INCLUDE  PASMAC
+         SECTION  13
+*
+         FUNC     SPACE,,REMAINS,SHORTINT
+         BEGIN    SPACE,D0/A4
+         MOVE.L   G.LIB(A5),A4
+         MOVE.L   L.HCHK(A4),D0     get top of heap word
+         BNE.S    HAVETOP           if non-zero, we have the top
+         MOVE.L   SP,D0             get the current stack top
+         BCLR     #31,D0            remove the overflow bit
+HAVETOP  SUB.L    L.HEAP(A4),D0     subtract the top of the heap
+         SUB.L    #TRAPMIN,D0       remove additional space for traps
+         CMP.L    #32767,D0         See if we have more than a shortint
+         BLE.S    SBIG              yep, too big
+         MOVE.L   #32767,D0         so set it to maxint
+SBIG     MOVE.W   D0,REMAINS(A6)    return the space remaining
+         ENDPR    SPACE
+         PAGE
+*
+* Scan the free list and see if there is a block big enough to contain
+* the size specified
+*
+* function newok(size: shortint): boolean;
+*
+         FUNC     NEWOK,<SIZE,SHORTINT>,WASOK,BOOLEAN
+         BEGIN    NEWOK,A0/D0
+*
+* Get actual length, including check word and rounding
+*
+         CLR.L    D0                Get the length required
+         MOVE.W   SIZE(A6),D0       from the argument
+         ADD.L    #5,D0             add check + rounding up
+         BCLR     #0,D0             remove lower bits
+         CMP.L    #8,D0             we have a minimum size of 8
+         BGE.S    NEWSIZED          already big enough
+         MOVE.L   #8,D0             set to the minimum
+NEWSIZED EQU      *
+         CLR.B    WASOK(A6)         assume won't fit.
+*
+* Now search free list for a block which is big enough.
+*
+         MOVE.L   G.LIB(A5),A0
+         LEA      L.FREE(A0),A0     start at the head of the list
+*
+NEWSRCH  TST.L    (A0)              check for end of list
+         BEQ.S    NODONE            it is the end, get space from the stack
+         MOVE.L   (A0),A0           next pointer set to next block
+         CMP.L    4(A0),D0          can we fit it in here?
+         BHI.S    NEWSRCH           no, try the next block
+         ADD.B    #1,WASOK(A6)      was really OK
+NODONE   ENDPR    NEWOK
+         END

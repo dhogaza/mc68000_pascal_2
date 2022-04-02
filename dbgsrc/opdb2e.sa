@@ -1,0 +1,175 @@
+OPDB2E   IDNT     2,2      Debugger entry point.
+         TTL      Debugger entry point.
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1981, 1982, 1983, 1984, 1985, 1986, 1987, 1988
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Debugger entry point.
+*
+* Last modified by KRIS on 26-Nov-1990 13:43:50
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+         INCLUDE  LIBDEF
+         INCLUDE  VDOSDE
+         OPT      FRL
+         SECTION  8
+         PAGE
+*
+*
+* Debugger program initialization.  This routine is jumped to by main programs
+* compiled with the ;DEBUG switch in place of the normal call to p_initio.
+* Since there is no stack available, the return address to the user's code
+* is placed in SP.  This routine saves the pointer back to the user's code
+* and calls the real library initialization routine.  Following this, the
+* Debugger is initialized.
+*
+         XDEF     P_DBGINT
+         XREF     P_DBINI
+P_DBGINT
+         IFEQ     PIC
+         MOVE.L   SP,REGPC          save return to user code
+         MOVE.L   SP,INIPC          Save initial PC for restart operations
+         LEA      P_DBINI(PC),SP    point to debugger initialization
+         ENDC     nopic
+*
+* Allocate the data segment.  This code stolen from LINKDE.SA
+*
+         XREF     WORKL$$           Workspace length
+         XREF     WORK$$            Workspace address
+         XREF     GLOBAL$$          global space length
+         XREF     ERSTK$$           size of the stack for error handling
+
+         SWAP     D6                combine two word values
+         MOVE.W   D3,D6             to free up a register
+         MOVE.L   D0,D3             to hold d0
+         MOVE.L   A0,A3             free up a0, a1 for return
+         MOVE.L   A1,A4
+         MOVE.L   FIXSEG+SG.LEN(PC),A6       requested workspace length
+         MOVE.L   A6,A1             size of the segment
+         MOVEA.L  #WORK$$,A0        start of workspace
+         CMPA.L   #0,A0
+         BEQ.S    NONMMU            it's zero, versados should define it
+         ERQ      GTSEG$,FIXSEG(PC) allocate new segment
+         MOVEA.L  #WORK$$,A0        start of workspace again
+         BRA.S    SEGRDY
+NONMMU
+         ERQ      GTSEG$,FLTSEG(PC) let versados allocate new segment
+SEGRDY
+         MOVE.L   #GLOBAL$$,A5      global variable length
+         IFNE     PIC
+*
+* We have to store the address in the register and sp in the debugger
+* own section.  In case the program is position independent we don't
+* know at this time where is the data segment. It's postion will be
+* determined by the intialization module.
+*
+* The only one place available at this time is the library communication's
+* word l.dbgbuf, of course only in case the GETSEG was succesful.
+*
+         XREF     P_PANIC
+         TST.W    D0                See if we have a segment
+         BNE.L    P_PANIC           No, scream loudly
+         CMPA     #DSIZ,A1          See if we have enough to work
+         BLE.L    P_PANIC           No, scream again
+         MOVE.L   SP,H.LIB+L.DBGBUF(A0)      Save return address
+         LEA      BACK(PC),SP       Where p_init should return
+         ENDC     pic
+         XREF     P_INIT            routine which does most of the work
+         JMP      P_INIT(PC)
+         IFNE     PIC
+BACK
+*
+* The initialization is done.  Finaly we can access the debugger own data,
+* store user's return address there and call the debugger initialization
+* routine.
+         XREF     P_OWN
+         MOVEM.L  D0/A0,-(SP)       need scratch
+         MOVE.L   G.LIB(A5),A0      start of library area
+         MOVE.L   L.DBGBUF(A0),D0   restore return address to user
+         MOVE.L   G.OWN(A5),A0      base address for all own sections
+         MOVE.L   D0,REGPC-P_OWN(A0)         save return to user code
+         MOVE.L   D0,INIPC-P_OWN(A0)         initial PC for restart operations
+         EXG.L    A0,D0             keep data pointer
+         LEA.L    P_DBGINT(PC),A0   any pc-relative address
+         ADD.L    #D2$DBG2-P_DBGINT,A0       debugger entry point at run-time
+         EXG.L    A0,D0             address in a0, data in d0
+         MOVE.L   D0,DBENTRY-P_OWN(A0)       correct the value set by the linker
+         MOVEM.L  (SP)+,D0/A0       restore
+         JMP      P_DBINI(PC)       call debugger initialization
+         ENDC     pic
+DSIZ     EQU      H.SIZE+4096
+*
+* segment allocation packet - "fixed" segment version
+*
+FIXSEG   DC.L     0                 current task
+         DC.L     0                 session number (ignored)
+         DC.W     $0200             take what memory we can get
+         DC.W     0                 seg attributes
+         DC.L     'PAW$'            Pascal work segment.
+         DC.L     WORK$$            starting address of segment.
+         DC.L     DSIZ+ERSTK$$+WORKL$$+GLOBAL$$       segment length
+*
+* segment allocation packet - "floating" segment version
+*
+FLTSEG   DC.L     0                 current task
+         DC.L     0                 session number (ignored)
+         DC.W     $2000             rsm68k defines logical=phisical address
+*                                   use a0 for returned info (rcvsa$)
+         DC.W     0                 seg attributes
+         DC.L     'PAW$'            Pascal work segment.
+         DC.L     0
+         DC.L     DSIZ+ERSTK$$+WORKL$$+GLOBAL$$       segment length
+         DC.L     0
+         PAGE
+*
+*
+* Debugger data area.  The common section DEBUG below is used to communicate
+* with the Debugger's OWN variables.  For this reason, any changes to the
+* data below must be matched by corresponding changes in DBCOM.PAS which
+* contains the Pascal definition of this shared data region.  Note that
+* the Debugger uses more data than is defined below.
+
+DBREG    SECTION  15
+
+INIREG   DS.L     15                Initial registers
+INISP    DS.L     1                 Initial stack
+INIPC    DS.L     1                 Initial PC
+BRKADDR  DS.L     1                 Address of break byte
+
+DEBUG    SECTION  15
+
+         XREF     D2$DBG2
+DBENTRY  DC.L     D2$DBG2           Debugger entry point
+NOTSKP   DC.B     0
+LOOK     DC.B     0
+PTERM    DC.B     0                 User's program has terminated
+PROFIL   DC.B     0                 Is this the debugger or profiler?
+FPPREG   DS.L     9                 Save area for 68881 registers fp5-fp7
+REGSAV   EQU      *
+REGD5    DC.L     0                 User's registers
+REGD6    DC.L     0
+REGD7    DC.L     0
+REGA3    DC.L     0
+REGA4    DC.L     0
+REGA6    DC.L     0
+REGSP    DC.L     0
+REGPC    DC.L     0                 Return to user's code
+
+         END

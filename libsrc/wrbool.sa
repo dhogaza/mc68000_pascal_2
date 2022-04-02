@@ -1,0 +1,67 @@
+WRBOOL   IDNT     2,2      Write a boolean
+         TTL      Write a boolean
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Write a boolean
+*
+* Last modified by KRIS on 26-Nov-1990 14:06:04
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+         INCLUDE  LIBDEF
+         INCLUDE  LIBMAC
+         PAGE
+*
+* p_wtb -- write(file,boolean)
+*
+         PROC     P_WTB,<F,ADDRESS,BOOL,BOOLEAN,BWIDTH,INTEGER>
+
+         BEGIN    P_WTB,A0/A3/A4
+         CHECKIO  F,OUTPUT
+         MOVE.L   F(A6),-(SP)       push file variable
+         BTST     #0,BOOL(A6)       test boolean value
+         BNE.S    WBL1              it is true
+         PEA      FALSE$(PC)        push address of false message
+         MOVE.L   #5,-(SP)          5 letters in false
+         BRA.S    WBL2              continue
+WBL1:    PEA      TRUE$(PC)         push address of true message
+         MOVE.L   #4,-(SP)          4 letters in true
+WBL2:    EQU      *
+         MOVE.L   BWIDTH(A6),-(SP)  push real field width
+         JSB      P_WTS,2*INTEGER+8 write the string
+         ENDPR    P_WTB             all done
+*
+* p_wtb_o -- write(output,boolean)
+*
+         PROC     P_WTB_O,<BOOL_O,BOOLEAN,BW_O,INTEGER>
+
+         BEGIN    P_WTB_O
+         PEA      G.OUTPUT(A5)      push pointer to standard output
+         MOVE.B   BOOL_O(A6),-(SP)  copy boolean
+         MOVE.L   BW_O(A6),-(SP)    copy width
+         BSR      P_WTB             write(file,boolean);
+         ADD.W    #10,SP            kill temporary parameters
+         ENDPR    P_WTB_O
+*
+FALSE$:  DC.B     'false'
+TRUE$:   DC.B     'true'
+         DC.B     0                 round up to next word
+         END

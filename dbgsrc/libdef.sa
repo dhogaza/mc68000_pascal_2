@@ -1,0 +1,386 @@
+*        include libdef
+         NOLIST
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1981, 1982, 1983, 1984, 1985, 1986, 1987, 1988
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Pascal Support Library common and configuration definitions
+*
+* Last modified by KRIS on 22-Nov-1990 07:04:47
+* Purpose:
+         IFEQ     1
+Update release version for PC-GS0-GS0 at 2.3.0.1
+         ENDC
+         OPT      NOCL
+*
+* common definitions for the pascal2 support library
+*
+* IMPORTANT!!!!!!
+*
+* This include file must be followed by a "section" pseudo op before
+* any code can be generated.
+*
+* This section contains configuration constants for the library
+*
+* If the "libcheck" is non-zero, code will be generated in
+* the library for normal consistency checks.  If it is zero, no checks
+* will be generated.
+*
+* NOTE:  Pointer checks will always fail if this is turned off.
+* All Pascal code must be compiled with pointer checks disabled.
+*
+LIBCHECK EQU      1                 checking enabled
+*
+* If "concur" is non-zero, synchronizing code will be generated for
+* all modifications to system variables.  If it is zero, no locking
+* code will be generated.
+*
+* The following constant is the amount of stack space which
+* must be left for trap handling in case of error
+* This must allow for the data pushed on the stack by the trap,
+* plus working storage used by the error handler
+*
+TRAPMIN  EQU      84
+*
+* The following constant is used to initialize heap storage
+* to an "improbable" value.  It should be odd, to generate an
+* address trap if used as a pointer, but should not have a small
+* absolute value nor be a common character string.
+*
+IMPROB   EQU      $EFEFEFEF
+*
+* The following constants define the standard input and output
+* files passed to the task as it is initialized.
+*
+STDINP   EQU      5                 FORTRAN reigns, even though
+STDOUT   EQU      6                 this machine has no FORTRAN compiler
+*
+* The following constant is the value on "nil" used by the compiler
+*
+NIL      EQU      1
+         PAGE
+* ios parameter block definitions.
+*
+* the ios parameter block is a versados defined structure used
+* to control i/o operations.
+*
+         OFFSET   0
+*
+I.FUNC   DS.W     1                 code/command for i/o operation
+I.OPT    DS.W     1                 options which modify operation
+I.STATUS DS.B     1                 status returned for last operation
+I.LUN    DS.B     1                 logical unit number
+I.RESV   DS.W     1                 reserved, must be zero
+I.RECNUM DS.L     1                 random record number
+I.BUFST  DS.L     1                 starting address of buffer
+I.BUFEND DS.L     1                 ending address of buffer
+I.RLEN   DS.L     1                 length of last record read
+I.COMPL  DS.L     1                 completion address (zero for pascal)
+I.SIZE   DS.B     0                 size of iosb
+         PAGE
+*
+* fhs parameter block
+*
+* the fhs parameter block is a versados defined structured used
+* for file accessing (open, close) operations.
+*
+         OFFSET   0
+*
+P.FUNC   DS.W     1                 code/command for file operation
+P.OPT    DS.W     1                 options which modify operation
+P.STATUS DS.B     1                 status returned for last operation
+P.LUN    DS.B     1                 logical unit number
+         IFNE     VERSADOS
+P.VOLN   DS.B     4                 volume name
+P.USERN  DS.W     1                 user number
+P.CATNM  DS.B     8                 catalog name
+P.FILENM DS.B     8                 file name
+P.EXT    DS.B     2                 extension
+P.RESV   DS.W     1                 reserved
+         ENDC     versados
+         IFNE     STNDALON
+P.FILENM DS.L     1                 pointer to the file name
+P.FNAMLN DS.L     1                 length of the file name
+         ENDC     stndalon
+P.PROT   DS.W     1                 read/write protection codes
+P.RLEN   DS.W     1                 record length
+P.SIZEPT DS.L     1                 size/pointer info
+P.SIZE   DS.B     0                 size of fhs parameter block
+         PAGE
+*
+* pascal file descriptor block (fdb)
+*
+* this data structure contains all the information the pascal
+* support library needs to access a file.  all active files
+* appear in a linked list whose root is in the global area.
+* note that the fdb contains an ios parameter block as well
+* as a fhs parameter block.  these parameter blocks are used to
+* perform the i/o operations for the file.
+*
+         OFFSET   0
+*
+F.POINT  DS.L     1                 pointer to data (f^ for pascal)
+F.STATUS DS.W     1                 pascal file status (eof, eoln, etc)
+F.NEXT   DS.L     1                 pointer to next file in list (or zero)
+F.BUFF   DS.L     1                 address of file's record buffer
+F.BUFFSZ DS.W     1                 length of record buffer
+F.FVAR   DS.L     1                 back pointer to file variable
+F.ERR    DS.W     1                 pascal error code
+F.IOS    DS.B     I.SIZE            ios parameter block
+F.FHS    DS.B     P.SIZE            fhs parameter block
+         IFNE     STNDALON
+F.IODR   DS.L     1                 I/O driver for this file (init entry)
+F.FHDR   DS.L     1                 file handler driver for this file
+         ENDC     stndalon
+F.SIZE   DS.B     0                 size of fdb
+*
+F.DSIZE  EQU      132               default text file buffer size
+*
+* the following status bits describe the state of the file.  the
+* compiler must know the location of s.eof, s.eoln, and s1.def because
+* these bits represent the eof() and eoln() standard functions and
+* the compiler must make direct reference to the defined bit before
+* any reference to eoln, eof, or f^.
+* These bits live in f.status in the fdb.
+*
+S.DEF    EQU      0                 current component defined
+S.EOF    EQU      1                 end of file detected
+S.EOLN   EQU      2                 logical end of record
+S.TEXT   EQU      3                 set=text file, clear=record file
+S.INP    EQU      4                 input operations allowed ( reset() )
+S.OUT    EQU      5                 output operations allowed ( rewrite() )
+S.NEWL   EQU      6                 new input line should be read
+S.INT    EQU      7                 interactive device (for lazy i/o)
+S1.ASNCH EQU      7                 asynchronous I/O
+S1.PERM  EQU      6                 file may not be closed (input and output)
+S1.RAN   EQU      5                 random access operations enabled ( seek() )
+S1.NOERR EQU      4                 do not trap on error
+S1.NECHO EQU      3                 echo is on
+S1.SNGL  EQU      2                 single character mode
+S1.CONT  EQU      1                 contiguous file
+         IFNE     STNDALON
+*
+* I/O handler operation definitions for stand-alone
+*
+IO.OPEN  EQU      0                 open this file
+IO.TRAN  EQU      1                 normal transfer
+IO.CLOS  EQU      2                 close this file
+         ENDC     stndalon
+         PAGE
+*
+* support library work area definitions.
+*
+* these offsets define the support library work area.  see the init module
+* for more information.
+*
+         OFFSET   0
+*
+L.FILES  DS.L     1                 pointer to linked list of active files
+L.FREE   DS.L     1                 pointer to linked list of free blocks on heap
+         DS.L     1                 must be zero
+L.HEAP   DS.L     1                 current top of heap
+L.HIGH   DS.L     1                 high water mark for heap top
+L.HCHK   DS.L     1                 if non-zero, top of heap area
+L.SCHK   DS.L     1                 if non-zero, address of stack check
+L.RWORKL DS.L     1                 requested size of work area
+L.AWORKL DS.L     1                 actual size of work area
+L.GLOBL  DS.L     1                 length of global area
+L.GLOBA  DS.L     1                 address of global area
+L.ERRA   DS.L     1                 address of error area
+L.INPUT  DS.L     1                 pointer to fdb for standard file "input"
+L.OUTPUT DS.L     1                 pointer to fdb for standard file "output"
+         IFNE     VERSADOS
+L.FATHER DS.L     1                 name of task which spawned this task
+L.SESSIO DS.L     1                 current session number
+L.VOLN   DS.L     1                 default volume id
+L.USER   DS.W     1                 default user number
+L.CAT    DS.B     8                 default catalog name
+L.COML   DS.W     1                 length of command line
+L.LUNS   DS.L     1                 lun's in use by this task
+L.TASKN  DS.L     1                 current task name
+L.UTERM  DS.L     1                 user's terminal id
+L.RUSER  DS.W     1                 real user number
+L.BREAK  DS.B     1                 set if break has occurred
+L.BKWANT DS.B     1                 set if the user wants breaks
+L.DBGBUF DS.L     1                 buffer available for debugger
+         ENDC     versados
+         IFNE     STNDALON
+L.ERRIO  DS.L     1                 console's non interrupt i/o entry point
+L.TPHAND DS.L     1                 trap handler address
+L.SGATE  DS.L     1                 system table gate
+         ENDC     stndalon
+L.PMA    DS.L     1                 Address of PMA code
+L.TERM   DS.L     1                 Address of termination code
+L.ABORT  DS.W     1                 abort code (if any)
+L.FCHECK DS.W     1                 doing file open check (not pointer chk)
+L.LFILE  DS.L     1                 contains file ptr on error only
+L.SIZE   DS.B     0                 size of library work area
+         PAGE
+*
+* pascal-2 global area
+*
+* during the life of a pascal-2 program, the global pointer (a5) always points
+* to the global area.  the first few words of the global area are used for
+* communication between the support library and the compiled code.  the rest
+* of the global area (larger offsets from a5) represents the global data for
+* the user's program.  the init module is passed the size of the global data
+* area when it is called by the user's code.
+*
+G.NSIZE  EQU      2
+*
+G.LIBLEV EQU      -2                level of nesting in library routines
+         OFFSET   0
+G.GLOB   DS.B     0                 global pointer target
+G.SPOVF  DS.L     1                 address of lowest usable word on stack
+G.OWN    DS.L     1                 pointer to the base of "own" section
+G.SP     DS.L     1                 original value of stack pointer (for unwinding stack)
+G.LIB    DS.L     1                 address of support library work area
+G.OUTPUT DS.L     1                 address of standard output file
+G.INPUT  DS.L     1                 address of standard input file
+G.SIZE   DS.B     0                 size of global area
+G.DATA   DS.L     1                 users's first global level variable
+         PAGE
+* Error communication region definitions.
+*
+* This record is used to communicate between the error handler and
+* the post mortem analyzer.
+*
+         OFFSET   0
+ER.USP   DS.L     1                 User program stack pointer
+ER.CODE  DS.W     1                 Error code
+ER.AUX   DS.L     1                 Auxiliary error code
+ER.SIZE  DS.B     0                 Size of error region.
+         PAGE
+* PAW$ segment layout
+*
+* This segment is allocated in the intialization routine and contains
+* all working storage for the Pascal program.  In particular, it
+* contains the error communication region, the error work space,
+* the library work space, the global variables, the stack, and the heap
+*
+         OFFSET   0
+H.LIB    DS.B     L.SIZE            library work area
+H.GLOB   DS.B     G.NSIZE+G.SIZE    start of global area
+H.SIZE   DS.B     0                 size of header area
+         PAGE
+*
+*
+* error definitions
+*
+* These bits define the data included with an error message.  For
+* bus and address errors, the hardware provides extra information
+* on the stack.  There is also the possibility of some auxiliary
+* error data, which may be in several locations.  Finally, the
+* user can provide the entire error code in line following the trap.
+*
+* These bits are all in the top byte of the two byte error code.  The
+* actual code is in the bottom byte.
+*
+E$$BUS   EQU      8                 bus data on the stack
+E$$USER  EQU      9                 user provided error code inline
+E$$FILE  EQU      10                aux data in l.lfile(a3)
+E$$A0    EQU      11                aux data in A0
+E$$STK   EQU      12                aux data on top of stack
+E$$CODE  EQU      13                aux data inline in code
+*
+* definitions of the above bits in words
+*
+E$BUS    EQU      1<<E$$BUS
+E$USER   EQU      1<<E$$USER
+E$FILE   EQU      1<<E$$FILE
+E$A0     EQU      1<<E$$A0
+E$STK    EQU      1<<E$$STK
+E$CODE   EQU      1<<E$$CODE
+*
+* error codes, ranges assigned are:
+*
+*  0            user provides error inline
+*  1            error message in aux data
+*  2..15        compiled code
+*  16..31       machine exceptions
+*  32..127      library errors
+*  128..255     user defined
+*
+E.USER   EQU      0+E$USER          user provides error number inline
+E.UMSG   EQU      1                 aux data points to error message
+*
+E.PTR    EQU      2                 illegal pointer reference
+E.CASE   EQU      3                 no case provided for value
+E.RANGE  EQU      4                 general range error
+E.ASSRAN EQU      5                 assignment range error
+E.INDEX  EQU      6                 array index error
+E.STACK  EQU      7                 stack overflow
+E.ZDIV   EQU      8                 divide by zero
+*
+E.TRAP   EQU      16                unexpected trap
+E.BUS    EQU      17+E$BUS          bus error
+E.ADDR   EQU      18+E$BUS          address error
+E.ILLEG  EQU      19                illegal instruction
+E.PRIV   EQU      20                privilege violation
+E.UNEXIN EQU      21                unexpected interrupt
+E.TRACE  EQU      22                trace mode interrupt
+E.SPURIN EQU      23                spurious interrupt
+E.UNININ EQU      24                uninitialized interrupt
+*
+E.SHORT  EQU      32+E$A0           workspace is too short
+E.NOTOPN EQU      33                file not open
+E.NOTOUT EQU      34+E$FILE         file is not an output file
+E.NOTINP EQU      35+E$FILE         file is not an input file
+E.WRITF  EQU      36+E$FILE         error writing output file
+E.READF  EQU      37+E$FILE         error reading input file
+E.EOF    EQU      38+E$FILE         attempt to read past end of file
+E.NEOF   EQU      39+E$FILE         put not at end of file
+E.REWIND EQU      40+E$FILE         can't rewind file
+E.TRUNC  EQU      41+E$FILE         can't truncate file
+E.NOTRAN EQU      42+E$FILE         seek not permitted with text file
+E.SEEK   EQU      43+E$FILE         unable to seek to record
+E.TOOMNY EQU      44                too many files open
+E.ALLOC  EQU      45+E$FILE         can't create file
+E.ASSIGN EQU      46+E$FILE         can't open file
+E.ATTR   EQU      47+E$FILE         can't read file's attributes
+E.BADNAM EQU      48                bad syntax for file name
+E.BADINT EQU      49                illegal value for integer
+E.SEEK0  EQU      50+E$FILE         seek to record zero
+E.DISNIL EQU      51                attempt to dispose of a nil pointer
+E.DISBAD EQU      52                dispose arg never allocated witn new
+E.DOUBLE EQU      53                pointer already disposed
+E.NOMEM  EQU      54                not enough available memory
+E.UDFILE EQU      55                reset of undefined file
+E.NONE   EQU      56                don't display any error message
+
+E.BADSWT EQU      66                illegal i/o switch
+E.BADLUN EQU      67                invalid lun defined via /lun switch
+E.CONTSZ EQU      68+E$FILE         no size for contiguous file
+E.EOFCNT EQU      69+E$FILE         seek past end of (contiguous) file
+E.UABORT EQU      70                user exitst(1) was executed
+         IFNE     MC68881
+* floating point coprocessor specific errors
+EF.FLINE EQU      57                f-line emulator
+EF.PROT  EQU      58                coprocessor protocol violation
+EF.UCOND EQU      59                branch or set on unordered condition
+EF.INEX  EQU      60                inexact result
+EF.DIVZ  EQU      61                floating-point divide by zero
+EF.UNDER EQU      62                underflow
+EF.OPERR EQU      63                operand error
+EF.OVERF EQU      64                overflow
+EF.NAN   EQU      65                signaling "nan"
+
+* bit mask to enable all possible exceptions generated by the fpc
+ENBLFPC  EQU      $FD00             set bits 8-15
+DSBLFPC  EQU      $0                all bits cleared
+         ENDC     mc68881
+         LIST

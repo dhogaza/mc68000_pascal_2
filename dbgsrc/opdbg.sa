@@ -1,0 +1,792 @@
+OPDBG    IDNT     2,2      Macro interface routines for the Pascal-2 debugger.
+         TTL      Macro interface routines for the Pascal-2 debugger.
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1981, 1982, 1983, 1984, 1985, 1986, 1987, 1988
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Macro interface routines for the Pascal-2 debugger.
+*
+* Last modified by KRIS on 26-Nov-1990 13:43:56
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+         INCLUDE  LIBDEF
+         INCLUDE  VDOSDE
+         INCLUDE  LIBMAC
+         OPT      FRL
+         SECTION  8
+         PAGE
+*
+*
+* Debugger action definitions
+*
+INIT     EQU      0                 Initialize Debugger
+PROCENT  EQU      1                 Procedure entry
+PROCEXI  EQU      2                 Procedure exit
+STMT     EQU      3                 New statement
+NONGO    EQU      5                 Non-local GOTO
+TERMIN   EQU      6                 Termination of program
+* oddaddr  equ      4                     Odd address trap
+* breakp   equ      5                     Breakpoint trap
+* mempro   equ      6                     Memory protect violation
+* badins   equ      7                     Illegal instruction execution
+* emtint   equ      8                     EMT instruction executed (very unlikely!)
+* fistrap  equ      9                     FIS trap (very unlikely!)
+* iotins   equ      11                    IOT instruction executed (very unlikely!)
+         PAGE
+
+SAVREG   REG      D5-D7/A3/A4/A6/A7 Saved registers
+* Note:  Registers d0-d4 and a0-a2 are never used as targets for local
+*        variables.  Thus they are not stored in the debugger own section
+*        DEBUG.
+*
+         IFNE     PIC
+*
+* The register A2 is used by the low level debugger routines to access
+* debugger "own" data in position independent way.  It is always stored
+* on the stack at the debugger entry, stays there during execution
+* of debugger Pascal-2 modules and it is restored directly before
+* returning to the user's program.
+*
+         ENDC     pic
+*
+* Return address of global data
+*
+         XDEF     D$GLBADR
+D$GLBADR
+         MOVE.L   A5,4(SP)
+         ADDI.L   #16,4(SP)
+         RTS
+
+
+*
+* Save the 68881 floating point registers
+*
+
+         XDEF     D$FPPSAV
+D$FPPSAV
+         IFNE     MC68881
+
+         IFEQ     PIC
+         FMOVEM.X FP5-FP7,FPPREG    save fp5-fp7 in fppreg
+         ENDC     nopic
+
+         IFNE     PIC
+         MOVE.L   A2,-(SP)          need a scratch register
+         XREF     P_OWN
+         MOVE.L   G.OWN(A5),A2      pointer to data segment
+         FMOVEM.X FP5-FP7,FPPREG-P_OWN(A2)   restore fp5-fp7 from fppreg
+         MOVE.L   (SP)+,A2
+         ENDC     pic
+
+         ENDC     mc68881
+         RTS
+
+
+*
+* Restore the 68881 floating point registers
+*
+
+         XDEF     D$FPPRES
+D$FPPRES
+         IFNE     MC68881
+
+         IFEQ     PIC
+         FMOVEM.X FPPREG,FP5/FP6/FP7         restore fp5-fp7 from fppreg
+         ENDC     nopic
+
+         IFNE     PIC
+         MOVE.L   A2,-(SP)          need a scratch register
+         XREF     P_OWN
+         MOVE.L   G.OWN(A5),A2      pointer to data segment
+         FMOVEM.X FPPREG-P_OWN(A2),FP5-FP7   restore fp5-fp7 from fppreg
+         MOVE.L   (SP)+,A2
+         ENDC     pic
+
+         ENDC     mc68881
+         RTS
+
+
+*
+* procedure d$getsgl(var source: extendedrealarray;
+*                     var destination: data_array);
+*   external;
+*
+* Move an extended real from source to destination
+* The source is in extended format and the destination in single format
+*
+
+         XDEF     D$GETSGL
+D$GETSGL
+         IFNE     MC68881
+         MOVE.L   A0,-(SP)          scratch registers
+         FMOVE.X  FP0,-(SP)
+         MOVE.L   24(SP),A0         get address of source
+         FMOVE.X  (A0),FP0          load extended real
+         MOVE.L   20(SP),A0         get address of destination
+         FMOVE.S  FP0,(A0)          move source to scratch reg, rounding to single
+         FMOVE.X  (SP)+,FP0         restore registers
+         MOVE.L   (SP)+,A0
+         ENDC     mc68881
+         RTS
+
+*
+* procedure d$putsgl(var destination: extendedrealarray;
+*                     var source: data_array);
+*   external;
+*
+* Move an extended real from source to destination
+* The source is in single format and the destination in externded format
+*
+
+         XDEF     D$PUTSGL
+D$PUTSGL
+         IFNE     MC68881
+         MOVE.L   A0,-(SP)          scratch registers
+         FMOVE.X  FP0,-(SP)
+         MOVE.L   20(SP),A0         get address of source
+         FMOVE.S  (A0),FP0          load single real into register
+         MOVE.L   24(SP),A0         get address of destination
+         FMOVE.X  FP0,(A0)          move extended real to destination
+         FMOVE.X  (SP)+,FP0         restore registers
+         MOVE.L   (SP)+,A0
+         ENDC     mc68881
+         RTS
+
+
+*
+* procedure d$getdbl(var source: extendedrealarray;
+*                     var destination: data_array);
+*   external;
+*
+* Move an extended real from source to destination
+* The source is in extended format and the destination in double format
+*
+
+         XDEF     D$GETDBL
+D$GETDBL
+         IFNE     MC68881
+         MOVE.L   A0,-(SP)          scratch registers
+         FMOVE.X  FP0,-(SP)
+         MOVE.L   24(SP),A0         get address of source
+         FMOVE.X  (A0),FP0          load extended real
+         MOVE.L   20(SP),A0         get address of destination
+         FMOVE.D  FP0,(A0)          move source to scratch reg, rounding to double
+         FMOVE.X  (SP)+,FP0         restore registers
+         MOVE.L   (SP)+,A0
+         ENDC     mc68881
+         RTS
+
+
+*
+* procedure d$putdbl(var destination: extendedrealarray;
+*                     var source: data_array);
+*   external;
+*
+* Move an extended real from source to destination
+* The source is in double format and the destination in extended format
+*
+
+         XDEF     D$PUTDBL
+D$PUTDBL
+         IFNE     MC68881
+         MOVE.L   A0,-(SP)          scratch registers
+         FMOVE.X  FP0,-(SP)
+         MOVE.L   20(SP),A0         get address of source
+         FMOVE.D  (A0),FP0          load double real into register
+         MOVE.L   24(SP),A0         get address of destination
+         FMOVE.X  FP0,(A0)          move extended real to destination
+         FMOVE.X  (SP)+,FP0         restore registers
+         MOVE.L   (SP)+,A0
+         ENDC     mc68881
+         RTS
+
+
+
+
+
+
+
+
+
+
+
+*
+* Initialize the Debugger
+*
+*
+* First, search through the diagnostic data base to find the data relating
+* to the main program.  This will permit the debugger to locate the
+* statements in the main program as well as the location of the procedure
+* entry in the symbol table.
+*
+D.STADR  EQU      2                 Start address of module
+D.CDLEN  EQU      6                 Length of module
+*
+         XDEF     P_DBINI
+P_DBINI
+         IFEQ     PIC
+         MOVEM.L  SAVREG,REGSAV     Save registers
+         LEA.L    P_DBSTMT,A3       Point to new statement routine
+         MOVE.L   A3,REGA3          Save in copy of registers
+         MOVEM.L  D0-D7/A0-A7,INIREG         Save initial registers for restart
+         ENDC     nopic
+         IFNE     PIC
+         XREF     P_OWN
+         MOVE.L   A2,-(SP)          need a scratch register
+         MOVE.L   G.OWN(A5),A2      pointer to data segment
+         MOVEM.L  SAVREG,REGSAV-P_OWN(A2)    Save registers
+         ADDQ.L   #4,REGSP-P_OWN(A2)         a2 is not on the stack
+         LEA.L    P_DBSTMT(PC),A3   Point to new statement routine
+         MOVE.L   A3,REGA3-P_OWN(A2)         Save in copy of registers
+         MOVEM.L  D0-D7/A0-A7,INIREG-P_OWN(A2)        Save initial registers for restart
+         ADDQ.L   #4,INISP-P_OWN(A2)         a2 is not on the stack
+         MOVE.L   (SP)+,INIA2-P_OWN(A2)      "the real" register a2
+         ENDC     pic
+         MOVE.L   G.LIB(A5),A6      Point to library work area
+         LEA.L    PRGTRM(PC),A4     Get address of termination routine
+         MOVE.L   A4,L.TERM(A6)     Set program termination address
+         LEA.L    P_DBPMA(PC),A4    Get address of error routine
+         MOVE.L   A4,L.PMA(A6)      Set error handling address
+*         xref.l   takebreaks
+*         jsr.l    takebreaks            Accept breaks
+         LEA      L.BREAK(A6),A4    Point to break byte
+         IFEQ     PIC
+         MOVE.L   A4,BRKADDR        Save address of break byte
+         MOVEM.L  REGSAV,SAVREG     Restore registers
+         MOVE.B   #INIT,-(SP)       Push initialization code
+         MOVE.L   DBENTRY,A4        Point to Debugger entry point
+         ENDC     nopic
+         IFNE     PIC
+         MOVE.L   A4,BRKADDR-P_OWN(A2)       Save address of break byte
+         MOVEM.L  REGSAV-P_OWN(A2),SAVREG    Restore registers
+         MOVE.B   #INIT,-(SP)       Push initialization code
+         MOVE.L   DBENTRY-P_OWN(A2),A4       Point to Debugger entry point
+         ENDC     pic
+         JSR      (A4)              Call Debugger
+         ADDQ.L   #2,SP             pop stack
+         IFEQ     PIC
+         MOVE.L   REGPC,-(SP)       Set up return address
+         ENDC     nopic
+         IFNE     PIC
+         MOVE.L   REGPC-P_OWN(A2),-(SP)      Set up return address
+         MOVE.L   INIA2-P_OWN(A2),A2         restore a2
+         ENDC     pic
+         RTS
+         PAGE
+*
+*
+* Procedure entry.  Code is generated at the start of each procedure to
+* call the Debugger to inform it that a new procedure has been entered.
+* Two parameters are passed on the stack.  First, the lexical level of the
+* procedure is pushed.  This is used by the Debugger to maintain its own
+* static link in its copy of the stack.  Future versions of the Debugger
+* may be able to use the real static link directly.  The second word is
+* the address in the symbol table of the record describing the procedure.
+* This information is simply recorded by the Debugger for later use if the
+* user needs to know which procedure he's in.
+*
+*
+         XDEF     P_DBGENT
+P_DBGENT
+         IFEQ     PIC
+         TST.B    NOTSKP
+         BEQ      CONT
+         MOVEM.L  SAVREG,REGSAV     Save registers
+         MOVE.L   (SP),D7           Set current PC
+         MOVE.L   D7,REGPC          Save for user
+         MOVE.L   DBENTRY,A4        Point to debugger entry point
+         ENDC     nopic
+         IFNE     PIC
+         MOVE.L   A2,-(SP)          need a scratch
+         MOVE.L   G.OWN(A5),A2      own pointer
+         TST.B    NOTSKP-P_OWN(A2)
+         BEQ      CONT
+         MOVEM.L  SAVREG,REGSAV-P_OWN(A2)    Save registers
+         ADD.L    #4,REGSP-P_OWN(A2)         real value of sp
+         MOVE.L   4(SP),D7          Set current PC
+         MOVE.L   D7,REGPC-P_OWN(A2)         Save for user
+         MOVE.L   DBENTRY-P_OWN(A2),A4       Point to debugger entry point
+         ENDC     pic
+         MOVE.B   #PROCENT,-(SP)    Push procedure entry parameter
+         JSR      (A4)              Call Debugger
+         ADDQ.L   #2,SP             Kill parameter
+         IFEQ     PIC
+         MOVEM.L  REGSAV,SAVREG     Restore registers (including stack)
+         ENDC     nopic
+         IFNE     PIC
+         MOVE.L   A2,A3             a3 will be restored in any way
+         MOVE.L   (SP)+,A2
+         MOVEM.L  REGSAV-P_OWN(A3),SAVREG    Restore registers (including stack)
+         ENDC     pic
+         RTS                        Return to user's code
+*
+*
+* Procedure exit.
+*
+* This routine is called to notify the Debugger that the procedure has
+* exited.
+*
+         XDEF     P_DBGEXT
+P_DBGEXT
+         IFEQ     PIC
+         TST.B    NOTSKP
+         BEQ      CONT
+         MOVEM.L  SAVREG,REGSAV     Save registers
+         MOVE.L   DBENTRY,A4        Point to Debugger entry point
+         ENDC     nopic
+         IFNE     PIC
+         MOVE.L   A2,-(SP)          need a scratch
+         MOVE.L   G.OWN(A5),A2      own pointer
+         TST.B    NOTSKP-P_OWN(A2)
+         BEQ      CONT
+         MOVEM.L  SAVREG,REGSAV-P_OWN(A2)    Save registers
+         ADD.L    #4,REGSP-P_OWN(A2)         real value of sp
+         MOVE.L   DBENTRY-P_OWN(A2),A4       Point to Debugger entry point
+         ENDC     pic
+         MOVE.B   #PROCEXI,-(SP)    Push procedure exit parameter
+         JSR      (A4)              Call Debugger
+         ADDQ.L   #2,SP             Remove parameter
+         IFEQ     PIC
+         MOVEM.L  REGSAV,SAVREG     Restore registers (including stack)
+         ENDC     nopic
+         IFNE     PIC
+         MOVE.L   A2,A3             a3 will be restored in any way
+         MOVE.L   (SP)+,A2
+         MOVEM.L  REGSAV-P_OWN(A3),SAVREG    Restore registers (including stack)
+         ENDC     pic
+         RTS                        Return to user's code
+*
+*
+* Statement processing.  The address of this routine is permanently loaded into
+* register A3.  This permits compiled code to call this routine with a single
+* word call instruction before each new statement is executed.
+*
+         PAGE
+         XDEF     P_DBSTMT
+P_DBSTMT MOVE.L   A2,-(SP)          Save A2
+         IFEQ     PIC
+         TST.B    PROFIL            If profiler don't check break
+         BNE.S    DBSTMT1
+         MOVE.L   BRKADDR,A2        Point to break byte
+         ENDC     nopic
+         IFNE     PIC
+         MOVE.L   G.OWN(A5),A2      global own pointer
+         TST.B    PROFIL-P_OWN(A2)  If profiler don't check break
+         BNE.S    DBSTMT1
+         MOVE.L   BRKADDR-P_OWN(A2),A2       Point to break byte
+         ENDC     pic
+         TST.B    (A2)              Break typed?
+         BEQ.S    DBSTMT1           No
+         XREF.L   D$RECINT
+         IFEQ     PIC
+         MOVE.L   (SP)+,A2          Restore A2
+         JSR.L    D$RECINT          Yes, record interrupt
+         ENDC     nopic
+         IFNE     PIC
+*
+* We have to to call d$recint using pc-relative mode.
+* D$recint is in the offset larger than 32K from current location.
+*
+         LEA.L    P_DBSTMT(PC),A2   base address
+         ADD.L    #D$RECINT-P_DBSTMT,A2      run-time address of d$recint
+         JSR      (A2)
+         MOVE.L   (SP)+,A2          Restore A2
+         ENDC     pic
+*         jsr.l    takebreaks            Yes, accept more breaks
+         SUBQ.L   #4,SP             space for message address
+         MOVE.L   A0,-(SP)          save a0
+         LEA.L    BRKMESS(PC),A0    address of message
+         MOVE.L   A0,4(SP)          parameter for choke
+         MOVE.L   #1,(SP)           lower limit of conformant array
+         MOVE.L   #MEND-BRKMESS+1,-(SP)      upper limit
+         XREF     CHOKE
+         IFEQ     PIC
+         JSR.L    CHOKE             debugger is dying
+         ENDC     nopic
+         IFNE     PIC
+*
+* This is a consistency error - the debugger is dying.  We don't need to
+* care about register.  The correct processing of the BREAK should allow to
+* fall into follwing code.
+*
+         LEA.L    P_DBSTMT(PC),A2   base address
+         ADD.L    #CHOKE-P_DBSTMT,A2         run-time address of choke
+         JSR      (A2)
+         ENDC     pic
+BRKMESS
+         DC.B     'p_dbstmt'
+MEND     DS.B     0
+         DS.W     0                 force to even address
+DBSTMT1
+*
+* a2 is still saved on the stack
+*
+         IFEQ     PIC
+         MOVE.L   (SP)+,A2          Restore A2
+         TST.B    NOTSKP            Are we skipping?
+         BNE.S    DBSTMT2           Yes, continue
+         TST.B    LOOK              Are we looking?
+         BEQ.S    DBSTCONT          No, continue
+         ENDC     nopic
+         IFNE     PIC
+         MOVE.L   G.OWN(A5),A2
+         TST.B    NOTSKP-P_OWN(A2)  Are we skipping?
+         BNE.S    DBSTMT2           Yes, continue
+         TST.B    LOOK-P_OWN(A2)    Are we looking?
+         BEQ.S    DBSTCONT          No, continue
+         ENDC     pic
+DBSTMT2
+         IFEQ     PIC
+         MOVEM.L  SAVREG,REGSAV     Save registers
+         MOVE.L   (SP),D7           Save address of statement
+         ENDC     nopic
+         IFNE     PIC
+*
+* original register a2 is saved on the stack. actual a2 points to p_own
+*
+         MOVEM.L  SAVREG,REGSAV-P_OWN(A2)    Save registers
+         ADD.L    #4,REGSP-P_OWN(A2)         correct the value of the stack pointer
+         MOVE.L   4(SP),D7          Save address of statement
+         ENDC     pic
+         MOVE.B   #STMT,-(SP)       Tell Debugger about new statement
+         IFEQ     PIC
+         MOVE.L   D7,REGPC          Save PC
+         MOVE.L   DBENTRY,A4        Point to Debugger entry point
+         ENDC     nopic
+         IFNE     PIC
+         MOVE.L   D7,REGPC-P_OWN(A2)         Save PC
+         MOVE.L   DBENTRY-P_OWN(A2),A4       Point to Debugger entry point
+         ENDC     pic
+         JSR      (A4)              Call Debugger
+         ADDQ.L   #2,SP             Pop stack
+         IFEQ     PIC
+         MOVEM.L  REGSAV,SAVREG     Restore registers (including stack)
+         ENDC     nopic
+         IFNE     PIC
+         MOVE.L   A2,A3             a3 will be restored very soon in any way
+         MOVE.L   (SP)+,A2          a2 set back to original value
+         MOVEM.L  REGSAV-P_OWN(A3),SAVREG    Restore registers (including stack)
+         ENDC     pic
+         RTS
+
+DBSTCONT
+         IFEQ     PIC
+         MOVE.L   D7,REGD7          Save D7
+         MOVE.L   (SP),D7           Save address of statement
+         MOVE.L   D7,REGPC          Save PC
+         MOVE.L   REGD7,D7          Restore D7
+         ENDC     nopic
+         IFNE     PIC
+*
+* original register a2 is saved on the stack. actual a2 points to p_own
+*
+         MOVE.L   D7,REGD7-P_OWN(A2)         Save D7
+         MOVE.L   4(SP),D7          Save address of statement
+         MOVE.L   D7,REGPC-P_OWN(A2)         Save PC
+         MOVE.L   REGD7-P_OWN(A2),D7         Restore D7
+         MOVE.L   (SP)+,A2          back to original value
+         ENDC     pic
+         RTS
+
+*
+*
+* Program termination.  The address of this routine is placed in L.TERM in
+* the library work area during initialization.  If the user's program
+* terminates for any reason, this routine will be called to notify the
+* debugger.
+* The entry point "errtrm" is used in case a fatal error occured and the
+* debugger stack pointer and frame pointer are pointing to a special stack
+* used exclusively for error handling.
+*
+PRGTRM
+         IFEQ     PIC
+         MOVEM.L  SAVREG,REGSAV     Save registers
+ERRTRM
+         MOVE.L   DBENTRY,A4        Point to Debugger entry point
+         ENDC     nopic
+         IFNE     PIC
+         MOVE.L   A2,-(SP)          need a scratch
+         MOVE.L   G.OWN(A5),A2      own pointer
+         MOVEM.L  SAVREG,REGSAV-P_OWN(A2)    Save registers
+         ADD.L    #4,REGSP-P_OWN(A2)
+ERRTRM
+*
+* this entry point may be used only if the original value of the register a2
+* is stored on the stack, and the a2 is pointing to the "owned" segment
+*
+         MOVE.L   DBENTRY-P_OWN(A2),A4       Point to Debugger entry point
+         ENDC     pic
+         MOVE.B   #TERMIN,-(SP)     Termination of program
+         JSR      (A4)              Call Debugger
+         ADDQ.L   #2,SP             Pop stack
+         IFEQ     PIC
+         MOVEM.L  REGSAV,SAVREG     Restore registers (including stack)
+         ENDC     nopic
+         IFNE     PIC
+         MOVE.L   A2,A3             a3 will be restored in any way
+         MOVE.L   (SP)+,A2
+         MOVEM.L  REGSAV-P_OWN(A3),SAVREG    Restore registers (including stack)
+         ENDC     pic
+         RTS                        Return (maybe)
+
+*
+* Do not call debugger.  Continue running program.
+*
+CONT
+         IFEQ     PIC
+         MOVE.L   D7,REGD7          Save D7
+         MOVE.L   (SP),D7           Set current PC
+         MOVE.L   D7,REGPC          Save for user
+         MOVE.L   REGD7,D7          Restore D7
+         ENDC     nopic
+         IFNE     PIC
+*
+* there is a2 still saved on the stack. a2 points to p_own
+*
+         MOVE.L   D7,REGD7-P_OWN(A2)         Save D7
+         MOVE.L   4(SP),D7          Set current PC
+         MOVE.L   D7,REGPC-P_OWN(A2)         Save for user
+         MOVE.L   REGD7-P_OWN(A2),D7         Restore D7
+         MOVE.L   (SP)+,A2          restore a2
+         ENDC     pic
+         RTS
+*
+*
+* Process an error message generated by the library or the user's code.
+* The address of this routine is placed in l.pma in the library work area.
+* When an error is detected, the library will call this routine to process
+* the message.  After the error is printed (with no walkback), the error
+* is treated as a termination.  Error processing takes place on a
+* relatively small stack, which size is defined via global erstk$$
+* and it must be choosen very carefuly to avoid the stack overflow,
+* which may cause unpredictible "side" effects. When returning control
+* to the debugger the saved value of the stack pointer and last stack
+* frame should be copied from the error handler area via the parameter
+* "state".  See the PMA module for a definition of the rather complex
+* data structure used by the PMA routine.
+*
+* Following is the "assembly" version of the type "machinestate"
+* defined in the module pma.pas.
+*
+         OFFSET   0
+         DS.L     8                 registers d0-d8
+         DS.L     5                 registers a1-a5
+FPTR     DS.L     1                 frame pointer
+         DS.L     1                 register a0
+         DS.W     1                 status register
+         DS.L     1                 return address
+
+         SECTION  8
+         PROC     P_DBPMA,<STATE,ADDRESS,OUT,ADDRESS,INP,ADDRESS>
+         BEGIN    P_DBPMA
+         IFEQ     PIC
+         MOVEM.L  SAVREG,REGSAV     Save registers
+         ENDC     nopic
+         IFNE     PIC
+         MOVE.L   A2,-(SP)          need scratch
+         MOVE.L   G.OWN(A5),A2      pointer to debugger data
+         MOVEM.L  SAVREG,REGSAV-P_OWN(A2)    Save registers
+         ENDC     pic
+         MOVE.L   STATE(A6),A0      Get pointer to PMA data structure
+         MOVE.L   OUT(A6),A1        Get pointer to output file
+         MOVE.L   A1,-(SP)          Push file to use for output
+         MOVE.W   ER.CODE(A0),-(SP) Push error code
+         MOVE.L   ER.AUX(A0),-(SP)  Push aux code
+         XREF     P_ERRMSG
+         JSR      P_ERRMSG(PC)      Print the error message
+         MOVE.L   (A0),A0           address of saved processor state
+         IFEQ     PIC
+         MOVEM.L  REGSAV,SAVREG     Restore registers
+         MOVE.L   A0,REGSP          value of sp when error occured
+         MOVE.L   FPTR(A0),REGA6    the debugger needs user's stack frame
+         ENDC     nopic
+         IFNE     PIC
+*
+* The register a2 is saved on the top of the stack when the control is passed
+* to errtrm.
+*
+         MOVEM.L  REGSAV-P_OWN(A2),SAVREG    Restore registers (including sp)
+         MOVE.L   A0,REGSP-P_OWN(A2)         value of sp when error occured
+         MOVE.L   FPTR(A0),REGA6-P_OWN(A2)   the debugger needs user's stack frame
+         ENDC     pic
+         BRA.S    ERRTRM            Terminate program (use special entry point)
+         ENDPR    P_DBPMA           No actual return
+*
+*
+* Restart the user's program.  This routine implements the "G" command which
+* restarts (or starts) the user's program.  Note that no attempt to clean up
+* the heap or close files has been attempted.  The reason is that the Debugger
+* will have files open and will be using the heap in the event of a restart.
+* This routine reestablishes the trap and exception vectors in case the
+* program is being restarted after a fatal error occured.
+*
+         XDEF     D$REGO
+
+D$REGO
+         IFEQ     PIC
+         MOVEM.L  INIREG,D0-D7/A0-A7         Restore initial registers
+         MOVE.L   INIPC,-(SP)       Push initial PC
+         ENDC     nopic
+         IFNE     PIC
+         MOVE.L   G.OWN(A5),A2      global "own" pointer
+         MOVEM.L  INIREG-P_OWN(A2),D0-D7/A0-A7        Restore initial registers
+         MOVE.L   G.OWN(A5),A2      global "own" pointer again
+         MOVE.L   INIPC-P_OWN(A2),-(SP)      load initial pc on the stack
+         MOVE.L   INIA2-P_OWN(A2),A2         restore a2
+         ENDC     pic
+*
+* The VERSAdos 4.61 crashes if execption and trap vectors are established
+* more than once.  Commenting following two lines seems to fix the problem.
+*
+*        xref     p_traps
+*        jsr      p_traps(pc)       turn on the error trapping
+         RTS                        Jump back to user's code
+*
+* Process a non-local goto
+*
+         XDEF     P_DBGGTO
+P_DBGGTO
+         IFEQ     PIC
+         TST.B    NOTSKP
+         BEQ.S    DBGGTO1
+         MOVEM.L  SAVREG,REGSAV     Save registers
+         MOVE.L   DBENTRY,A4        Point to Debugger entry point
+         ENDC     nopic
+         IFNE     PIC
+         MOVE.L   A2,-(SP)          need a scratch as usual
+         MOVE.L   G.OWN(A5),A2      global own pointer
+         TST.B    NOTSKP-P_OWN(A2)
+         BNE.S    DBGGTO0
+         MOVE.L   (SP)+,A2          restore a2
+         BRA.S    DBGGTO1
+DBGGTO0
+         MOVEM.L  SAVREG,REGSAV-P_OWN(A2)    Save registers
+         ADDQ.L   #4,REGSP-P_OWN(A2)         don't count saved a2
+         MOVE.L   DBENTRY-P_OWN(A2),A4       Point to Debugger entry point
+         ENDC     pic
+         MOVE.B   #NONGO,-(SP)      Non-local goto
+         JSR      (A4)              Call Debugger
+         ADDQ.L   #2,SP             Pop parameters from stack
+         IFEQ     PIC
+         MOVEM.L  REGSAV,SAVREG     Restore registers
+         ENDC     nopic
+         IFNE     PIC
+         MOVE.L   A2,A3             copy the pointer
+         MOVE.L   (SP)+,A2          restore a2
+         MOVEM.L  REGSAV-P_OWN(A3),SAVREG    Restore registers
+         ENDC     pic
+DBGGTO1
+         RTS                        Return to user
+
+         TTL      Get Workspace Pointer
+         PAGE
+* Get a pointer to the workspace no matter what the current state
+* of the registers.  The result is returned on the top of the stack
+*
+* called:
+*        jsr      p_getwrk
+*
+         XREF     WORK$$
+         XDEF     P_GETWRK
+P_GETWRK EQU      *
+         MOVE.L   (SP),-(SP)        move return address
+         MOVEM.L  D0/A0,-(SP)       d0/a0 are changed bu 'rcvsa'
+         MOVE.L   #WORK$$,12(SP)    return address of workspace
+         TST.L    12(SP)            zero ?
+         BNE.S    HAVEWRK           its known, so we are done
+         ERQ      RCVSA$,FLTSEG(PC) receive segment attributes
+         MOVE.L   A0,12(SP)         return address of workspace
+HAVEWRK
+         MOVEM.L  (SP)+,D0/A0
+         RTS
+         TTL      Get Diagnostic Pointer
+         PAGE
+* Get a reference to the end of the diagnostic data
+*
+* All diagnostic data generated by the compiler is placed in
+* section 14, with no name attached.  This will be concatenated
+* by the linker.  The named section 'p_diag' in section 14 is
+* used to locate the end of the diagnostic data.  A reference to this
+* named section is placed in every object module containing error data,
+* so it will be sure to be the first named section in section 14.
+*
+P_DIAG   SECTION  14
+DIAGS    EQU      *
+         DC.W     0
+         XDEF     P_GETDIA
+
+         SECTION  8
+*
+* Note:  this routine is different that p_getdia from the pascal-2 runtime
+*        library - the stack pointer is not changed.
+*
+P_GETDIA EQU      *
+         MOVE.L   A0,-(SP)          cannot destroy a0
+         LEA      P_GETDIA(PC),A0   use p_getdia as the base address
+         ADD.L    #DIAGS-P_GETDIA,A0         calculate the run-time address
+         MOVE.L   A0,8(SP)          return address of diagnostics
+         MOVE.L   (SP)+,A0
+         RTS
+*
+* segment allocation packet - "floating" segment version
+*
+FLTSEG   DC.L     0                 current task
+         DC.L     0                 session number (ignored)
+         DC.W     $2000             rsm68k defines logical=phisical address
+*                                   use a0 for returned info (rcvsa$)
+         DC.W     0                 seg attributes
+         DC.L     'PAW$'            Pascal work segment.
+         PAGE
+*
+*
+* Debugger data area.  The common section DEBUG below is used to communicate
+* with the Debugger's OWN variables.  For this reason, any changes to the
+* data below must be matched by corresponding changes in DBCOM.PAS which
+* contains the Pascal definition of this shared data region.  Note that
+* the Debugger uses more data than is defined below.
+
+DBREG    SECTION  15
+
+INIREG   DS.L     10                Initial registers d0-d7/a0/a1
+INIA2    DS.L     5                 Initial registers a2-a6
+INISP    DS.L     1                 Initial stack
+INIPC    DS.L     1                 Initial PC
+BRKADDR  DS.L     1                 Address of break byte
+
+DEBUG    SECTION  15
+
+DBENTRY  DS.L     1                 Debugger entry point
+NOTSKP   DC.B     0
+LOOK     DC.B     0
+PTERM    DC.B     0                 User's program has terminated
+PROFIL   DC.B     0                 Is this the profiler of debugger?
+FPPREG   DS.L     9                 Save area for 68881 registers fp5-fp7
+REGSAV   EQU      *                 Start of save registers area
+REGD5    DC.L     0                 Saved registers
+REGD6    DC.L     0
+REGD7    DC.L     0
+REGA3    DC.L     0
+REGA4    DC.L     0
+REGA6    DC.L     0
+REGSP    DC.L     0
+REGPC    DC.L     0
+
+
+         END

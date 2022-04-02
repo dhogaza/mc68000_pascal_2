@@ -1,0 +1,109 @@
+CLOSE    IDNT     2,2      Close a file
+         TTL      Close a file
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Close a file
+*
+* Last modified by KRIS on 26-Nov-1990 14:05:03
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+* This routine closes a file.  It can be called explicitly from the
+* Pascal program or from within the support library.
+*
+* It checks to see if the file is really open, writes anything in the
+* buffer, closes the file, and releases the space for the buffer and
+* control block.
+         PAGE
+         INCLUDE  LIBDEF
+         INCLUDE  FHSDEF
+         INCLUDE  LIBMAC
+*
+         PROC     P_CLOSE,<F,ADDRESS>,P_LCLOSE
+         BEGIN    P_CLOSE,A0-A4/D0-D1
+*
+* first, check if the file is really open
+*
+         MOVE.L   G.LIB(A5),A4      point to library work area
+         MOVE.L   F(A6),A3          point to fdb pointer
+         MOVE.L   (A3),A3           point directly to fdb
+         LEA      L.FILES-F.NEXT(A4),A1      point to list of active files
+         CLR.L    D0                used to check for end of list
+CL1
+         MOVE.L   F.NEXT(A1),A0     point to next fdb in list
+         CMP.L    D0,A0             end of list?
+         BEQ      CL7               yup
+         CMP.L    A0,A3             match this fdb?
+         BNE.S    CL2               nope
+         MOVE.L   F.FVAR(A0),A2     back pointer to user file
+         CMP.L    F(A6),A2          is the file really opened ?
+         BEQ.S    CL3               yes! we found it
+CL2
+         MOVE.L   A0,A1             save pointer to previous fdb
+         BRA.S    CL1               and keep looking
+*
+* file is really open.  write out partial line if it's a text file
+*
+CL3
+         BTST     #S.OUT,F.STATUS(A3)        is this an output file?
+         BEQ.S    CL4               nope
+         BTST     #S.TEXT,F.STATUS(A3)       is this a text file?
+         BEQ.S    CL4               nope
+         MOVE.L   F(A6),-(SP)       push file variable
+         JSB      P_LBREAK          write out partial line
+         ADDQ.L   #4,SP             pop parameter
+*
+* close the file
+*
+CL4
+         BTST     #S1.PERM,F.STATUS+1(A3)    is this a permanent file?
+         BNE.S    CL7               yup
+         LEA      F.FHS(A3),A0      point to fhs parameter block
+         MOVE.W   #FH.FCMD$<<8+FH.CLS$,FH.CODE(A0)    close the file
+         FHS
+         MOVE.B   P.LUN(A0),D0      get lun associated with file
+         MOVE.L   L.LUNS(A4),D1     get mask of active luns
+         BCLR     D0,D1             this lun is now available
+         MOVE.L   D1,L.LUNS(A4)     store new lun mask
+*
+* deallocate file's buffer
+*
+         MOVE.L   F.BUFF(A3),D0     get address of buffer
+         BEQ.S    CL6               none exists?
+         PEA      F.BUFF(A3)        push pointer to buffer
+         MOVE.W   F.BUFFSZ(A3),-(SP)         push size of buffer
+         BTST     #S.TEXT,F.STATUS(A3)       is this a text file?
+         BEQ      CL5
+         ADDQ.W   #1,(SP)           buffer is one byte longer
+CL5
+         CLR.W    -(SP)             dispose expects an integer parameter
+         JSB      P_LDISPO,4+INTEGER         dispose of buffer
+*
+* unlink the fdb and deallocate it
+*
+CL6
+         MOVE.L   F.NEXT(A3),F.NEXT(A1)      unlink the fdb
+         MOVE.L   F(A6),-(SP)       push pointer to file variable
+         MOVE.L   #F.SIZE,-(SP)     push size of fdb
+         JSB      P_LDISPO,4+INTEGER         dispose of fdb
+CL7
+         ENDPR    P_CLOSE
+         END

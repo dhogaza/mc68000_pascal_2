@@ -1,0 +1,118 @@
+FCMP     IDNT     2,2      Single Precision Real Comparison
+         TTL      Single Precision Real Comparison
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Single Precision Real Comparison
+*
+* Last modified by KRIS on 26-Nov-1990 13:57:21
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+         PAGE
+
+         INCLUDE  LIBDEF
+         INCLUDE  FPPDEF
+         INCLUDE  LIBMAC
+
+         XDEF     P_FCMP
+
+P_FCMP:
+         TST.L    D4                ;test sign
+         BMI.S    D4MINUS
+
+         CMPI.L   #P_INFIN,D4
+         BGE.S    INVALID
+
+         TST.L    D3                ;test sign
+         BMI.S    D3MINUS1
+*
+*
+* both arguments are positive:
+*
+*
+         CMPI.L   #P_INFIN,D3
+         BGE.S    INVALID
+EXIT1:
+         CMP.L    D3,D4
+         RTS
+*
+*
+* d4 is positive, d3 is negative:
+*
+*
+D3MINUS1:
+         CMPI.L   #M_INFIN,D3
+         BCC.S    INVALID           ;treat as if unsigned
+
+         TST.L    D4                ;retest the 1st operand
+         BNE.S    EXIT2             ;this time looking for 0
+
+         CMPI.L   #M_ZERO,D3        ;d4 is zero; is d3 -0?
+EXIT2:   RTS                        ;mainline will find out!
+*
+*
+* d4 is negative, d3 has not been tested:
+*
+*
+D4MINUS:
+         CMPI.L   #M_INFIN,D4
+         BCC.S    INVALID
+
+         TST.L    D3                ;test sign of 2nd argument
+         BMI.S    D3MINUS2
+*
+*
+* d4 is negative, d3 is positive
+*
+*
+         BEQ.S    D3ISZERO          ;since the cc's are set
+
+         CMPI.L   #P_INFIN,D3
+         BGE.S    INVALID
+         RTS                        ;returns "lt"
+
+D3ISZERO:
+         CMPI.L   #M_ZERO,D4        ;if d4 isn't -0, then we
+         BNE.S    EXIT1             ;get "gt", which isn't correct
+         RTS                        ;otherwise, return "eq"
+*
+*
+*  both arguments are negative:
+*
+*
+D3MINUS2:
+         CMPI.L   #M_INFIN,D3
+         BCC.S    INVALID
+
+         CMP.L    D4,D3             ;order of compare is reversed to
+         RTS                        ;compensate for sign/magnitude
+*
+*
+* one argument was found to have a maximum exponent
+*
+*
+INVALID:
+         LIBFRAME ;BUILD            stack frame for error traceback
+         MOVEM.L  D3-D4,-(SP)       ;save original operands
+         PUSH.W   #FOP.CMP          ;push comparison operator
+
+         MERROR   <'Invalid operand in comparison'>
+
+         END

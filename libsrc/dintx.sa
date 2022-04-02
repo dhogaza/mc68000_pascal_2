@@ -1,0 +1,62 @@
+DINTX    IDNT     2,2      Return an integer value of the exponent of a double real
+*  NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+* Copyright (C) 1985 Oregon Software, Inc.
+* All Rights Reserved.
+*
+* This program is the property of Oregon Software.  The program or
+* parts of it may be copied and used only as provided under a signed
+* license agreement with Oregon Software.  Any support purchased from
+* Oregon Software does not apply to user-modified programs.  All copies
+* of this program must display this notice and all copyright notices.
+*
+*
+* Release version: 0045  Level: 1
+* Processor: MC68000
+* System: VERSADOS
+* Flavor: ALL
+*
+* Return an integer value of the exponent of a double real
+*
+* Last modified by KRIS on 26-Nov-1990 14:01:31
+
+
+
+*  p_dintx returns a 2's complement integer value of the exponent of a double
+*  precision real value, "x".  The value is relative to a significand between
+*  0.5 and 1.0, which requires an additional adjustment for IEEE numbers whose
+*  significands lie between 1.0 and 2.0.
+
+         SECTION  8
+*	.globl	p_dintx
+
+P_DINTX
+         LINK     A6,#0
+         MOVEM.L  D0-D2,-(SP)       * save d0-d2
+         MOVEM.L  8(A6),D1-D2       * fetch double to d1/d2
+         MOVEQ    #0,D0
+         SWAP     D1
+         ADD.W    D1,D1             * strip sign
+         MOVE.W   D1,D0
+
+         ADD.W    #32,D0
+         BCS.S    RESERVED          * if max exponent
+
+         LSR.W    #5,D0             * right align exponent
+         BEQ.S    EXIT
+
+         SUB.L    #1023,D0          * remove exponent bias
+
+EXIT     MOVE.L   D0,16(A6)         * store result
+         MOVEM.L  (SP),D0-D2        * restore d0-d2
+         UNLK     A6
+         RTS
+
+RESERVED
+         MOVE.L   #$7FFFFFFF,D0     * 32-bit maxint
+         BRA.S    EXIT
+*
+         XDEF     P_DINTX
+         END
+*
+* (v.1.2c) converted on 11/26/90 at 15:54:50 from berkeley format

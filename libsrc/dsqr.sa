@@ -1,0 +1,50 @@
+DSQR     IDNT     2,2      Square routine for double floating point operands
+         TTL      Square routine for double floating point operands
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1986, 1987, 1988, 1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Square routine for double floating point operands
+*
+* Last modified by KRIS on 26-Nov-1990 14:00:52
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+
+         SECTION  8
+         XDEF     P_DSQR
+         XREF     P_DMUL
+
+* we could diddle the stack, and fall into double multiply, or copy the
+* argument twice, call dmul, then copy the result.  The latter is slower,
+* but it permits "p_dsqr" to show up in a postmortem walkback should p_dmul
+* encounter an error condition.
+
+P_DSQR   LINK     A6,#0             * preserve stack integrity
+
+         MOVE.L   12(A6),-(SP)      * copy argument
+         MOVE.L   8(A6),-(SP)
+         MOVE.L   12(A6),-(SP)      * replicate
+         MOVE.L   8(A6),-(SP)
+
+         JSR      P_DMUL(PC)        * call double multiply
+
+         MOVE.L   (SP)+,8(A6)       * store result
+         MOVE.L   (SP)+,12(A6)
+         UNLK     A6
+         RTS
+         END

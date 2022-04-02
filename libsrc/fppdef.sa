@@ -1,0 +1,110 @@
+*        include fppdef
+         NOLIST
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Floating Point Definition File
+*
+* Last modified by KRIS on 26-Nov-1990 14:09:39
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+         PAGE
+         OPT      NOCL
+*
+* This module contains "convenience" macros, and
+* several floating point constant definitions
+*
+*
+* Definition of Push and Pop Macros
+*
+PUSH     MACRO
+         NOLIST
+         OPT      NOMEX
+         LIST
+         MOVE.\0  \1,-(SP)
+         NOLIST
+         OPT      MEX
+         LIST
+         ENDM
+*
+POP      MACRO
+         NOLIST
+         OPT      NOMEX
+         LIST
+         MOVE.\0  (SP)+,\1
+         NOLIST
+         OPT      MEX
+         LIST
+         ENDM
+*
+*
+* Utility macro used to imbed messages during debugging.
+* Not invoked by any routines otherwise.
+*
+PRINT    MACRO
+         NOLIST
+         OPT      NOMEX
+         LIST
+*
+         BSR.S    PXIT\@            ;pushes address of message
+*
+PMSG\@   DC.B     \1                ;the message
+PLEN\@   EQU      *                 ;end of message
+         DS.W     0                 ;bumps to even address
+*
+PXIT\@   MOVE.W   #PLEN\@-PMSG\@,-(SP)       ;length of message
+         MOVE.W   (SP),-(SP)        ;total length of field
+         JSR      P_WST             ;Pascal string output
+         XREF     P_WST
+         ADDQ.L   #8,SP             ;flush stack
+*
+         NOLIST
+         OPT      MEX
+         LIST
+         ENDM
+*
+*
+* Macro to build a Pascal style frame prior to calling
+* the error walkback routines.  Runtime floating point
+* routines do not build frames for efficiency reasons.
+*
+LIBFRAME MACRO
+         LINK     A6,#0             ;update dynamic link
+         ADDQ.W   #1,G.LIBLEV(A5)   ;bump library level counter
+         ENDM
+*
+EXPBIAS  EQU      127               ;exponent bias
+*
+QBIAS    EQU      64                ;quick format exponent bias
+*
+P_INFIN  EQU      $7F800000         ;plus infinity
+M_INFIN  EQU      $FF800000         ;minus infinity
+M_ZERO   EQU      $80000000         ;minus zero
+*
+* Identification codes for routines
+*
+FOP.CMP  EQU      1
+FOP.ADD  EQU      2
+FOP.SUB  EQU      3
+FOP.MUL  EQU      4
+FOP.DIV  EQU      5
+*
+         SECTION  8
+         LIST

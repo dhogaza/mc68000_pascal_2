@@ -1,0 +1,100 @@
+DROUND   IDNT     2,2      Double floating point round operation
+         TTL      Double floating point round operation
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1985, 1986, 1987, 1988, 1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Double floating point round operation
+*
+* Last modified by KRIS on 26-Nov-1990 14:01:14
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+         XDEF     P_DROUND
+         XREF     P_DTOX
+         XREF     P_INTOVR
+         XREF     P_FPPERR
+
+         SECTION  8
+
+*  dround.s  --  round double precision real to integer.
+
+
+P_DROUND
+         LINK     A6,#0             * new frame pointer
+         MOVEM.L  D0-D2,-(SP)       * save registers d0-d2
+         MOVE.L   8(A6),D0          * fetch real argument
+         MOVE.L   12(A6),D1         * fetch real argument
+
+         MOVEQ    #0,D4             * initialize integer result
+         JSR      P_DTOX(PC)        * convert double-to-extended
+         BLT.S    TROUBLE           * special cases
+
+         CMP.W    #$3FFD,D0         * test for less-than-integer
+         BLT.S    EXIT
+
+         SUB.W    #$401E,D0
+         BGE.S    TESTLONG          * if 32 or more bits long
+
+         NEG.W    D0                * make shift count positive
+         LSR.L    D0,D1             * shifts 1..31 bit places
+
+         MOVEQ    #0,D2             * preserves x-flag
+         ADDX.L   D2,D1             * perform rounding
+
+         TST.L    D0                * test sign
+         BMI.S    NEGATIVE          * if negative
+
+POSITIVE
+         MOVE.L   D1,D4
+         BMI.S    OVERFLOW
+EXIT
+         MOVEM.L  (SP)+,D0-D2       * restore registers d0-d2
+         UNLK     A6
+
+         MOVE.L   (SP),8(SP)        * relocate return address
+         ADDQ.W   #8,SP             * flush stack argument
+         RTS
+
+*---------------------------------------|
+TESTLONG
+         BNE.S    OVERFLOW          * if greater than 32 bits
+
+         TST.L    D0                * test sign
+         BPL.S    OVERFLOW
+
+         TST.L    D2                * test rounding bit
+         BMI.S    OVERFLOW
+
+NEGATIVE
+         SUB.L    D1,D4             * negate and move together
+         BMI.S    EXIT              * includes ( -maxint - 1 )
+         BEQ.S    EXIT
+
+OVERFLOW
+         JSR      P_INTOVR(PC)
+
+*---------------------------------------|
+TROUBLE
+         BEQ.S    EXIT              * if +/- zero
+
+         OR.L     D1,D2             * test all bits of fraction
+         BEQ.S    OVERFLOW          * proper error msg for Infinity
+
+ILLEGAL
+         JSR      P_FPPERR(PC)      * if Not-a-Number
+         END

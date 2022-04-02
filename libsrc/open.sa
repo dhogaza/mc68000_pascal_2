@@ -1,0 +1,482 @@
+OPEN     IDNT     2,2      File open, reset and rewrite
+         TTL      File open, reset and rewrite
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* File open, reset and rewrite
+*
+* Last modified by KRIS on 26-Nov-1990 14:04:32
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+* This module contains routines which open files for use by pascal
+* programs.  Reset and rewrite can share common code since the only
+* difference is that reset opens an existing file, while rewrite
+* always creates a new file (deleting any previous file with the same
+* name).  During the life of these procedures, the registers are used
+* as follows:
+*
+* a7    stack
+* a6    frame pointer
+* a5    pointer to global area
+* a4    pointer to fdb of file being opened
+* a2    scratch
+* a1    scratch
+* a0    scratch
+* d7    0=reset, 1=rewrite
+* d6    error flag
+* d1    scratch
+* d0    current character (low word) character flags (upper word)
+*
+         INCLUDE  LIBDEF
+         INCLUDE  LIBMAC
+         PAGE
+*
+* These are the entry points for the reset and rewrite routines.  The
+* only difference is the setting of the d7 flag register.
+*
+         PROC     P_RESET           Fake entry point for reset
+
+         VAR      FOO,BOOLEAN
+
+         BEGIN    P_RESET,D0/D1/D6/D7/A0-A4
+         CLR.L    D7                mark this open as a reset
+         BRA.S    OPEN              fall into common code
+*
+INT      EQU      INTEGER
+ADR      EQU      ADDRESS
+         PROC     P_REWRIT,<F,ADR,SZ,INT,NM,ADR,NS,INT,DF,ADR,DS,INT,ER,ADR>
+*
+* Pararmeters are as follows:
+*  f    - address of user's file variable
+*  sz   - size of a record (-1 in case of text)
+*  nm   - address of filename
+*  ns   - length of filename
+*  df   - address of file defaults
+*  ds   - length of file defaults
+*  er   - address of fourth parameter, in case of VERSAdos the place
+*         where the -1 (meaning the error) should be stored
+*
+         VAR      ERR,BOOLEAN
+
+         BEGIN    P_REWRIT,D0/D1/D6/D7/A0-A4
+         MOVE.L   #1,D7             mark this open as a rewrite
+OPEN     EQU      *
+*
+* Loop through the list of active files to check if the user's file is already
+* open.
+*
+         MOVE.L   ER(A6),D6         if non-zero, report error to user
+         MOVE.L   G.LIB(A5),A3      point to library work area
+         MOVE.L   F(A6),A4          point to file pointer
+         MOVE.L   (A4),A4           point to the actual fdb
+         CMP.W    #0,A4             if it exists
+         BEQ.L    NOTOPEN           can't possibly exist
+         MOVE.L   L.FILES(A3),A0    point to chain of active files
+CK1      CMP.W    #0,A0             end of linked list?
+         BEQ.L    NOTOPEN           yes, so file isn't open
+         CMP.L    A0,A4             is this the file?
+         BNE.S    CK2               nope, try next one
+         MOVE.L   F.FVAR(A0),A1     back pointer to user's file variable
+         CMP.L    F(A6),A1          are they the same ?
+         BEQ.S    ISOPEN            yes, it really is open
+CK2      MOVE.L   F.NEXT(A0),A0     no, point to next file
+         BRA.S    CK1               and keep looking
+*
+* The file is already open.  Check if the previous file should simply be
+* closed, or if an existing file should be truncated or rewound.
+*
+ISOPEN   TST.L    NS(A6)            dose a filename exist?
+         BNE.L    CLOSEIT           yes, close current file
+         TST.L    DS(A6)            does a default name exist?
+         BNE.L    CLOSEIT           yes, close current file
+         TST.L    D7                is this a reset operation?
+         BEQ.S    REWIND            yes, simply rewind the file
+*
+* This is a rewrite operation on an open file.  This means truncate
+* the file.  This is done by closing the file (for fhs) then assigning
+* the file with the overwrite option.  The first output operation will
+* then scratch the file.
+*
+         CMP.L    L.OUTPUT(A3),A4   is this standard output?
+         BEQ.S    TRU1              yes, so keep it
+         LEA      F.FHS(A4),A0      point to fhs parameter block
+         MOVE.W   #$0004,P.FUNC(A0) code=0, function=close
+         TRAP     #3                call exec
+         OR.W     #$F,P.OPT(A0)     overwrite and exclusive read write
+         MOVE.W   #$0040,P.FUNC(A0) code=0, function=assign
+         TRAP     #3                call exec
+         CHKERR   E.TRUNC
+TRU1     BSET     #S.EOF,F.STATUS(A4)        mark end of file
+         MOVE.L   F.BUFF(A4),F.POINT(A4)     set output pointer
+         BCLR     #S.INP,F.STATUS(A4)        no longer an input file
+         BSET     #S.OUT,F.STATUS(A4)        it is now an output file
+         BRA.L    OPENX             exit
+*
+* This is a reset operation on an open file.  This means rewind
+* the file.
+*
+REWIND   LEA      F.IOS(A4),A0      point the the fhs parameter block
+         BTST     #S.OUT,F.STATUS(A4)        was this an output file?
+         BEQ.S    REW1              no, it was an input file
+         MOVE.L   F(A6),-(SP)       parameter for p_lbreak
+         JSB      P_LBREAK          break the file to write any partial line
+         ADDQ.L   #4,SP             pop stack
+REW1     BSET     #S.INP,F.STATUS(A4)        input operations are now legal
+         BCLR     #S.OUT,F.STATUS(A4)        output operations are no longer legal
+         BCLR     #S.EOF,F.STATUS(A4)        assume not at end of file
+         BCLR     #S.EOLN,F.STATUS(A4)       assume not at end of line
+         BSET     #S.NEWL,F.STATUS(A4)       mark that a new line is needed
+         CMP.L    L.INPUT(A3),A4    is this standard input?
+         BEQ.L    OPENX             yes, so skip it
+         MOVE.W   #$0102,I.FUNC(A0) set rewind function (code=1)
+         TRAP     #2                call exec
+         CHKERR   E.REWIND
+         BRA.L    OPENX             all done
+*
+* Close file already open with this file variable.  The file parameter
+* in the global area is already set up for the close routine.
+*
+CLOSEIT  EQU      *
+         MOVE.L   F(A6),A0          save address of user's file variable
+         MOVE.L   A0,-(SP)          push file variable
+         JSB      P_LCLOSE          call close routine to dispose of file
+         ADDQ.L   #4,SP             pop stack
+         MOVE.L   A0,F(A6)          restore address of user's file variable
+         BRA.S    BUIFDB
+*
+* Do not attempt to reset the "original" standard input.
+* We are assuming that the register a4 contains the value of user's pointer.
+*
+NOTOPEN  EQU      *
+         LEA.L    L.INPUT(A3),A0    library pointer
+         CMP.L    A4,A0             standard input ?
+         BNE.S    BUIFDB            no, so continue
+         TST.L    DS(A6)            is there a default string?
+         BNE.S    BUIFDB            continue
+         TST.L    NS(A6)            is there a file name?
+         BEQ      OPRET             nothing to do
+*
+* Allocate an fdb for the file and fill it with default values.
+*
+BUIFDB   EQU      *
+         LEA      L.FILES(A3),A0    point to list of active files
+         MOVE.L   (A0),A1           get current head of list
+         MOVE.L   A0,-(SP)          push address for new
+         MOVE.L   #F.SIZE,-(SP)     push size of fdb
+         JSB      P_LNEW,ADDRESS+INTEGER     allocate an fdb
+*
+* Clear out the new fdb
+*
+         MOVE.L   (A0),L.LFILE(A3)  store filevariable for error handler
+         MOVE.L   (A0),A2           get address of new fdb
+         MOVE.W   #(F.SIZE/2)-1,D0  get size/2 of fdb
+CL1      CLR.W    (A2)+             clear one word
+         DBF      D0,CL1            clear out entire fdb
+*
+* Hook the new fdb into the list of active files
+*
+         MOVE.L   (A0),A4           get pointer to new fdb
+         MOVE.L   F(A6),A2          get address of user's file variable
+         MOVE.L   A4,(A2)           make user's file variable point to fdb
+         MOVE.L   A1,F.NEXT(A4)     this fdb points to rest of chain
+         MOVE.L   F(A6),F.FVAR(A4)  set back pointer to user filevar
+*
+* Starting from this place the A0 must point to the fhs parameter block
+* and must not be changed till the end of this procedure
+*
+         LEA      F.FHS(A4),A0      point to fhs parameter block
+         MOVE.L   A0,-(SP)          Get file defaults
+         JSB      P_FDEFAU,4
+         MOVE.L   SZ(A6),D0         even though only a word is used
+         BPL.S    INI1              fixed length records
+         CLR.L    D0                zero means variable length records
+INI1     ADD.W    #1,D0             round up
+         BCLR     #0,D0             and make an even number of bytes
+         MOVE.W   D0,P.RLEN(A0)     set record length in fhs parameter block
+*
+* Set flag bits in fdb status word
+*
+         LEA      F.FHS(A4),A0      point to fhs parameter block
+         CLR.L    D1                clear flag bits
+         TST.L    D7                is this a reset
+         BNE.S    FSTAT1            no, it's a rewrite
+         BSET.L   #S.INP+8,D1       mark that input operations are allowed
+         BSET.L   #S.NEWL+8,D1      new input line required
+         BRA.S    FSTAT2            and continue
+FSTAT1   BSET.L   #S.OUT+8,D1       mark that output operations are allowed
+         BSET.L   #S.EOF+8,D1       set end-of-file for output file
+FSTAT2   CMP.L    #-1,SZ(A6)        text file?
+         BNE.S    FSTAT3            nope, fixed length records
+         BSET.L   #S.TEXT+8,D1      this is a text file
+         BTST     #0,P.PROT(A0)     interactive device?
+         BEQ.S    FSTAT3            nope
+         BSET.L   #S.INT+8,D1       interactive device
+FSTAT3   MOVE.W   D1,F.STATUS(A4)   set status word in fdb
+*
+* Parse default filename field
+*
+         TST.L    DS(A6)            is there a default string?
+         BEQ.S    SCANFN            zero string is no default
+         MOVE.L   DF(A6),-(SP)      set current character pointer
+         PEA      1                 lower bound for conformant array
+         MOVE.L   DS(A6),-(SP)      get the string length
+         MOVE.L   A0,-(SP)
+         PEA      ERR(A6)           error flag
+         JSB      P_PARSE,12+2*INTEGER       parse the file name
+         TST.B    ERR(A6)
+         BNE      BADNAME
+         TST.B    (A0)              any switch found ?
+         BEQ      SCANFN
+         MOVE.L   DF(A6),-(SP)      set current character pointer
+         PEA      1                 lower bound for conformant array
+         MOVE.L   DS(A6),-(SP)      get the string length
+         MOVE.L   A4,-(SP)
+         PEA      ERR(A6)           error flag
+         JSB      P_SWITCH,12+2*INTEGER      parse switches
+         TST.B    ERR(A6)
+         BNE.S    BADSWT
+*
+* Parse filename field
+*
+SCANFN   TST.L    NS(A6)            is there a file name?
+         BEQ.S    SETFHS            no
+         MOVE.L   NM(A6),-(SP)      file name string
+         PEA      1                 lower bound for conformant array
+         MOVE.L   NS(A6),-(SP)      get the string length
+         MOVE.L   A0,-(SP)          fhs block
+         PEA      ERR(A6)           error flag
+         JSB      P_PARSE,12+2*INTEGER       parse the file name
+         TST.B    ERR(A6)
+         BNE      BADNAME
+         TST.B    (A0)              any switch found ?
+         BEQ      SETFHS
+         MOVE.L   NM(A6),-(SP)      set current character pointer
+         PEA      1                 lower bound for conformant array
+         MOVE.L   NS(A6),-(SP)      get the string length
+         MOVE.L   A4,-(SP)
+         PEA      ERR(A6)           error flag
+         JSB      P_SWITCH,12+2*INTEGER      parse switches
+         TST.B    ERR(A6)
+         BNE.S    BADSWT
+         BRA.S    SETFHS            no name, just assign it
+*
+BADNAME  TST.L    D6                check for user error arg
+         BNE.L    REPORT            yep, report the error
+         ERROR    E.BADNAM
+BADSWT   TST.L    D6                check for user error arg
+         BNE.L    REPORT            yep, report the error
+         ERROR    E.BADSWT
+*
+SETFHS
+*
+* Check if the lun has been defined via the i/o switch
+*
+         MOVE.L   L.LUNS(A3),D1     get bit mask of active luns
+         CLR.L    D0
+         MOVE.B   P.LUN(A0),D0      lun, if it is already defined
+         BEQ.S    LUN1              no, it is not
+         BTST     D0,D1             is this lun active?
+         BEQ.S    LUN4              nope, so use it
+         CMP.W    #32,D0            and of available luns?
+         BGE.S    LUN3              no, cannot use it
+         ERROR    E.BADLUN
+*
+* Find the next unused lun
+*
+LUN1
+         MOVE.W   #1,D0             start with lun 1
+LUN2     BTST     D0,D1             is this lun active?
+         BEQ.S    LUN4              nope, so use it
+         ADD.W    #1,D0             yes, try next lun
+         CMP.W    #32,D0            and of available luns?
+         BLT.S    LUN2              no, keep searching
+LUN3
+         TST.L    D6                user error handling?
+         BNE.L    REPORT            yes, report it
+         ERROR    E.TOOMNY
+*
+* Fill fhs parameter block in this fdb with default values
+*
+LUN4     BSET     D0,D1             mark this lun as active
+         MOVE.L   D1,L.LUNS(A3)     store new lun mask
+         MOVE.B   D0,P.LUN(A0)      set lun for this file
+         CLR.W    P.OPT(A0)         contigous file, public read (only)
+         TST.L    D7                Is this a reset?
+         BEQ.S    OPT1              yes, its a reset
+         BSET     #2,P.OPT+1(A0)    public read/write
+OPT1
+         BTST     #S1.CONT,F.STATUS+1(A4)    file is contigous?
+         BEQ      OPT3              no - option field must be changed
+         TST.L    D7                is this a reset?
+         BEQ      ASGFILE           no need for 4th parameter
+         TST.L    D6                does 4th parameter exists ?
+         BNE      OPT2              branch if there is a one
+         ERROR    E.CONTSZ          no size for contigous file!
+OPT2
+         MOVE.L   D6,A1             get address of 4th parameter
+         MOVE.L   (A1),P.SIZEPT(A0) size of the created file
+         BRA      ASGFILE           file ready for assignement
+OPT3
+         BSET     #0,P.OPT(A0)      sequential file
+ASGFILE
+         TST.L    D7                is this a reset?
+         BEQ.S    ASSIGN            yes, simply assign
+         CMP.B    #'&',F.FHS+P.FILENM(A4)    temporary file?
+         BEQ.S    ASN1              yes, so no creation necessary
+         CMP.B    #' ',F.FHS+P.FILENM(A4)    Device assignment?
+         BNE.S    ALLOCATE          no, so create the file
+*
+* This is rewrite on a device.  To assign a #PR we have to use
+* the exclusive write protection code in option field
+*
+         CMP.L    #'PR  ',F.FHS+P.VOLN(A4)   Is this the printer ?
+         BNE.S    ASN1              no, fhs is ready
+         MOVE.W   #$3,P.OPT(A0)     exclusive write
+         BRA.S    ASN1
+*
+* This is a rewrite operation, so allocate the file and destroy
+* any previous file with the same name.
+*
+ALLOCATE
+         MOVE.W   #$0002,P.FUNC(A0) code 0, functin=delete
+         TRAP     #3                call exec, ignore errors
+         MOVE.W   #$080,P.FUNC(A0)  code 0, function=allocate
+*
+* Check if the record size doesn't exceed four sectors.  Set the p.sizept to
+* the number of sectors necessary for one record
+*
+         CLR.L    D0                clear scratch register
+         MOVE.W   P.RLEN(A0),D0     get the record length
+         CMP.W    #$400,D0          less or equal then four sectors ?
+         BLE      ALL2              continue if yes
+         TST.B    D0                multiple of a sector ?
+         BEQ      ALL1              yes
+         ADD.W    #$100,D0          round it up
+ALL1
+         LSR.W    #8,D0             get number of sectors
+         MOVE.L   D0,P.SIZEPT(A0)   set size/pointer info
+ALL2
+         TRAP     #3                call exec
+         BEQ.S    ASSIGN
+         TST.L    D6                user error reporting?
+         BNE.L    REPORT
+         ERROR    E.ALLOC
+*
+* Assign the file to associate it with a lun
+*
+ASSIGN   CMP.B    #'&',F.FHS+P.FILENM(A4)    temporary file?
+         BNE.S    ASN1              oops!  mike ball thinks that's not legal
+         ERROR    E.UDFILE          Attempt to reset an undefined file
+ASN1     LEA      F.FHS(A4),A0      point to fhs parameter block
+         MOVE.W   #$0040,P.FUNC(A0) assign file
+         TRAP     #3                call exec
+         BEQ.S    ASN2
+         TST.L    D6
+         BNE.L    REPORT
+         ERROR    E.ASSIGN
+*
+* Get the attributes for the file, now that it is open
+*
+ASN2     LEA      F.FHS(A4),A0      point to fhs parameter block
+         MOVE.W   #$0180,P.FUNC(A0) get attributest
+         TRAP     #3                call exec
+         CHKERR   E.ATTR
+*
+* Allocate a buffer for the file
+*
+         PEA      F.BUFF(A4)        push address of buffer pointer
+         MOVE.W   F.BUFFSZ(A4),D0   check if the size is already defined
+         BNE.S    BUF2              branch if yes
+         MOVE.W   P.RLEN(A0),D0     get record length
+         BNE.S    BUF1              fixed length records
+         MOVE.W   #132,D0           max record length for text files
+         MOVE.W   D0,F.BUFFSZ(A4)   set buffer size in fdb
+         BRA.S    BUF2
+BUF1
+         MOVE.W   D0,F.BUFFSZ(A4)   set buffer size in fdb
+BUF2
+         BTST     #S.TEXT,F.STATUS(A4)       text file?
+         BEQ.S    BUF3
+         ADDQ.W   #1,D0             one byte more for eoln's blank
+BUF3
+         MOVE.W   D0,-(SP)          push record size
+         CLR.W    -(SP)             new routine needs integer size argument
+         JSB      P_LNEW,ADDRESS+INTEGER     allocate the buffer
+         MOVE.L   F.BUFF(A4),F.POINT(A4)     fill in pointer to data
+*
+* Fill in default values in ios parameter block
+*
+         LEA      F.IOS(A4),A0      point to ios parameter block
+         LEA      F.FHS(A4),A1      point to fhs parameter block
+         MOVE.B   P.LUN(A1),I.LUN(A0)        fill in logical unit number
+         CLR.L    D0                clear size word
+         MOVE.W   F.BUFFSZ(A4),D0   get buffer size
+         MOVE.L   F.POINT(A4),I.BUFST(A0)    set pointer to buffer start
+         MOVE.L   D0,I.RLEN(A0)     set length of buffer
+         BTST     #S.TEXT,F.STATUS(A4)       text file?
+         BNE.S    OPENX             yes, use ascii formatting
+         BSET     #0,I.FUNC+1(A0)   no, use binary formatting
+OPENX    BSET     #S.DEF,F.STATUS(A4)        for write/seek acces buffer is defined
+         MOVE.L   #-1,F.IOS+I.RECNUM(A4)     file is not positionned
+         CLR.L    D0                clear size word
+         MOVE.W   F.BUFFSZ(A4),D0   get buffer size
+         ADD.L    F.POINT(A4),D0    get address of buffer
+         SUBQ.L   #1,D0             minus 1 to point to end
+         MOVE.L   D0,F.IOS+I.BUFEND(A4)      set the pointer to end of buffer
+*
+* If this is an input file, leave the buffer undefined
+*
+         BTST     #S.INP,F.STATUS(A4)        is this an input file?
+         BEQ.S    OPENSWT           nope
+         MOVE.L   D0,F.POINT(A4)    buffer is empty
+         BCLR     #S.DEF,F.STATUS(A4)        leave the file buffer undefined
+OPENSWT
+*
+* Finally set necho and single mode if necessary
+*
+         BTST     #S1.NECHO,F.STATUS+1(A4)   nooecho ?
+         BEQ      ECHO
+         BSET     #5,F.IOS+I.OPT+1(A4)       noecho
+         BRA      SINGLE
+ECHO
+         BCLR     #5,F.IOS+I.OPT+1(A4)       echo
+SINGLE
+         BTST     #S1.SNGL,F.STATUS+1(A4)    single mode ?
+         BEQ      ENDOPEN           nope, so we are done
+         BSET     #3,F.IOS+I.OPT+1(A4)       output image mode
+ENDOPEN  CLR.W    F.ERR(A4)         no errors till now
+         TST.L    D6                Does the user want error data?
+         BEQ.S    OPRET             no, just return
+         MOVE.L   D6,A0             pointer to user flag
+         CLR.L    D6                show the success
+         BTST     #S1.CONT,F.STATUS+1(A4)    file is contigous?
+         BEQ      RETERR            we're done if not
+         MOVE.L   F.FHS+P.SIZEPT(A4),D6      return the file size
+RETERR
+         MOVE.L   D6,(A0)           return non negative value
+OPRET    ENDPR    P_REWRIT
+*
+* Report an error
+*
+REPORT   MOVE.L   D6,A0             we know he wants to know
+         MOVE.L   #-1,(A0)          so tell him he blew it
+         BRA.S    OPRET
+         END

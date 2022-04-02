@@ -1,0 +1,516 @@
+FADD     IDNT     2,2      Single Precision Real Add/Substract
+         TTL      Single Precision Real Add/Substract
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Single Precision Real Add/Substract
+*
+* Last modified by KRIS on 26-Nov-1990 13:57:29
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+         PAGE
+
+         INCLUDE  LIBDEF
+         INCLUDE  FPPDEF
+         INCLUDE  LIBMAC
+
+         XDEF     P_FSUB            fsub
+         XDEF     P_FADD            fadd
+
+*********************************************************
+*
+*  single precision real addition and subtraction
+*
+*    entry conditions:
+*
+*      D3.L = 32-bit real addend / minuend
+*      D4.L = 32-bit real augend / subtrahend
+*
+*    exit conditions:
+*
+*      D3.L = unchanged
+*      D4.L = 32-bit real sum / difference
+*      CCR  = N and Z flags conditionally set, V = 0
+*        {*** note: -0.0 result will force Z=1  ***}
+*
+*    intermediate register usage:
+*
+*      D3.L = smaller absolute value (for pre-alignment)
+*      D4.L = receives result (for post-normalization)
+*
+*    error conditions:
+*
+*      "exponent overflow in addition/subtraction"
+*      "invalid operand in addition/subtraction"
+*
+*    comments:
+*
+*      Exponent underflow flushes the result immediately
+*      to zero rather than denormalizing.
+*
+*********************************************************
+         PAGE
+
+*********************************
+*                               *
+*       SUBTRACTION ENTRY       *
+*                               *
+*********************************
+
+P_FSUB:  PUSH.L   D3                save minuend
+         BCHG     #31,D3            change sign
+         BMI.S    FADD1             if (negated) arg is positive
+
+FSUB1:   PUSH.L   D4                save and test accumulator
+         BMI.S    FADD2             if acc is negative
+
+* operands have different signs, and accumulator is positive
+
+         ADD.L    D3,D3             strip signs
+         ADD.L    D4,D4
+         CMP.L    D3,D4             compare unsigned magnitudes
+         BCC.S    FSUB4             if d4 >= d3
+
+         EXG      D3,D4             swap registers, use argument sign
+
+FSUB2:   ROL.L    #8,D4             isolate larger exponent
+         PUSH.B   D4                push exponent of result
+         ST       -(SP)             set sign to negative
+
+         NOT.B    D4                one's complement larger exponent
+         BNE      FSUBMAIN          if not NaN or Infinity
+
+         BRA.S    FSUB5
+
+* operands have different signs, and accumulator is negative
+
+FSUB3:   ADD.L    D3,D3             strip signs
+         ADD.L    D4,D4
+         CMP.L    D3,D4             compare unsigned magnitudes
+         BCC.S    FSUB2             if d4 >= d3
+
+         EXG      D3,D4             swap registers, use argument sign
+
+FSUB4:   ROL.L    #8,D4             isolate larger exponent
+         PUSH.B   D4                push exponent of result
+         SF       -(SP)             set sign to positive
+
+         NOT.B    D4                one's complement larger exponent
+         BNE      FSUBMAIN          if not NaN or Infinity
+
+FSUB5:   BRA      INVALID           for now
+
+         PAGE
+*********************************
+*                               *
+*       ADDITION ENTRY          *
+*                               *
+*********************************
+
+P_FADD:  PUSH.L   D3                save addend
+         BMI.S    FSUB1             if addend is negative
+
+* entry point from subtraction code with negative minuend:
+
+FADD1:   PUSH.L   D4                save accumulator
+         BMI.S    FSUB3             if acc is negative
+
+* operands have same sign, and will be summed
+
+FADD2:   CMP.L    D3,D4             compare magnitudes
+         BCC.S    FADD3             if d4 >= d3
+         EXG      D3,D4             else swap registers
+
+FADD3:   ROL.L    #8,D4             isolate larger exponent
+         BMI.S    D4ODDX            if d4's exponent is odd
+
+*********************************
+*  d4 is potentially denormal
+*
+         ADD.B    D4,D4             correct exponent
+         PUSH.B   D4                save exponent of result
+         BNE.S    D4EXPN0           if d4's exponent is not zero
+
+         TST.L    D3                look at result sign
+         SMI      -(SP)             push to top of stack
+         TST.L    D4                look for full normal zero
+         BNE      INVALID           (for now)
+
+* d4 is the result (there is an entry from below in which d4 is non0)
+*
+NOTHING  POP.B    D4                restore sign
+         ADD.L    D4,D4             bump off implied bit
+         POP.B    D4                exponent of result (may be zero)
+         ADDQ.L   #4,SP             remove original d4 from stack
+         POP.L    D3                restore original d3
+         SWAP     D4
+         ROL.L    #7,D4             properly compose the result
+         RTS
+
+D4EXPN0  BSET     #31,D4            set implied bit
+
+         ROL.L    #8,D3             isolate smaller exponent
+         BMI.S    D3ODDX
+
+D3EVENX  ADD.B    D3,D3             correct exponent
+         SCS      -(SP)             save sign of result
+         BNE.S    D3EXPN0           if d3's exponent is not zero
+
+         TST.L    D3
+         BNE.S    INVALID           if denormal
+
+         BRA.S    NOTHING
+
+D3EXPN0  BSET     #31,D3            set implied bit
+
+         BSR      ALIGN             unnormalize smaller operand
+
+         ADD.L    D3,D4
+         BCS.S    FADDOVER          if addition overflow
+
+*********************************
+*  no overflow during addition:
+*  (but rounding can overflow)
+*
+NOTOVER:
+         TST.B    D4                check guard bits
+         BPL.S    NOROUND
+
+         ADD.B    D4,D4
+         BNE.S    ROUNDUP
+
+*  apply nearest even rounding rule
+
+NEAREST  BTST     #8,D4
+         BEQ.S    NOROUND
+
+ROUNDUP:
+         ST       D4                set d4.b to ones
+         ADDQ.L   #1,D4
+         BCS.S    FADDOV            d4 flushed to zero
+
+NOROUND:
+         POP.B    D4                get sign
+         ADD.L    D4,D4             strip off implied bit
+
+         POP.B    D4                restore exponent
+         ROR.L    #8,D4
+
+         ADDQ.L   #4,SP             flush original d4
+         POP.L    D3                restore d3
+         ROR.L    #1,D4             finish result and set CCR
+         RTS
+
+*********************************
+*  d4 is potentially invalid
+*
+D4ODDX:  ADD.B    D4,D4
+         ADDQ.B   #2,D4             try to force overflow
+         BEQ.S    INVALID1          if d4's exponent is 255
+
+*** Note: sign and exponent are not yet saved ******
+         SUBQ.B   #1,D4             correct exponent
+         PUSH.B   D4                save exponent of result
+
+         ROL.L    #8,D3             isolate smaller exponent
+         BPL.S    D3EVENX
+
+D3ODDX:  ADD.B    D3,D3             compose exponent
+         SCS      -(SP)             save sign of result
+         ADDQ.B   #1,D3
+
+         BSR      ALIGN             align operands
+
+         ADD.L    D3,D4
+         BCC.S    NOTOVER           if no overflow
+
+*********************************
+*  overflow occurred on addition
+*
+FADDOVER:
+         ROXR.L   #1,D4             reposition fraction
+         ADD.B    D4,D4             recompose guard bits
+
+         BCC.S    FADDOV            round bit = 0
+         BNE.S    VROUND            round bit = 1, sticky <> 0
+
+         BTST     #8,D4             check the LSB
+         BEQ.S    FADDOV            don't round if even
+
+VROUND   SUBX.B   D4,D4             sets d4.b to all ones
+         ADDQ.L   #1,D4             forces carry in upper 24 bits
+
+FADDOV:  POP.B    D4                get sign of result
+         ADD.L    D4,D4             strip off implied bit
+
+         POP.B    D4                restore exponent
+         ADDQ.B   #2,D4             check for exponent overflow
+         BEQ.S    OVERFLOW
+
+         SUBQ.B   #1,D4             correct exponent
+
+         ROR.L    #8,D4
+
+         ADDQ.L   #4,SP             flush original d4
+         POP.L    D3                restore d3
+         ROR.L    #1,D4             finish result and set CCR
+         RTS
+
+*********************************
+
+INVALID  ADDQ.L   #4,SP             flush sign and exponent
+INVALID1 ADDQ.L   #8,SP             flush args
+         LIBFRAME
+         MERROR   <'Invalid operand in real addition'>
+
+OVERFLOW ADDQ.L   #8,SP
+         LIBFRAME
+         MERROR   <'Exponent overflow in real addition'>
+
+         PAGE
+
+* main body of subtraction code; d4 is not Infinity or Nan, so
+* neither is d3 (d4 >= d3).  d3 (and possibly d4) may be zero or
+* denormalized.  The sign and initial exponent have been saved.
+
+FSUBMAIN:
+         ROL.L    #8,D3             compose smaller exponent
+         TST.B    D3
+         BNE.S    GETSHIFT          if neither zero or denormal
+
+         TST.L    D3                is it proper 0?
+         BNE.S    INVALID           no -- bomb on denormal (for now)
+
+* the d3 value is zero, but if the d4 value is also zero, we must
+* insure that the result is +0 rather than -0.
+
+         ADDQ.B   #1,D4             is d4 0?
+         BEQ.S    D4ZERO            yes -- check for denormals
+
+         LSR.L    #1,D4             no -- prepare to repack d4 as result
+         BRA      NOTHING           (doesn't matter that implied bit =0)
+
+D4ZERO   TST.L    D4                is d4 entirely 0?
+         BNE      INVALID           no -- die on denormal
+
+         ADDQ.L   #8,SP             flush sign, exp, and old d4
+         POP.L    D3                restore d3
+         MOVEQ    #0,D4             just for ccr
+         RTS
+
+* neither operand is an exception case
+GETSHIFT:
+         ADD.B    D3,D4             -254 <= d4.b <= -1  (x-flag = 1)
+         CLR.B    D3                prepare arg for shifting
+
+         ADDQ.B   #2,D4             isolate 0 and 1 shift cases
+         BCC.S    SHIFTXX           if 2 or more shifts required
+
+         BEQ.S    SHIFT1            if 1 bit shift is required
+
+* operands have same exponent, no alignment required, underflow guaranteed
+         CLR.B    D4
+         SUB.L    D3,D4
+         BNE.S    NORMAL            if result is non zero
+
+* result is true zero - retrieve proper sign
+
+         ADDQ.L   #8,SP             forget sign, exponent and d4 value
+         POP.L    D3                stack is now clean
+         MOVEQ    #0,D4             tidy up the condition codes
+         RTS
+
+* single shift is required
+SHIFT1:
+         ROXR.L   #1,D3             x=1, sets implied bit
+         SUB.L    D3,D4             d4.b = 0
+         BCC.S    NONORM            if no borrow occurred
+
+* normalization is required only in the two cases where no shift,
+* or a shift of one place with subsequent borrow, occur. Furthermore,
+* the result is "exact", and no rounding is required.  Underflow,
+* however, must be guarded against.
+
+NORMAL:
+         BMI.S    ONESTEP           only underflowed by one place
+
+         MOVEQ    #-2,D3
+LOOP:    ADD.L    D4,D4
+         DBMI     D3,LOOP
+
+         POP.B    D4                sign
+         ADD.L    D4,D4             flush implied bit
+         MOVE.B   (SP)+,D4          retrieve exponent
+         ADD.B    D3,D4             correct exponent
+         BCC.S    UNFLOW
+
+         ADDQ.L   #4,SP             flush old d4
+         POP.L    D3                restore d3
+         SWAP     D4
+         ROL.L    #7,D4             compose result, set CCR
+         RTS
+
+*********************************
+
+SHIFTXX:
+         NEG.B    D4                convert shift to positive value
+         ROXR.L   #1,D3             set implied bit
+
+         BSR.S    ALIGN1            align the minuend
+
+         SUB.L    D3,D4
+         BCS.S    ONESTEP
+
+* no borrow occurred, exponent correct, round bit in #8
+
+NONORM   LSR.L    #1,D4             reposition fraction
+         ADD.B    D4,D4             recompose guard bits
+
+         BCC.S    FSUBOV            round bit = 0
+         BNE.S    SUBROUND          round bit = 1, sticky <> 0
+
+         BTST     #8,D4             check the LSB
+         BEQ.S    FSUBOV            don't round if even
+
+SUBROUND
+         SUBX.B   D4,D4             sets d4.b to all ones
+         ADDQ.L   #1,D4             forces carry in upper 24 bits
+
+FSUBOV:  POP.B    D4                get sign of result
+         ADD.L    D4,D4             strip off implied bit
+
+         POP.B    D4                restore exponent
+
+         ADDQ.L   #4,SP             flush original d4
+         POP.L    D3                restore d3
+
+         SWAP     D4
+         ROL.L    #7,D4             finish result and set CCR
+         RTS
+
+* borrow occurred, decrement exponent, round bit in #7, round overflow
+* can occur, as can exponent underflow
+
+ONESTEP  TST.B    D4                test guard bits
+
+         BPL.S    NOROUND2
+
+         ADD.B    D4,D4
+         BNE.S    ROUNDUP2
+
+*  apply nearest even rounding rule
+
+         BTST     #8,D4
+         BEQ.S    NOROUND2
+
+ROUNDUP2:
+         SUBX.B   D4,D4             set d4.b to ones
+         ADDQ.L   #1,D4
+         BCS.S    FSUBOV            d4 flushed to zero
+
+NOROUND2:
+         POP.B    D4                get sign
+         ADD.L    D4,D4             strip off implied bit
+
+         POP.B    D4                restore exponent
+         SUBQ.B   #1,D4             and correct it
+         BEQ.S    UNFLOW            if underflow
+
+         ADDQ.L   #4,SP             flush original d4
+         POP.L    D3                restore d3
+         SWAP     D4
+         ROL.L    #7,D4             finish result and set CCR
+         RTS
+
+* result underflowed, sign is in bit 8 of d4
+
+UNFLOW   ADDQ.L   #4,SP             flush original d4
+         POP.L    D3                restore d3
+         CLR.B    D4                clear garbage bitsy
+         LSL.W    #7,D4             sign to bit 15
+         SWAP     D4
+         CLR.W    D4                sets CCR to 0
+         RTS
+
+         PAGE
+*********************************
+*                               *
+*       ALIGN OPERANDS          *
+*                               *
+*********************************
+
+ALIGN:
+         SUB.B    D3,D4             compute shift count
+         CLR.B    D3                clear guard bits
+
+ALIGN1:  SUBQ.B   #8,D4
+         BHI.S    ALIGN8            if shift count > 8
+
+         ADDQ.B   #8,D4             restore shift count
+         LSR.L    D4,D3
+         CLR.B    D4
+         RTS
+
+*********************************
+
+ALIGN8   SUBQ.B   #8,D4
+         BHI.S    ALIGN16           if shift count > 16
+
+         ADDQ.B   #8,D4             restore shift count
+         LSR.L    D4,D3
+
+         CLR.B    D4                clear shift count
+         TST.B    D3                check for sticky bits
+         BNE.S    STICK8
+
+         LSR.L    #8,D3             finish the shift
+         RTS
+
+STICK8   LSR.L    #8,D3             shift another byte's worth
+         BSET     #0,D3             and guarantee sticky bit
+         RTS
+
+*********************************
+
+ALIGN16  SUBQ.B   #8,D4
+         BHI.S    NOSHIFT           if shift count > 24
+
+         ADDQ.B   #8,D4
+         LSR.L    D4,D3
+
+         CLR.B    D4
+         TST.W    D3                sticky bits?
+         BNE.S    STICK16           yes
+
+         SWAP     D3                fast 16 bit shift
+         RTS
+
+STICK16  CLR.W    D3
+         SWAP     D3
+         BSET     #0,D3
+         RTS
+
+*********************************
+
+NOSHIFT  CLR.B    D4
+         MOVEQ    #1,D3             solitary sticky bit
+         RTS
+
+         END

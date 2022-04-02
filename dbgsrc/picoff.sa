@@ -1,0 +1,63 @@
+PICOFF   IDNT     2,2      Get code and data offsets
+         TTL      Get code and data offsets
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1987, 1988, 1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Get code and data offsets
+*
+* Last modified by KRIS on 26-Nov-1990 14:07:37
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+         INCLUDE  LIBDEF
+         INCLUDE  LIBMAC
+         TTL      Get code and data offsets
+         PAGE
+* Find the difference between the addresses determined at the link
+* time for code and data segments and return them as var parameters
+*
+* The "shifting" value for the code segment (SEG1) is calculated
+* on basis of difference between the absolute and pc-realtive value
+* of any arbitraly choosen location (we are using the procedure entry
+* point address for this purpose.
+*
+* The "shifting value of the data segment (SEG2) is calculated by
+* finding the difference between the address of the p_own and
+* the pointer to data segment g.own in global communication area.
+*
+
+         PROC     P_PICOFF,<CODEOFST,ADDRESS,DATAOFST,ADDRESS>
+
+         BEGIN    P_PICOFF,A0/A1
+         LEA      P_PICOFF(PC),A1   run-time address
+         SUB.L    #P_PICOFF,A1      link-time address
+         MOVE.L   CODEOFST(A6),A0   adress to return the value
+         MOVE.L   A1,(A0)           return value
+         MOVE.L   DATAOFST(A6),A0   adress to return the value
+         IFNE     PIC
+         XREF     P_OWN
+         MOVE.L   G.OWN(A5),A1      run-time address of data
+         SUB.L    #P_OWN,A1         same address at link-time
+         MOVE.L   A1,(A0)           return value
+         ENDC     pic
+         IFEQ     PIC
+         CLR.L    (A0)              offset is zero
+         ENDC     nopic
+         ENDPR    P_PICOFF
+         END

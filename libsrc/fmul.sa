@@ -1,0 +1,213 @@
+FMUL     IDNT     2,2      Single Precision Real Multiply
+         TTL      Single Precision Real Multiply
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Single Precision Real Multiply
+*
+* Last modified by KRIS on 26-Nov-1990 13:57:48
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+         PAGE
+
+         INCLUDE  LIBDEF
+         INCLUDE  FPPDEF
+         INCLUDE  LIBMAC
+
+         XDEF     P_FMUL            fmul
+
+***********************************************************
+*
+*  single precision real multiplication routine
+*
+*    entry conditions:
+*
+*      D3.L = 32-bit real multiplier
+*      D4.L = 32-bit real multiplicand
+*
+*    exit conditions:
+*
+*      D3.L = unchanged
+*      D4.L = 32-bit real product
+*      CCR  = N and Z flags conditionally set, V = 0
+*        {*** note: -0.0 result will force Z=1  ***}
+*
+*    intermediate register usage:
+*
+*      D0.L = accumulates the final product
+*      D1.L, D2.L, D3.L = partial products
+*      D4.W = result exponent
+*
+*    error conditions:
+*
+*      "exponent overflow in multiplication"
+*      "invalid operand in multiplication"
+*
+*    comments:
+*
+*      Exponent underflow flushes the result immediately
+*      to zero rather than denormalizing.
+*
+***********************************************************
+
+P_FMUL:
+         MOVEM.L  D0-D4,-(SP)       save 5 long registers
+         MOVEQ    #0,D0
+         MOVEQ    #0,D1
+
+         SWAP     D3
+         SWAP     D4
+
+         MOVE.B   D3,D0             high order byte of multiplier
+         MOVE.B   D4,D1             high order byte of multiplicand
+
+         ADD.W    D3,D3             force sign off
+         BCS.S    D3NEG
+
+         ADD.W    D4,D4             d3 is plus
+         SCS      -(SP)             result sign plus if d4 also plus
+
+         LSR.W    #8,D3
+         BNE.S    TEST3INV
+
+*** zero or denormalized d3 ***
+
+D3EXP0:  LSR.W    #8,D4             first check d4 for invalid
+         ADDQ.B   #1,D4
+         BEQ      INVALID           if d4 is infinity or NaN
+
+MAKE0:   TST.B    (SP)+             test and pop the sign
+         MOVEM.L  (SP)+,D0-D4       restore registers
+         BMI.S    MINUS0
+
+         MOVEQ    #0,D4             make +0
+         RTS
+
+MINUS0:  MOVEQ    #0,D4
+         BCHG     #31,D4            will leave the z-flag set true
+         RTS
+
+********************************
+
+D3NEG:   ADD.W    D4,D4             d3 is minus
+         SCC      -(SP)             result sign plus if d3 also minus
+
+         LSR.W    #8,D3
+         BEQ.S    D3EXP0
+
+TEST3INV:
+         ADDQ.B   #1,D3             is d3 infinity or NaN?
+         BEQ.S    INVALID           yes
+
+         LSR.W    #8,D4
+         BEQ.S    MAKE0
+
+         ADDQ.B   #1,D4             is d4 infinity or NaN?
+         BEQ.S    INVALID           yes
+
+         TAS      D0                set multiplier implied bit
+         TAS      D1                set multiplicand implied bit
+
+********************************
+
+DOEXP:   ADD.W    D3,D4             combine exponents
+         SUBI.W   #128,D4           bias correction
+
+         SWAP     D3                low order multiplier
+         SWAP     D4                save exponent, retrieve low order
+         MOVE.W   D4,D2             save a copy
+
+         MULU     D3,D2             low order partial
+         MULU     D1,D3             first cross partial
+         MULU     D0,D1             high order partial
+         MULU     D4,D0             second cross partial
+
+         SWAP     D1                high order 16 bits were 0
+         SWAP     D2                high order 16 bits are "sticky bits"
+         SWAP     D4                bring back the exponent
+         ADD.W    D2,D1             no overflow can occur
+         ADD.L    D3,D0             sum first cross partial
+         ADD.L    D1,D0             sum second cross partial
+
+*** we now have a 48 bit product, the least 16 bits of which are in the
+*** high order word of d2.  It will be tested only if we have a "nearest
+*** even" rounding problem.
+
+         BMI.S    NORMAL            if product is now normalized
+
+*** The product will be unnormalized by at most 1 bit.  If the exponent is
+*** negative, then signal underflow and test the trap flag.  If set, then
+*** bias the exponent and take the trap; otherwise return either a zero if
+*** more than 25 steps are required, or denormalize the result and round.
+
+         ADD.L    D0,D0             shift left
+         SUBQ.W   #1,D4             adjust exponent
+
+NORMAL:  TST.W    D4                test exponent
+         BLE.S    UNDERFLOW         if underflow
+
+* perform rounding to nearest even
+
+         ADDI.L   #$80,D0
+         BCC.S    NOOVER            if no rounding overflow
+
+         ROXR.L   #1,D0             restore the implied bit
+         ADDQ.W   #1,D4             adjust exponent
+         BRA.S    TESTOVR
+
+NOOVER:  TST.B    D0                test extra precision
+         BNE.S    TESTOVR           if low byte was not $80
+
+         SWAP     D2                get "sticky word"
+         TST.W    D2                is it zero?
+         BNE.S    TESTOVR           no
+
+         BCLR     #8,D0             yes -- apply nearest even
+
+TESTOVR:
+         CMP.W    #255,D4           test for overflow
+         BCC.S    OVERFLOW
+
+UNDREXIT:
+         POP.B    D0                retrieve sign
+         ADD.L    D0,D0             force off implied bit
+         MOVE.B   D4,D0             stash exponent
+         ROL.L    #7,D0
+         SWAP     D0                our ducks are now lined up
+         MOVE.L   D0,16(SP)         replace old d4
+         MOVEM.L  (SP)+,D0-D4
+         RTS                        with ccr correctly set
+
+UNDERFLOW:
+         MOVEQ    #0,D0             zap significand
+         CLR.B    D4                and exponent
+         BRA.S    UNDREXIT          for proper exit
+
+INVALID:
+         ADDA.W   #22,SP            flush sign and 5 registers
+         LIBFRAME
+         MERROR   <'Invalid operand in real multiply'>
+
+OVERFLOW:
+         ADDA.W   #22,SP            flush sign and 5 registers
+         LIBFRAME
+         MERROR   <'Exponent overflow in multiplication'>
+
+         END

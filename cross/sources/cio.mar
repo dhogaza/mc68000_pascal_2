@@ -1,0 +1,158 @@
+.title	p2_CIO	Pascal-2 Compiler Miscellaneous Utility Routines
+.ident	\0045.1\
+;
+; NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+;
+;  Copyright (C) 1984 Oregon Software, Inc.
+;  All Rights Reserved.
+;
+;  This program is the property of Oregon Software.  The program or
+;  parts of it may be copied and used only as provided under a signed
+;  license agreement with Oregon Software.  Any support purchased from 
+;  Oregon Software does not apply to user-modified programs.  All copies 
+;  of this program must display this notice and all copyright notices. 
+;  
+;  
+;  Release version: 0045  Level: 1
+;  Processor: All
+;  System: VMS
+;
+; Pascal-2 Compiler Miscellaneous Utility Routines
+;
+; Last modified by KRIS on 21-Nov-1990 15:35:50
+; Purpose:
+.if eq 1
+Update release version for PC-VV0-GS0 at 2.3.0.1
+.endc
+
+m:
+	.word	29738
+	.word	6252
+	.word	19857
+	.word	32574
+	.word	57491
+
+a:	.word	0
+	movl	4(ap),r0
+	movl	8(ap),r1
+	movw	(r0)+,-(sp)
+	movw	(r0)+,-(sp)
+	movw	(r0)+,-(sp)
+	movw	(r0)+,-(sp)
+	movw	(r1)+,-(sp)
+	movw	(r1)+,-(sp)
+	movw	(r1)+,-(sp)
+	movw	(r1)+,-(sp)
+	addw	(r0),(r1)
+	adwc	8(sp),(sp)
+	adwc	12(sp),4(sp)
+
+	movab	m,r0
+	cmpl	4(r0),4(sp)
+	bnequ	20$
+	cmpl	(r0),(sp)
+	bnequ	20$
+	cmpw	8(r0),(r1)
+20$:	bgtru	30$
+
+	subw	8(r0),(r1)
+	sbwc	(r0),(sp)
+	sbwc	4(r0),4(sp)
+
+30$:	movw	(sp)+,-(r1)
+	movw	(sp)+,-(r1)
+	movw	(sp)+,-(r1)
+	movw	(sp)+,-(r1)
+	ret	
+
+
+
+c:	.word	^M<r2,r3,r4,r5,r6,r7>
+	movab	4(ap),r0
+	movl	(r0)+,r3
+	movl	(r0)+,r4
+	movzbl	#79,r5
+	movl	(r0)+,r6
+	movl	(r0)+,r7
+	movzbl	#15,r2
+	movzwl	8(r4),-(sp)
+	pushl	4(r4)
+	pushl	(r4)
+
+10$:	bbs	r2,(sp),20$
+	decb	r5
+	sobgeq	r2,10$
+	movzbl	#15,r2
+	tstw	(sp)+
+	brb	10$
+
+20$:	movl	(r3),(r4)
+	movl	4(r3),4(r4)
+	movw	8(r3),8(r4)
+
+30$:	decb	r5
+	blss	50$
+	pushl	r4
+	calls	#1,(r6)
+	sobgeq	r2,40$
+	movzbl	#15,r2
+	tstw	(sp)+
+40$:	bbc	r2,(sp),30$
+	pushl	r4
+	pushl	r3
+	calls	#2,(r7)
+	brb	30$
+
+50$:	ret
+
+
+d:	.word	0
+	movl	4(ap),r0
+	movw	8(r0),-(sp)
+	pushl	4(r0)
+	pushl	(r0)
+	movl	sp,r1
+	pushl	r0
+	pushl	r1
+	calls	#2,a
+	ret
+
+
+t:	.word	0
+	pushab	a
+	pushab	d
+	pushl	8(ap)
+	pushl	4(ap)
+	calls	#4,c
+	ret
+
+
+s:	.word	0
+	movl	4(ap),r0
+	movw	8(r0),-(sp)
+	pushl	4(r0)
+	pushl	(r0)
+	movl	sp,r1
+	pushl	r0
+	pushl	r1
+	calls	#2,t
+	ret
+
+
+.entry	Z_B133,^M<>
+	pushab	t
+	pushab	s
+	pushl	8(ap)
+	pushl	4(ap)
+	calls	#4,c
+	ret
+
+.entry	Z_B134,^m<>
+	movab	$B131,r0
+	ret
+
+skypilot::
+	clrb	4(sp)
+	rsb
+
+	.end

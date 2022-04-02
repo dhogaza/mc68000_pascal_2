@@ -1,0 +1,58 @@
+SETPOS   IDNT     2,2      Set text file position
+         TTL      Set text file position
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1986, 1987, 1988, 1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Set text file position
+*
+* Last modified by KRIS on 26-Nov-1990 14:05:27
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+         INCLUDE  LIBDEF
+         INCLUDE  LIBMAC
+*
+* This routine is implemented to make the VersaDos library compatible with
+* other Pascal-2 libraries. Thus the procedure uses two parameters, although
+* the second one (addrh) is not used. The parameter addrl means the line
+* number.
+*
+*  procedure setpos(var f: text;
+*                   addrl: integer;
+*                   addrh: integer);
+*    external;
+*
+         PAGE
+         PROC     SETPOS,<F,ADDRESS,ADDRL,INTEGER,ADDRH,INTEGER>
+
+         XREF     P_SEEK
+
+         BEGIN    SETPOS,A0/A1/A3/A4
+         CHECKIO  F,INPUT
+         BTST     #S.TEXT,F.STATUS(A4)       are we a text file?
+         BNE.S    ISTEXT            yes!
+         CHKERR   E.SEEK,F.STATUS+1(A4),EXLAB
+ISTEXT
+         MOVE.L   F(A6),-(SP)       push file variable
+         MOVE.L   ADDRL(A6),-(SP)   line number
+         JSR.L    P_SEEK(PC)        position file
+         ADDQ.W   #8,SP
+EXLAB
+         ENDPR    SETPOS
+         END

@@ -1,0 +1,60 @@
+PAGE     IDNT     2,2      Text file Page routine
+         TTL      Text file Page routine
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Text file Page routine
+*
+* Last modified by KRIS on 26-Nov-1990 14:06:18
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+         INCLUDE  LIBDEF
+         INCLUDE  LIBMAC
+*
+* This procedure is called by the compiler to cause a page eject
+* on a text file.  On the M68000, this simply prints a form feed.
+*
+         PROC     P_PAGE,<F,ADDRESS>
+
+         BEGIN    P_PAGE,A0/A1/A3/A4/D0/D1
+         CHECKIO  F,OUTPUT
+         MOVE.L   F.POINT(A4),A1    point to current character
+         CMP.L    F.BUFF(A4),A1     is output buffer empty?
+         BEQ.S    PAG1              yes
+         MOVE.L   F(A6),-(SP)       push file variable
+         JSB      P_WLN             no, perform a writeln operation
+         ADDQ.L   #4,SP             kill file variable
+PAG1:    MOVE.B   #$0C,D0           get a form feed
+         JSB      P_WCH             write it to the file
+         ENDPR    P_PAGE
+*
+* p_page_o -- page(output) - pushes the pointer to standard output
+*                            and calls p_page
+*
+         PROC     P_PAGE_O
+
+         BEGIN    P_PAGE_O
+         PEA      G.OUTPUT(A5)      push pointer to standard output
+         BSR.S    P_PAGE            page(output);
+         ADDQ.W   #4,SP             kill the pointer
+         ENDPR    P_PAGE_O
+         PAGE
+         END

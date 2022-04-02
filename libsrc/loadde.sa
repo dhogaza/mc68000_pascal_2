@@ -1,0 +1,71 @@
+*        include loadde
+         NOLIST
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1981, 1982, 1983, 1984, 1985, 1986, 1987, 1988
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Defines constants and type for use with the task loader
+*
+* Last modified by KRIS on 26-Nov-1990 14:09:43
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+         PAGE
+*
+* Loader control block
+*
+         OFFSET   0
+LO.TCB   DS.B     CTK.SIZE          create task block
+LO.OPT   DS.W     1                 loader options
+LO.CLL   DS.B     1                 command line length
+LO.LUN   DS.B     1                 requester's lun
+LO.RES   DS.L     2                 reserved for posterity
+LO.CMD   DS.L     1                 command line address
+LO.FH    DS.B     FH.SIZE           file handling block
+LO.SIZE  DS.B     0
+*
+* Load options
+*
+LO.PRCD$ EQU      $8000             proceed while loading
+LO.ASG$  EQU      $4000             loader assign file
+LO.CMD$  EQU      $2000             command line provided
+LO.LEA$  EQU      $80               logical entry address specified
+LO.TA$   EQU      $40               task attributes specified
+LO.TLP$  EQU      $20               task limit priority specified
+LO.TIP$  EQU      $10               task initial priority specified
+LO.MON$  EQU      $8                monitor specified
+LO.CRT$  EQU      $4                crtcb$ options specified
+LO.SES$  EQU      $2                session number specified
+LO.NAME$ EQU      $1                task name specified
+*
+* Load macro
+*
+LOAD     MACRO
+         NOLIST
+         OPT      MEX
+         LIST
+         IFNC     '\1',''
+         LEA      \1,A0
+         ENDC
+         MOVE.L   #1,D0
+         TRAP     #4
+         NOLIST
+         OPT      NOMEX
+         LIST
+         ENDM
+         LIST

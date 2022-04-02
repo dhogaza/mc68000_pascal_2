@@ -1,0 +1,102 @@
+OPFFLTU  IDNT     2,2      Float 32-bit Unsigned to Single Real
+         TTL      Float 32-bit Unsigned to Single Real
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1987, 1988, 1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Float 32-bit Unsigned to Single Real
+*
+* Last modified by KRIS on 26-Nov-1990 14:00:20
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+         PAGE
+
+***********************************************************
+*
+*  Float 32-bit unsigned to single precision real (p_ffltu)
+*
+*    entry conditions:
+*      D4 = 32-bit unsigned input value
+*
+*    exit conditions:
+*      D4.L = 32-bit single precision real
+*      CCR = (N and Z flags conditionally set, V = 0)
+*
+*    intermediate register usage:
+*      D4.L = normalizes unsigned value
+*      D3.W = develops exponent counter
+*
+*    error conditions:
+*      none
+*
+***********************************************************
+
+         SECTION  8
+         XDEF     P_FFLTU
+P_FFLTU
+         MOVE.W   D3,-(SP)          save a temp register
+         TST.L    D4                set flags
+         BNE.S    POSFLOAT          if not zero
+
+MAKEZERO
+         MOVE.W   (SP)+,D3
+         MOVEQ    #0,D4             sets ccr
+         RTS
+
+**************
+
+POSFLOAT
+         MOVE.W   #158,D3           exponent for unsigned > $80000000
+
+         CMPI.L   #$80,D4           look for low precision
+         BCC.S    OKPOS             in case upper 24 bits are zeroes
+
+         SUBI.W   #24,D3            indicate left shift of 24 places
+         ROR.L    #8,D4             perform the shift
+OKPOS
+         ADD.L    D4,D4             shift left
+         DBCS     D3,OKPOS          until carry gets set
+
+         BTST     #8,D4             test rounding bit
+         BNE.S    NEARTEST          it's set -- look for "nearest even"
+
+         SUB.B    D4,D4             clear out any residual junk (and x-flag)
+         BRA.S    COMPOSE           put the parts together
+
+* apply "round to nearest even" rule
+
+NEARTEST
+         TST.B    D4                round bit is set -- are all others =0?
+         BNE.S    ROUNDUP           no -- perform normal rounding
+
+         ST       D4                jam set low order bits to ones
+         ADDQ.L   #1,D4             this clears the low order 9 bits
+         BCLR     #9,D4             clear least significant bit of result
+         BRA.S    COMPOSE           the x-flag still remembers long overflow
+
+ROUNDUP
+         ST       D4                jam set low order bits to ones
+         ADDQ.L   #1,D4             this clears the low order 9 bits
+
+COMPOSE
+         ADDX.W   D3,D4             add exponent + overflow bit to mantissa
+         MOVE.W   (SP)+,D3          restore the temp register
+         SWAP     D4                kick sign and exponent to high order
+         ROL.L    #7,D4             finish the alignment, and
+         RTS                        exit with condition codes set
+         END

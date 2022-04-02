@@ -1,0 +1,233 @@
+CALLIN   IDNT     2,2      Init routin for use with calltask
+         TTL      Init routin for use with calltask
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Init routin for use with calltask
+*
+* Last modified by KRIS on 26-Nov-1990 14:07:20
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+* Initialization and termination for a task called with "calltask"
+*
+         PAGE
+         INCLUDE  LIBDEF
+         INCLUDE  VDOSDE
+         INCLUDE  EVNTDE
+         INCLUDE  LIBMAC
+*
+* Pascal-2 runtime initialization.
+*
+* called:
+*        lea      cont,a7               Define return address.
+*        xref     p_initio
+*        jmp      p_initio
+* cont   :        :                     user code.
+*
+* The task was started with the following register assignments
+*
+*       A1      stack pointer on call
+*       A5      global pointer
+*
+         XDEF     P_INITIO
+P_INITIO EQU      *
+         IFEQ     PIC
+         XREF     WORK$$
+         MOVEA.L  #WORK$$,A0        start of workspace
+         CMPA.L   #0,A0
+         BEQ.S    NONMMU            it's zero, versados should define it
+         ERQ      ATTSEG$,FIXSEG(PC)         attach global segment PAW$
+         BRA.S    SEGRDY
+NONMMU
+         ENDC     nopic
+         ERQ      ATTSEG$,FLTSEG(PC)         attach global segment PAW$
+         IFEQ     PIC
+SEGRDY
+         ENDC     nopic
+         IFNE     PIC
+         ERQ      RCVSA$,SEG2(PC)   where is SEG2 ?
+SEAOWN
+         TST.L    (A0)+             bump address by 4 bytes
+         CMP.L    #P_OWN,(A0)       check if this is the p_own
+         BNE      SEAOWN            no, keep looking
+         CMP.L    #'pown',4(A0)
+         BNE      SEAOWN
+         CMP.L    #'pown',-4(A0)
+         BNE      SEAOWN
+         MOVE.L   A0,G.OWN(A5)      set pointer to "owned" segment
+         ENDC     pic
+         MOVE.L   A7,A0             save the return address
+         MOVE.L   A1,A7             set up new stack pointer
+         MOVE.L   G.SP(A5),-(SP)    save current global sp
+         MOVE.L   SP,G.SP(A5)       set new global sp
+         MOVE.L   A0,-(SP)          save the return address
+         MOVE.L   D0,-(SP)          need a scratch register
+         XREF     P_TRAPS
+         MOVE.L   P_TRAPS(PC),D0    do we want error handling?
+         BEQ.S    NOBREAK           no, skip all error registration
+         JSR      P_TRAPS(PC)       register traps.
+*
+* It's time to set the address of post mortem analyser.
+*
+         XREF     P_PMA
+         IFEQ     PIC
+         MOVE.L   #P_PMA,L.PMA(A4)  set pma address
+         ENDC     nopic
+         IFNE     PIC
+         MOVE.L   #P_PMA,D0         address of pma at link time
+         BEQ.S    NOPMA             there is no pma
+         LEA      P_PMA(PC),A0      load pma address
+         MOVE.L   A0,L.PMA(A4)      set it
+         BRA.S    PMAOK
+NOPMA
+         CLR.L    L.PMA(A4)         clear it
+PMAOK
+         ENDC     pic
+         XREF     P_BKTRAP          break trap routine
+         MOVE.L   #P_BKTRAP,D0      is there such a routine?
+         BEQ.S    NOBREAK           no, was disabled
+         JSR      P_BKTRAP(PC)      yes, call it to trap breaks
+NOBREAK  EQU      *
+         MOVE.L   (SP)+,D0
+         SUB.L    A6,A6             clear dynamic link
+         RTS                        begin the new program
+         PAGE
+*
+* segment allocation packet - "floating" segment version
+*
+FLTSEG   DC.L     0                 current task
+         DC.L     0                 session number (ignored)
+         DC.W     $2000             rsm68k defines logical=phisical address
+*                                   use a0 for returned info (rcvsa$)
+         DC.W     0                 seg attributes
+         DC.L     'PAW$'            Pascal work segment.
+*        dc.l     0
+*        dc.l     0                 segment length (not used)
+*        dc.l     0
+         IFEQ     PIC
+*
+* segment allocation packet - "fixed" segment version
+*
+FIXSEG   DC.L     0                 current task
+         DC.L     0                 session number (ignored)
+         DC.W     $0                need logical address
+         DC.W     0                 seg attributes
+         DC.L     'PAW$'            Pascal work segment.
+         DC.L     WORK$$
+*        dc.l     0                 segment length (not used)
+*        dc.l     0
+         ENDC     nopic
+* Get a pointer to the workspace no matter what the current state
+* of the registers.  The result is returned on the top of the stack
+*
+* called:
+*        jsr      p_getwrk
+*
+         XDEF     P_GETWRK
+P_GETWRK EQU      *
+         MOVE.L   (SP),-(SP)        move return address
+         MOVEM.L  D0/A0,-(SP)       d0/a0 are changed by 'rcvsa'
+         ERQ      RCVSA$,FLTSEG(PC) receive segment attributes
+         MOVE.L   A0,12(SP)         return address of workspace
+         MOVEM.L  (SP)+,D0/A0
+         RTS
+         TTL      Get Diagnostic Pointer
+         PAGE
+* Get a reference to the end of the diagnostic data
+*
+* All diagnostic data generated by the compiler is placed in
+* section 14, with no name attached.  This will be concatenated
+* by the linker.  The named section 'p_diag' in section 14 is
+* used to locate the end of the diagnostic data.  A reference to this
+* named section is placed in every object module containing error data,
+* so it will be sure to be the first named section in section 14.
+*
+P_DIAG   SECTION  14
+DIAGS    EQU      *
+         DC.W     0
+         XDEF     P_GETDIA
+
+         SECTION  8
+P_GETDIA EQU      *
+         MOVE.L   (SP),-(SP)        move return address
+         MOVE.L   A0,-(SP)          cannot destroy a0
+         LEA      P_GETDIA(PC),A0   use p_getdia as the base address
+         ADD.L    #DIAGS-P_GETDIA,A0         calculate the run-time address
+         MOVE.L   A0,8(SP)          return address of diagnostics
+         MOVE.L   (SP)+,A0
+         RTS
+         PAGE
+*
+* Terminate a pascal-2 program
+*
+* The compiler generates code to call this routine when the logical end
+* of the program is reached.
+*
+* In this special case, an event is queued to notify the spawning task
+* of the termination and the task is suspended.  When resumed, it
+* simply terminates
+*
+         PROC     P_EXIT
+         VAR      QE.PKT,QE.SIZE    packet for queueing an event
+         BEGIN    P_EXIT
+         MOVE.L   G.LIB(A5),A4
+         MOVE.L   G.SP(A5),A0       restore old value of g.sp
+         MOVE.L   (A0),G.SP(A5)
+         LEA      QE.PKT(A6),A0     address of event
+         MOVE.L   L.FATHER(A4),QE.TNAME(A0)  Spawning task name and session
+         CLR.W    G.LIBLEV(A5)      clear out library counter
+         CLR.L    QE.TSES(A0)       For some reason session must be zero
+         CLR.W    QE.OPT(A0)        standard ASR vector
+         MOVE.L   A1,-(SP)          need a scratch
+         LEA.L    TERMEVT(PC),A1
+         MOVE.L   A1,QE.ADDR(A0)    Standard (empty) message
+         MOVE.L   (SP)+,A1
+         ERQ      QEVNT$            queue the event
+         ERQ      SUSPND$           suspend the current task
+         ERQ      TERM$
+*
+* Event message to queue
+*
+* Logically, this should be a zero length message.  The extra
+* word seems to be necessary to con VERSAdos into working
+*
+TERMEVT  DC.B     6,EV.USR$         an empty user event
+         DC.L     0
+         IFNE     PIC
+*
+* segment allocation packet - get SEG2 attributes
+*
+SEG2     DC.L     0                 current task
+         DC.L     0                 session number (ignored)
+         DC.W     $2000             use a0 for returned info (rcvsa$)
+         DC.W     0                 seg attributes
+         DC.L     'SEG2'            default read/write segment's name
+         DC.L     0
+         DC.L     0
+         DC.L     0
+         SECTION  15
+         XDEF     P_OWN
+         DC.L     'pown'
+P_OWN
+         DC.L     *
+         DC.L     'pown'
+         ENDC     pic
+         END

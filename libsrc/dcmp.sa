@@ -1,0 +1,171 @@
+DCMP     IDNT     2,2      Double floating point comparison
+         TTL      Double floating point comparison
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1985, 1986, 1987, 1988, 1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Double floating point comparison
+*
+* Last modified by KRIS on 26-Nov-1990 14:01:03
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+         SECTION  8
+         XDEF     P_DEQL
+         XDEF     P_DLSS
+         XDEF     P_DGTR
+         XREF     P_FPPERR
+
+*  dcmp.s  --  double precision comparison operators.
+
+LEFT     EQU      18                stack offset (after register save) of left operand
+RIGHT    EQU      10                stack offset (after register save) of right operand
+
+*
+* Entry point for < and <= comparison operators:
+*
+
+P_DLSS   MOVE.L   D0,-(SP)          save long register
+         MOVE.W   D1,-(SP)          (faster than movem)
+
+         MOVE.L   #$100010,D0       high order word is entry point flag
+         MOVE.W   D0,D1             copy low order constant
+
+         ADD.W    LEFT(SP),D0       rebias exponent of left operand
+         BMI      AMINUS            if left operand minus
+
+         BCC.S    APLUS             if left operand not reserved
+
+         BRA      TRAP              if left operand +Inf or +NaN
+
+*
+* Entry point for > and >= comparison operators:
+*
+
+P_DGTR   MOVE.L   D0,-(SP)          save long register
+         MOVE.W   D1,-(SP)          (faster than movem)
+
+         MOVE.L   #$80100010,D0     high order word is entry point flag
+         MOVE.W   D0,D1             copy low order constant
+
+         ADD.W    LEFT(SP),D0       rebias exponent of left operand
+         BMI.S    AMINUS            if left operand minus
+
+         BCC.S    APLUS             if left operand not reserved
+
+         BRA      TRAP              if left operand +Inf or +NaN
+
+*
+* Entry point for = and <> comparison operators:
+*
+
+P_DEQL   MOVE.L   D0,-(SP)          save long register
+         MOVE.W   D1,-(SP)          (faster than movem)
+
+         MOVEQ    #$10,D0           high order word is entry point flag
+         MOVE.W   D0,D1             copy low order constant
+
+         ADD.W    LEFT(SP),D0       rebias exponent of left operand
+         BMI.S    AMINUS            if left operand minus
+
+         BCS      TRAP              if left operand exponent reserved
+
+
+APLUS    ADD.W    RIGHT(SP),D1      rebias exponent of right operand
+         BMI.S    BMINUS            if right operand minus
+
+         BCS.S    TRAP              if right operand exponent reserved
+
+* operands have same sign, and neither is reserved:
+SAME     CMP.W    D1,D0             compare exponents and high order digits
+         BNE.S    TSTCC             (most comparisons will take this path)
+
+         MOVE.W   LEFT+2(SP),D0
+         CMP.W    RIGHT+2(SP),D0
+         BNE.S    TSTCC
+
+         MOVE.L   LEFT+4(SP),D0
+         CMP.L    RIGHT+4(SP),D0
+         BEQ.S    EQUAL
+
+TSTCC    BHI.S    ATEST
+
+*--------------------------------
+BNOT
+         MOVE.W   (SP)+,D1          restore registers
+         MOVE.L   (SP)+,D0          (faster than movem)
+         MOVE.L   (SP)+,12(SP)      relocate return address
+         NOT.W    (SP)              set condition codes
+         ADD.L    #12,SP            flush stack upto return address
+         RTS
+
+*--------------------------------
+BMINUS   BVS.S    TRAP              if right operand exponent reserved
+
+         OR.W     D1,D0
+         CMP.W    #$8010,D0         sign bit and exponent LSB
+         BNE.S    BNOT              if A is greater than B
+
+* operands are zeroes, or oppositely signed denormals (very unlikely)
+
+ZTEST    MOVE.L   LEFT+4(SP),D0     words 3 and 4
+         OR.W     LEFT+2(SP),D0     word 2
+         OR.W     RIGHT+2(SP),D0    word 2
+         OR.L     RIGHT+4(SP),D0    words 3 and 4
+         BNE.S    BNOT
+
+*--------------------------------
+EQUAL
+         MOVE.W   (SP)+,D1          restore registers
+         MOVE.L   (SP)+,D0          (faster than movem)
+         MOVE.L   (SP)+,12(SP)      relocate return address
+         ADD.L    #12,SP            flush stack upto return address
+         CMP.W    D0,D0             dummy compare
+         RTS
+
+
+AMINUS   BVS.S    TRAP              if left operand exponent reserved
+
+         ADD.W    RIGHT(SP),D1      rebias exponent of right operand
+         BPL.S    BPLUS             if right operand positive
+
+         BVC.S    SAME              if right operand exponent not reserved
+*--------------------------------
+BPLUS    BCS.S    TRAP              if right operand exponent reserved
+
+         OR.W     D1,D0             preserves signs of registers
+         CMP.W    #$8010,D0         sign bit and exponent LSB
+         BEQ.S    ZTEST             if A and B look like zeroes
+
+ATEST    MOVE.W   (SP)+,D1          restore registers
+         MOVE.L   (SP)+,D0          (faster than movem)
+
+         MOVE.L   (SP)+,12(SP)      relocate return address
+         ADDQ.W   #8,SP             flush right operand
+         TST.L    (SP)+             set condition codes
+         RTS
+
+*-------------------------------
+TRAP
+         MOVE.W   (SP)+,D1          restore registers
+         MOVE.L   (SP)+,D0          (faster than movem)
+
+         LINK     A6,#0
+         JSR      P_FPPERR(PC)
+*
+         END

@@ -1,0 +1,54 @@
+STDIO    IDNT     2,2      Return standard input/output file pointers
+         TTL      Return standard input/output file pointers
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1987, 1988, 1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: 68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Return standard input/output file pointers
+*
+* Last modified by KRIS on 26-Nov-1990 14:07:41
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+         INCLUDE  LIBDEF
+         INCLUDE  PASMAC
+*
+* This routine is called by the debugger to receive the standard
+* input and output file used by the library, which is maintained
+* undependtly on user's standard input and output.
+* The example if this procedure call:
+*
+* procedure p_stdio(var inp, out: text);
+*   external;
+* ...
+* p_stdio(dbginp,dbgout);
+* ..
+*
+         SECTION  8
+         PROC     P_STDIO,<INP,ADDRESS,OUT,ADDRESS>
+
+         BEGIN    P_STDIO,A0-A2
+         MOVE.L   G.LIB(A5),A0      point to library work area
+         MOVE.L   L.INPUT(A0),A1    library standard input file pointer
+         MOVE.L   INP(A6),A2        caller's file variable
+         MOVE.L   A1,(A2)           set the pointer
+         MOVE.L   L.OUTPUT(A0),A1   library standard output file pointer
+         MOVE.L   OUT(A6),A2        caller file's variable
+         MOVE.L   A1,(A2)           set the pointer
+         ENDPR    P_STDIO
+         END

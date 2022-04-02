@@ -1,0 +1,125 @@
+FTRUNC   IDNT     2,2      Single Precision Real to Integer Conversion
+         TTL      Single Precision Real to Integer Conversion
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Single Precision Real to Integer Conversion
+*
+* Last modified by KRIS on 26-Nov-1990 13:57:06
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+         PAGE
+
+         INCLUDE  LIBDEF
+         INCLUDE  LIBMAC
+         INCLUDE  FPPDEF
+
+         XDEF     P_FTRUNC
+
+***********************************************************
+*
+*  trunc(x)  --  truncate real value to integer (p_ftrunc)
+*
+*    entry conditions:
+*      D4.L = 32-bit real input value
+*
+*    exit conditions:
+*      D4.L = 32-bit integer
+*      CCR = (N and Z flags conditionally set, V = 0)
+*
+*    error conditions:
+*      "invalid operand"  if  x.exponent = 255
+*      "integer overflow" if  not(-2^31 < trunc(x) < 2^31)
+*          or, if integer=2:  not(-2^15 < trunc(x) < 2^15)
+*
+***********************************************************
+
+
+P_FTRUNC:
+         ROL.L    #1,D4             ;sign to bit 0 and to C flag
+         BPL.S    UNDERFLOW         ;if exp <= 127
+
+         ROL.L    #8,D4             ;sign to bit 8, exponent to 0..7
+         NOT.B    D4                ;invert exp for right shift count
+         ADDI.B   #159,D4           ;drives exp 128 --> 30, 158 --> 0,
+         BLE.S    OVERFLOW          ;exp 143 (159) and greater now negative
+
+         ROXR.L   #1,D4             ;sets implied bit, sign to bit 7
+         ADDX.B   D4,D4             ;restores shift count, sign to x
+         BCS.S    MTRUNC            ;if negative
+
+         LSR.L    D4,D4             ;variable shift right 1..30 places
+         RTS
+
+MTRUNC:  LSR.L    D4,D4             ;variable shift right 1..14 places
+         NEG.L    D4                ;2's complement
+
+         RTS
+
+
+* Several special cases are lumped together:
+* values too small to result in an integer part (return 0), values which
+* overflow word sized integers (produce fatal error), an exponent value of 255
+* (separate error), and the value -2^31 (or -2^15) whose absolute value would
+* confuse the above algorithm.
+
+
+UNDERFLOW:
+         CMPI.L   #$7F000000,D4     ;looking for exponent 127
+         BGE.S    SETONE            ;if found
+
+         MOVEQ    #0,D4             ;sets condition codes
+         RTS
+
+SETONE   LSR.W    #1,D4             ;set x-flag to value of sign
+         SUBX.L   D4,D4             ;neg to -1, pos to 0
+         BMI.S    EXIT              ;correct if negative
+
+         MOVEQ    #1,D4             ;sets condition codes
+EXIT     RTS
+
+*********************************
+
+OVERFLOW:
+         BNE.S    TEST255           ;if original exponent not 142 (158)
+
+         BTST     #8,D4             ;current position of sign
+         BEQ.S    OVERROR           ;if positive
+
+         ANDI.W   #$FE00,D4         ;clear off sign and exponent
+         LSR.L    #1,D4             ;do not set implied bit
+         BNE.S    OVERROR           ;if integer not -2^31
+
+         MOVE.L   #$80000000,D4     ;restore proper value
+         RTS
+
+TEST255:
+         CMPI.B   #159,D4           ;look for NaN's
+         BNE.S    OVERROR           ;if not
+
+         LIBFRAME
+         MERROR   <'Invalid operand in trunc()'>
+
+OVERROR:
+         LIBFRAME
+         MERROR   <'Integer overflow in trunc()'>
+
+
+         END

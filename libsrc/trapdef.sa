@@ -1,0 +1,138 @@
+*        include trapdef
+         NOLIST
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1987, 1988, 1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Trap definition macros
+*
+* Last modified by KRIS on 26-Nov-1990 14:09:22
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+         PAGE
+* Trap definition macros
+*
+* This macro allows a single point of definition for the trap
+* table and error tables.
+*
+* trapdef which
+*
+* if "which" is "1", trap address definitions are generated.  If
+* it is zero, an error table and trap table are generated.
+*
+* The first 2 macros are used internally.
+*
+* This macro defines a single trap
+*
+TRAPD    MACRO
+         IFNE     \1
+         NOLIST
+         OPT      MEX
+         LIST
+\2       EQU      TRAP$$
+         NOLIST
+         OPT      NOMEX
+         LIST
+         ENDC
+         IFEQ     \1
+         NOLIST
+         OPT      MEX
+         LIST
+         DC.W     \3
+         NOLIST
+         OPT      NOMEX
+         LIST
+         ENDC
+TRAP$$   SET      TRAP$$+2
+         ENDM
+*
+* This macro does a definite repeat using recursion
+*
+GENBSR   MACRO
+TRAP$$   SET      TRAP$$-2
+         IFNE     TRAP$$
+         GENBSR
+         ENDC
+         NOLIST
+         OPT      MEX
+         LIST
+         BSR.S    TRAPPED
+         NOLIST
+         OPT      NOMEX
+         LIST
+         ENDM
+*
+* This macro actually defines the traps, and is called by the
+* user
+*
+TRAPDEF  MACRO
+TRAP$$   SET      0
+         TRAPD    \1,E_TRAP,E.TRAP
+         TRAPD    \1,E_USER,E.USER
+         TRAPD    \1,E_PTR,E.PTR
+         TRAPD    \1,E_CASE,E.CASE
+         TRAPD    \1,E_RANGE,E.RANGE
+         TRAPD    \1,E_BUS,E.BUS
+         TRAPD    \1,E_ADDR,E.ADDR
+         TRAPD    \1,E_ILLEG,E.ILLEG
+         TRAPD    \1,E_ZDIV,E.ZDIV
+         TRAPD    \1,E_STACK,E.STACK
+         TRAPD    \1,E_PRIV,E.PRIV
+         IFNE     STNDALON
+         TRAPD    \1,E_UNEXIN,E.UNEXIN
+         TRAPD    \1,E_TRACE,E.TRACE
+         TRAPD    \1,E_SPURIN,E.SPURIN
+         TRAPD    \1,E_UNININ,E.UNININ
+         ENDC     stndalon
+         TRAPD    \1,EF_FLINE,EF.FLINE
+         TRAPD    \1,EF_PROT,EF.PROT
+         TRAPD    \1,EF_UCOND,EF.UCOND
+         TRAPD    \1,EF_INEX,EF.INEX
+         TRAPD    \1,EF_DIVZ,EF.DIVZ
+         TRAPD    \1,EF_UNDER,EF.UNDER
+         TRAPD    \1,EF_OPERR,EF.OPERR
+         TRAPD    \1,EF_OVERF,EF.OVERF
+         TRAPD    \1,EF_NAN,EF.NAN
+         IFEQ     \1
+         NOLIST
+         OPT      MEX
+         LIST
+         XDEF     P_ERTAB
+P_ERTAB  EQU      *+2
+P_TRAPLC EQU      *
+         NOLIST
+         OPT      NOMEX
+         LIST
+         GENBSR
+         NOLIST
+         OPT      MEX
+         LIST
+         NOP
+TRAPPED  BSR.S    HAVETRAP
+         NOP
+         NOLIST
+         OPT      NOMEX
+         LIST
+         ENDC
+         ENDM
+         PAGE
+* trap and exception vectors.
+*
+* The values of these constants are specified in the macro "trapdef"
+*
+         LIST

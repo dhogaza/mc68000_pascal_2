@@ -1,0 +1,113 @@
+WRSTR    IDNT     2,2      Write a string
+         TTL      Write a string
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1982, 1983, 1984, 1985, 1986, 1987, 1988,
+*                1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Write a string
+*
+* Last modified by KRIS on 26-Nov-1990 14:06:12
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+         INCLUDE  LIBDEF
+         INCLUDE  LIBMAC
+         PAGE
+*
+* Write a string to a file
+*
+* p_wts -- write(file,'string')
+*
+* Copy the string to the file buffer after filling it with leading blanks if
+* necessary.  Flush the buffer if the file was opened with the "single" switch.
+* Registers usage:
+*    a0 -- pointer to ios parameter block in above file
+*    a1 -- pointer to the buffer
+*    a3 -- pointer to the string
+*    a4 -- pointer to fdb of file to use
+*    d0 -- scratch register for printed character
+*    d1 -- work counter
+*    d2 -- end address of the buffer
+*    d3 -- length of the text to be written
+*
+ADR      EQU      ADDRESS
+INT      EQU      INTEGER
+         PROC     P_WTS,<F,ADR,ST_ADDR,ADR,ST_LEN,INT,ST_WIDTH,INT>
+
+         BEGIN    P_WTS,A0/A1/A3/A4/D0/D1/D2/D6/D3
+         CHECKIO  F,OUTPUT
+         MOVE.L   ST_WIDTH(A6),D1   get field width
+         BLE.S    WST6              nothing to do - exit
+         MOVE.L   ST_LEN(A6),D0     length of printed text
+         CMP.L    D0,D1             compare string with field width
+         BGE.S    WST1              string will fit in field
+         MOVE.L   D1,D0             truncate string to fit in field
+WST1
+         MOVE.L   F.POINT(A4),A1    current pointer
+         MOVE.L   I.BUFEND(A0),D2   end of the buffer
+         SUB.L    D0,D1             calculate number of leading spaces
+         BEQ.S    WST3              none needed
+WST2
+         MOVE.B   #' ',(A1)+        load a space
+         CMP.L    A1,D2             end of buffer ?
+         BHI.S    WSTK1             no, continue
+         ADDQ.L   #1,I.RECNUM(A0)   bump the line number
+         JSB      P_PUTF            write it to file
+         MOVE.L   F.POINT(A4),A1    restore current pointer
+WSTK1
+         SUB.L    #1,D1             count it
+         BNE.S    WST2              write all leading spaces
+WST3
+         MOVE.L   D0,D1             copy string length
+         BEQ.S    WST6              zero length string?
+         MOVE.L   ST_ADDR(A6),A3    point to string
+WST4
+         MOVE.B   (A3)+,(A1)+       copy one char
+         CMP.L    A1,D2             end of buffer ?
+         BHI.S    WSTK3             no, continue
+         ADDQ.L   #1,I.RECNUM(A0)   bump the line number
+         JSB      P_PUTF            write it to file
+         MOVE.L   F.POINT(A4),A1    restore current pointer
+WSTK3
+         SUB.L    #1,D1             count it
+         BNE.S    WST4              copy entire string
+         MOVE.L   A1,F.POINT(A4)    restore new file pointer
+         BTST     #S1.SNGL,F.STATUS+1(A4)    single mode ?
+         BEQ.S    WST6              exit if not
+         SUBQ.L   #1,A1             point to last byte in buffer
+         MOVE.L   A1,I.BUFEND(A0)   end of buffer to write
+         ADDQ.L   #1,I.RECNUM(A0)   bump the line number
+         JSB      P_PUTF            write it to file
+*
+WST6
+         ENDPR    P_WTS
+*
+* p_wts_o -- write(output,'string')
+*
+         PROC     P_WTS_O,<ST_A_O,ADDRESS,ST_L_O,INTEGER,ST_W_O,INTEGER>
+
+         BEGIN    P_WTS_O
+         PEA      G.OUTPUT(A5)      push pointer to standard output
+         MOVE.L   ST_A_O(A6),-(SP)  copy string pointer
+         MOVE.L   ST_L_O(A6),-(SP)  copy length
+         MOVE.L   ST_W_O(A6),-(SP)  copy width
+         BSR      P_WTS             write(file,'string');
+         ADD.W    #16,SP            kill temporary parameters
+         ENDPR    P_WTS_O
+         END

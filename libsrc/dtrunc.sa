@@ -1,0 +1,88 @@
+DTRUNC   IDNT     2,2      Truncate double precision real to integer.
+         TTL      Truncate double precision real to integer.
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1986, 1987, 1988, 1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Truncate double precision real to integer.
+*
+* Last modified by KRIS on 26-Nov-1990 14:01:10
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+
+         SECTION  8
+         XDEF     P_DTRUNC
+         XREF     P_DTOX
+         XREF     P_INTOVR
+         XREF     P_FPPERR
+
+*  dtrunc  --  truncate double precision real to integer.
+
+
+P_DTRUNC
+         LINK     A6,#0             * new frame pointer
+         MOVEM.L  D0-D2,-(SP)       * save registers d0-d2
+         MOVE.L   8(A6),D0          * fetch real argument
+         MOVE.L   12(A6),D1         * fetch real argument
+
+         MOVEQ    #0,D4             * initialize integer result
+         JSR      P_DTOX(PC)        * convert double-to-extended
+         BLT.S    TROUBLE           * special cases
+
+         CMP.W    #$3FFF,D0         * test for less-than-integer
+         BLT.S    EXIT
+
+         SUB.W    #$401E,D0
+         BGT.S    OVERFLOW          * if greater than 32 bits long
+
+         NEG.W    D0                * turn into shift count of
+         LSR.L    D0,D1             * 0..31 bit places
+
+         TST.L    D0                * test sign
+         BMI.S    NEGATIVE          * if negative
+
+POSITIVE
+         MOVE.L   D1,D4
+         BMI.S    OVERFLOW
+EXIT
+         MOVEM.L  (SP)+,D0-D2       * restore registers d0-d2
+         UNLK     A6
+
+         MOVE.L   (SP),8(SP)        * relocate return address
+         ADDQ.W   #8,SP             * flush stack argument
+         RTS
+
+*---------------------------------------|
+NEGATIVE
+         SUB.L    D1,D4             * negate and move together
+         BMI.S    EXIT              * includes ( -maxint - 1 )
+
+OVERFLOW
+         JSR      P_INTOVR(PC)
+
+*---------------------------------------|
+TROUBLE
+         BEQ.S    EXIT              * if +/- zero
+
+         OR.L     D1,D2             * test all bits of fraction
+         BEQ.S    OVERFLOW          * proper error msg for Infinity
+
+ILLEGAL
+         JSR      P_FPPERR(PC)      * if Not-a-Number
+         END

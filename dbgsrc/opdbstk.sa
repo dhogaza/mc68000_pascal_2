@@ -1,0 +1,35 @@
+OPDBSTK  IDNT     2,2      Default size of the stack for error handling (debugger and profiler)
+         TTL      Default size of the stack for error handling (debugger and profiler)
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1987, 1988, 1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Default size of the stack for error handling (debugger and profiler)
+*
+* Last modified by KRIS on 26-Nov-1990 13:50:34
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+* This provides a default definition for the size of the stack used
+* exclusively by the error handling routines for debugged or profiled
+* programs.
+*
+         OPT      NOCL
+         XDEF     ERSTK$$
+ERSTK$$  EQU      4096
+         END

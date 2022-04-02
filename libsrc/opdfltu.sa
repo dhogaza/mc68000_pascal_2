@@ -1,0 +1,107 @@
+OPDFLTU  IDNT     2,2      Float 32-bit Unsigned to Double Real
+         TTL      Float 32-bit Unsigned to Double Real
+* NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
+*
+*  Copyright (C) 1987, 1988, 1989, 1990 Oregon Software, Inc.
+*  All Rights Reserved.
+*
+*  This program is the property of Oregon Software.  The program or
+*  parts of it may be copied and used only as provided under a signed
+*  license agreement with Oregon Software.  Any support purchased from
+*  Oregon Software does not apply to user-modified programs.  All copies
+*  of this program must display this notice and all copyright notices.
+*
+*
+*  Release version: 0045  Level: 1
+*  Processor: MC68000
+*  System: VERSADOS
+*  Subsystem: STANDARD
+*
+* Float 32-bit Unsigned to Double Real
+*
+* Last modified by KRIS on 26-Nov-1990 14:00:24
+* Purpose:
+         IFEQ     1
+Update release version for PL-GS0-GS0 at 2.3.0.1
+         ENDC
+*
+         SECTION  8
+
+         XDEF     P_DFLTU
+P_DFLTU
+         SUBQ.W   #8,SP             make room for result
+         MOVE.L   8(SP),(SP)        relocate return address
+
+         LINK     A6,#0             new frame pointer
+         MOVEM.L  D0-D1/A0,-(SP)    save registers d0/d1 and a0
+
+         MOVE.L   D4,D0             set flags
+         BNE.S    POSFLOAT          if non-zero
+
+ZERO
+         MOVEQ    #0,D1
+         BRA.S    STORE
+
+*---------------------------------------|
+POSFLOAT
+         MOVE.L   #1054,D1          initial exponent for unsigned >= $80000000
+
+         EXT.L    D1                clear extension word
+         CMP.L    #32,D0            test for low precision
+         BCC.S    GENERAL           if more than 5 significant bits
+
+*---------------------------------------|
+SHORTCUT
+         LSR.W    #1,D0             reduces shift table size by 2
+         LEA      TABLE(PC),A0
+         ADD.L    D0,A0
+         MOVE.B   (A0),D1
+         ROXR.L   D1,D0             shift 0..4 more places
+         SUBQ.W   #1,D1             adjust exponent
+         BRA.S    COMPOSE
+
+*---------------------------------------|
+GENERAL
+         CMP.L    #$10000,D0
+         BCC.S    LONGINT           if more than 16 bits
+
+*---------------------------------------|
+SHORTINT
+         ADD.W    D0,D0             shift left
+         DBCS     D1,SHORTINT       until carry gets set
+
+         SWAP     D0
+         SUB.W    #16,D1            adjust exponent
+         BRA.S    COMPOSE
+
+*---------------------------------------|
+LONGINT
+         ADD.L    D0,D0             shift left
+         DBCS     D1,LONGINT        until carry gets set
+
+         SWAP     D1                save sign and exponent
+         MOVE.W   D0,D1
+         LSL.W    #4,D1
+         SWAP     D1
+         AND.W    #$F000,D0
+
+*---------------------------------------|
+COMPOSE
+         ADD.W    D1,D0             combine parts
+         CLR.W    D1                clear least significant word
+         ROL.L    #4,D0
+         SWAP     D0                set sign and exponent (and cc's)
+
+*---------------------------------------|
+STORE
+         MOVEM.L  D0-D1,8(A6)       store result
+         MOVEM.L  (SP)+,D0-D1/A0    restore registers
+         UNLK     A6
+         RTS
+
+*---------------------------------------|
+TABLE
+         DC.B     0,1,2,2,3,3,3,3
+         DC.B     4,4,4,4,4,4,4,4
+*
+         END
