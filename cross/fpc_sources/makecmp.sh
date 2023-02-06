@@ -1,0 +1,10 @@
+fpc -gl config
+fpc -gl hdr
+fpc -gl compiler
+fpc -gl utils
+fpc -gl error
+fpc -gl p2rdreal
+fpc -gl csi
+fpc -gl scan
+fpc -gl sd
+fpc -gl main

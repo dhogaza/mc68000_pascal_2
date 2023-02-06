@@ -1,0 +1,3 @@
+program foo;
+begin
+end;
