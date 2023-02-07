@@ -90,34 +90,37 @@ type
            len: columnindex) { position and length within stringfile }
     end;
 
-procedure scantoken;
-
-procedure dumpstr(len: columnindex; {number of chars to dump}
-                  buf: boolean; {which buffer}
-                  dumplen: boolean {true says to dump the length byte} );
-
+  tokenlengthtable = array [tokentype] of 0..10; {defines token lengths}
 
 var
+  toklengths: tokenlengthtable;
 
-{ Nexttoken is shared by scan and analys when bigcompilerversion is true,
-  thereby avoiding intermediate file I/O.
-}
+  { Nexttoken is shared by scan and analys when bigcompilerversion is true,
+    thereby avoiding intermediate file I/O.
+  }
 
   nexttoken: tokenrecord; {token being built by scanner}
 
-procedure scan1;
-procedure scan2;
+  procedure scan1;
+  procedure scan2;
 
-procedure warnat(error: warning; {Error message number}
-                 line: integer; {Text line number for message}
-                 column: columnindex {text column for marker} );
+  procedure warnat(error: warning; {Error message number}
+                   line: integer; {Text line number for message}
+                   column: columnindex {text column for marker} );
 
-{ Generate an error message at the specified line and column.
-  Any error turns off generation of the intermediate file.
-}
+  { Generate an error message at the specified line and column.
+    Any error turns off generation of the intermediate file.
+  }
 
-procedure fatal(err: warning);
+  procedure fatal(err: warning);
 
+  procedure scantoken;
+
+  procedure dumpstr(len: columnindex; {number of chars to dump}
+                  buf: boolean; {which buffer}
+                  dumplen: boolean {true says to dump the length byte} );
+
+  procedure putstringfile;
 
 implementation
 
@@ -156,7 +159,9 @@ const
   DoublePrecision = 16;
   QuadPrecision = 32; { not currently implemented }
 
-  inputbufsize = 20; {length of input line if using fixed arrays}
+  inputbufsize = 1; {length of input line if using fixed arrays}
+ 
+{DRB  inputbufsize = 20;} {length of input line if using fixed arrays}
 
 type
   lineindex = 0..linelen; {index into input line}
@@ -2125,7 +2130,6 @@ type
 
 
     begin
-if isdouble then
       ch := getrealch(false);
     end { getch } ;
 
@@ -3289,6 +3293,84 @@ procedure initscanner;
       tokentable['^'] := uparrow;
     end {inittokentable} ;
 
+  procedure inittoklengths;
+
+  begin
+    toklengths[programsym] := 6;
+    toklengths[labelsym] := 4;
+    toklengths[constsym] := 4;
+    toklengths[typesym] := 3;
+    toklengths[varsym] := 2;
+    toklengths[proceduresym] := 8;
+    toklengths[functionsym] := 7;
+    toklengths[uparrow] := 0;
+    toklengths[arraysym] := 4;
+    toklengths[filesym] := 3;
+    toklengths[setsym] := 2;
+    toklengths[recordsym] := 5;
+    toklengths[stringsym] := 5;
+    toklengths[univsym] := 3;
+    toklengths[packedsym] := 5;
+    toklengths[originsym] := 5;
+    toklengths[beginsym] := 4;
+    toklengths[ifsym] := 1;
+    toklengths[casesym] := 3;
+    toklengths[whilesym] := 4;
+    toklengths[repeatsym] := 5;
+    toklengths[forsym] := 2;
+    toklengths[withsym] := 3;
+    toklengths[gotosym] := 3;
+    toklengths[usesym] := 2;
+    toklengths[definesym] := 5;
+    toklengths[sharedsym] := 5;
+    toklengths[eql] := 0;
+    toklengths[lss] := 0;
+    toklengths[gtr] := 0;
+    toklengths[neq] := 1;
+    toklengths[leq] := 1;
+    toklengths[geq] := 1;
+    toklengths[insym] := 1;
+    toklengths[plus] := 0;
+    toklengths[minus] := 0;
+    toklengths[orsym] := 1;
+    toklengths[star] := 0;
+    toklengths[slash] := 0;
+    toklengths[divsym] := 2;
+    toklengths[modsym] := 2;
+    toklengths[andsym] := 2;
+    toklengths[ofsym] := 1;
+    toklengths[endsym] := 2;
+    toklengths[elsesym] := 3;
+    toklengths[thensym] := 3;
+    toklengths[otherwisesym] := 8;
+    toklengths[dosym] := 1;
+    toklengths[untilsym] := 4;
+    toklengths[tosym] := 1;
+    toklengths[downtosym] := 5;
+    toklengths[notsym] := 2;
+    toklengths[at] := 0;
+    toklengths[nilsym] := 2;
+    toklengths[colon] := 0;
+    toklengths[dot] := 0;
+    toklengths[dotdot] := 1;
+    toklengths[comma] := 0;
+    toklengths[semicolon] := 0;
+    toklengths[becomes] := 1;
+    toklengths[lpar] := 0;
+    toklengths[rpar] := 0;
+    toklengths[lbrack] := 0;
+    toklengths[rbrack] := 0;
+    toklengths[intconst] := 0;
+    toklengths[realconst] := 0;
+    toklengths[dblrealconst] := 0;
+    toklengths[charconst] := 0;
+    toklengths[stringconst] := 0;
+    toklengths[ident] := 0;
+    toklengths[eofsym] := 0;
+    toklengths[lineinc] := 0;
+    toklengths[lineadd] := 0;
+    toklengths[newfile] := 0;
+  end;
 
   procedure initreswords;
 
@@ -3523,6 +3605,7 @@ procedure initscanner;
 
     initscanswitches;
     inittokentable;
+    inittoklengths;
 
     for i := 0 to hashtablesize do
       begin

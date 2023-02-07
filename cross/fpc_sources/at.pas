@@ -23,6 +23,11 @@
 Update release version for PC-VV0-GS0 at 2.3.0.1
 }
 
+unit at;
+
+interface
+
+uses config, hdr;
 
 const
   {distinguished offsets for c, set to avoid conflict with all other offsets}
@@ -49,7 +54,7 @@ type
 
   {operators before intop are linked by travrs sequentially and are never CSEs}
 
-  operator = (endexpr, newvarop, newunsvarop, globalop, localop, lit,
+  operatortype = (endexpr, newvarop, newunsvarop, globalop, localop, lit,
               defforlitindexop, defforindexop, forindexop,
               defunsforlitindexop, defunsforindexop, forupchkop, fordnchkop,
               forerrchkop, moveop, cmoveop, movelit, lssop, leqop, neqop,
@@ -84,12 +89,16 @@ type
 
   tempfiletwocomponent =
     packed record
-      case intcodetype of
+	case intcode: intcodetype of
         stmt: (s: stmttype);
-        op: (o: operator);
+        op: (o: operatortype);
         literal: (b: hostfilebyte);
         form: (f: types)
     end;
 
-  tempfiletwotype = file of packed array
-    [0..diskbufsize] of tempfiletwocomponent;
+var
+  tempfiletwo: file of tempfiletwocomponent;
+  tempfilebuf: tempfiletwocomponent;
+
+implementation
+end.

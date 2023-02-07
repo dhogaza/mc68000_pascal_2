@@ -33,13 +33,9 @@ procedure sd;
 
 implementation
 
-type
-  tokenlengthtable = array [tokentype] of 0..10; {defines token lengths}
-
 var
   tokenbufindex: 0..diskbufsize;
   listingname: packed array [1..255] of char;
-  toklengths: tokenlengthtable;
 
 procedure printreal(r: realarray);
 
@@ -82,81 +78,6 @@ procedure printreal(r: realarray);
 
 procedure sd;
 begin {sd}
-
-  toklengths[programsym] := 6;
-  toklengths[labelsym] := 4;
-  toklengths[constsym] := 4;
-  toklengths[typesym] := 3;
-  toklengths[varsym] := 2;
-  toklengths[proceduresym] := 8;
-  toklengths[functionsym] := 7;
-  toklengths[uparrow] := 0;
-  toklengths[arraysym] := 4;
-  toklengths[filesym] := 3;
-  toklengths[setsym] := 2;
-  toklengths[recordsym] := 5;
-  toklengths[stringsym] := 5;
-  toklengths[univsym] := 3;
-  toklengths[packedsym] := 5;
-  toklengths[originsym] := 5;
-  toklengths[beginsym] := 4;
-  toklengths[ifsym] := 1;
-  toklengths[casesym] := 3;
-  toklengths[whilesym] := 4;
-  toklengths[repeatsym] := 5;
-  toklengths[forsym] := 2;
-  toklengths[withsym] := 3;
-  toklengths[gotosym] := 3;
-  toklengths[usesym] := 2;
-  toklengths[definesym] := 5;
-  toklengths[sharedsym] := 5;
-  toklengths[eql] := 0;
-  toklengths[lss] := 0;
-  toklengths[gtr] := 0;
-  toklengths[neq] := 1;
-  toklengths[leq] := 1;
-  toklengths[geq] := 1;
-  toklengths[insym] := 1;
-  toklengths[plus] := 0;
-  toklengths[minus] := 0;
-  toklengths[orsym] := 1;
-  toklengths[star] := 0;
-  toklengths[slash] := 0;
-  toklengths[divsym] := 2;
-  toklengths[modsym] := 2;
-  toklengths[andsym] := 2;
-  toklengths[ofsym] := 1;
-  toklengths[endsym] := 2;
-  toklengths[elsesym] := 3;
-  toklengths[thensym] := 3;
-  toklengths[otherwisesym] := 8;
-  toklengths[dosym] := 1;
-  toklengths[untilsym] := 4;
-  toklengths[tosym] := 1;
-  toklengths[downtosym] := 5;
-  toklengths[notsym] := 2;
-  toklengths[at] := 0;
-  toklengths[nilsym] := 2;
-  toklengths[colon] := 0;
-  toklengths[dot] := 0;
-  toklengths[dotdot] := 1;
-  toklengths[comma] := 0;
-  toklengths[semicolon] := 0;
-  toklengths[becomes] := 1;
-  toklengths[lpar] := 0;
-  toklengths[rpar] := 0;
-  toklengths[lbrack] := 0;
-  toklengths[rbrack] := 0;
-  toklengths[intconst] := 0;
-  toklengths[realconst] := 0;
-  toklengths[dblrealconst] := 0;
-  toklengths[charconst] := 0;
-  toklengths[stringconst] := 0;
-  toklengths[ident] := 0;
-  toklengths[eofsym] := 0;
-  toklengths[lineinc] := 0;
-  toklengths[lineadd] := 0;
-  toklengths[newfile] := 0;
 
   with nexttoken do
     begin
@@ -237,7 +158,7 @@ begin {sd}
         printreal(realvalue);
         end;
       charconst: write('CHARCONST VALUE:', intvalue: 3);
-      stringconst: write('STRINGCONST POS,LEN:', pos, len);
+      stringconst: write('STRINGCONST POS:', pos,' LEN:', len);
       ident: write('IDENT KEY:', key);
       eofsym: write('EOF');
       otherwise write('unknown token - ', ord(token): 1);

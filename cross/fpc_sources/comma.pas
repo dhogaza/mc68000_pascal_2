@@ -1,4 +1,3 @@
-{$nomain}
 {[b+,o=80]}
 { NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
 
@@ -24,8 +23,564 @@ Update release version for PC-VV0-GS0 at 2.3.0.1
 
 }
 
+unit comma;
 
-procedure warnbefore {err: warning (Error message number) } ;
+interface
+
+uses config, hdr, utils, at, scan;
+
+const
+
+  {Analys pass sizing parameters}
+
+  { where hardware vm is used, blockslow is made as small as possible }
+
+  maxblockslow = lowanalysblocks; { number of blocks in low-space }
+  entriesperblock = analysmaxnodeinblock; {entries per physical file block -
+                                           1}
+  targetzero = 0; {target machine value of zero}
+  targetone = 1; {target machine value of one}
+
+type
+  tokenlengthtable = array [tokentype] of 0..10; {defines token lengths}
+
+  alignmentrange = 0..maxalign; {possible alignment values}
+
+  {the following type has moved to hdr.pas}
+  {addressrange = 0..maxaddr;} {possible address values}
+
+  bitrange = 0..maxbit; {possible bit indices within a word}
+
+  { Structures to describe types and labels}
+
+  entryptr = ^tableentry;
+  index = 0..tablesize;
+  scoperange = 0..deadscope;
+  totalscoperange = 0..totalscopes;
+
+  labelptr = ^labelentry;
+
+  labelentry =
+    packed record
+      labelvalue: pascallabelrange; {user supplied value for label}
+      internalvalue: labelrange; {corresponding internal value}
+      nextlabel: labelptr; {previous label defined in this block}
+      maxlegalnest: integer; {used for error checking}
+      definednest: integer; {nesting level, 0 if not yet defined}
+      labelline: integer; {line of label decl (for error)}
+      labelcolumn: columnindex; {column of label decl (for error)}
+      nonlocalref: boolean; {true if ref'd by non-local goto}
+    end;
+
+  setvalueblock = set of 0..maxsetord; {holds set const}
+
+  range =
+    record
+      minlimit, maxlimit: integer; {limits of values}
+      extended: boolean; {maxlimit is > maxint}
+    end;
+
+  operand_range =
+    record
+      optimistic: range; {assumes all vars in range}
+      pessimistic: range; {assumes any value allowed by storage}
+    end;
+
+  const_descr =
+    record {describes a constant value}
+      case representation: types of {values for different types}
+        ints:
+          (intvalue: integer; {ord(value)}
+           negated: boolean {value was negated} );
+        ptrs: (ptrvalue: integer {targetptr} {referenced operand} );
+        reals, doubles:
+          (realvalue:
+             record {actual real value}
+               case boolean of
+                 false: (realbinary: double); {computable}
+                 true: (realbuffer: realarray); {just storage}
+             end);
+        arrays, fields, strings:
+          (pos, len: integer; {location in string file}
+           stringconstflag: boolean {true if 'string'} );
+        sets: (setvalue: ^setvalueblock);
+    end; {const_descr}
+
+  operandtype = (constoperand, varoperand, exproperand);
+
+  operand =
+    record {describes expression operand}
+      typeindex: index; {type of this operand}
+      oprndlen: addressrange; {length of operand in units}
+      value_range: operand_range; {range of values for the operand}
+      extended: boolean; {set if thiy is an extended range}
+      case operandkind: operandtype of {true if constant operand}
+        constoperand: (cvalue: const_descr; {value of the constant} );
+        varoperand, exproperand:
+          (cost: integer {estimated registers to compute operand value} )
+    end;
+
+  tableentry =
+    packed record {symbol table entry}
+      dbgsymbol: p_symbolindex; {debugger form (PDB) or table (ODB) index}
+      case form: boolean of
+        true:
+          (size: addressrange; {size of type in units or bits}
+           align: alignmentrange; {alignmentrequirements}
+           packedflag: boolean; {true if user said "packed"}
+           bitaddress: boolean; {true if size is bits, not units}
+           containsfile: boolean; {true if type has a file component}
+           extendedrange: boolean; {true if upper bound > maxint}
+           disposable: boolean; {true if type can be quickly disposed of}
+           case typ: types of
+             subranges:
+               (lowerord, upperord: integer; {user said lowerord..upperord}
+                parentform: types; {"typ" value of the parent}
+                parenttype: index {type of lowerord, upperord} );
+             fields:
+               (fieldid: integer; {scope id for symbol table search}
+                nextvariant: index; {next variant record at this level}
+                firstlabel: index; {head of label chain describing this
+                                    variant}
+                firstvariant: index; {first subvariant defined by case at
+                                      level}
+                tagfield: index; {name entry of tagfield, 0 if none}
+                firstfield: index; {index of first field in symbol table}
+                lastfield: index {index of last field in record} );
+             variantlabs:
+               (nextvarlab: index; {points to next label for this variant}
+                varlabtype: index; {type of variant label}
+                varlabvalue: integer {ord(variant value)} );
+             arrays, conformantarrays, strings:
+               (indextype: index; { user said array [indextype] }
+                elementtype: index; { of elementtype }
+                highbound, lowbound: index; {bound id's if conformant}
+                stringtype: boolean; { set if a string type }
+                arraymembers: addressrange; {members in the indextype}
+                elementsize: addressrange {effective size of element} );
+             sets:
+               (constructedset: boolean; {declared or [i,j..k] ?}
+                basetype: index {user said set of basetype} );
+             files:
+               (filebasetype: index; {user defined file of filebasetype}
+                filekey: integer {used to identify file componants to travrs}
+               );
+             ptrs:
+               (ptrtypename: index; {user defined ^ptrtypename}
+                ptrkey: integer {used to identify ptr components to travrs} );
+             scalars: (lastord: integer {highest value of scalar} ); );
+        false:
+          (nextname: index; {pointer to previous incarnation of same name}
+           name: scoperange; {id of block in which declared}
+           charlen: 0..linelen; {length of character string defining name}
+           charindex: integer; {start of name in string file}
+           lastoccurrence: totalscoperange; {last scope which accessed this
+                                             unit}
+           case namekind: nametype of
+             typename, undeftypename:
+               (typeindex: index; {points to defined type}
+                refdefined: boolean {true if defined by ref function} );
+             constname:
+               (consttype: index; {type for this constant}
+                constvalue: const_descr {value for this constant} );
+             varname, fieldname, param, varparam, procparam, funcparam,
+             confparam, varconfparam, boundid, undefname:
+               (modified: boolean; {becomes true when value assigned}
+                nestedmod: boolean; {true if modified by nested procedure}
+                parammodified: boolean; {becomes true when param value changes}
+                knownvalid: boolean; {set when value is known to be in range}
+                programdecl: boolean; {set when declared in program header}
+                varianttag: boolean; {set true if record variant tag}
+                registercandidate: boolean; { true if travrs can assign to a
+                                             reg}
+                univparam: boolean; {true if universal parameter}
+                lastinsection: boolean; {last in a parameter section}
+                varalloc: allockind; {kind of allocation made}
+                nextparamlink: index; {if parameter, points to next param in
+                                       list}
+                offset: unsignedint; {address of item within block}
+                length: addressrange; {length of item}
+                vartype: index; {name's type}
+                sparelink: index; {for boundid, array for which it's a bound;
+                                   for use/shared vars index into vartable;
+                                   for fields used to pass info to debugger} );
+             standardproc, standardfunc, directivename:
+               (procid: standardids {which standard procedure} );
+             procname, funcname, forwardproc, forwardfunc, externalproc,
+             externalfunc:
+               (functype: index; {function result type}
+                funclen: addressrange; {length of resulting value}
+                paramlist: index; {Index of last parameter}
+                funcassigned: boolean; {true if function value defined}
+                procref: proctableindex; {index into global proc data for
+                                          routine}
+                savedparamsize: addressrange {size of parameters} ); );
+    end;
+
+  undefindex = 0..undeftablesize;
+
+  tokenset = set of tokentype;
+  typeset = set of types;
+
+  {The following define the virtual memory for the name table}
+
+  nameblock =
+    record
+      case boolean of
+        false: (physical: doublediskblock);
+        true:
+          (logical: array [0..entriesperblock] of tableentry; {one symbol table
+             block} );
+    end;
+
+  nameblockptr = ^nameblock;
+
+  blockindex = - 1..amaxblocksin;
+
+  blockmap =
+    record {Used to map block number into buffer pointer}
+      blkno: blockindex; { index for seek }
+      written: boolean; {set if block has been modified}
+      lowblock: boolean; {set if buffer not on heap}
+      buffer: nameblockptr {points to block if exists, otherwise nil}
+    end;
+
+  undefentry =
+    record {used to record forward routines and type definitions}
+      tableref: index; {symbol table entry for name}
+      line: integer; {Source line on which occurs}
+      column: columnindex {source column at which it occurs}
+    end;
+
+  blocktype = (codeblock, withblock); {types of scope}
+
+  displayentry =
+    record {used to describe a scope level}
+      dbgscope: p_symbolindex; {ODB sym file entry for this scope}
+      blockid: scoperange; {unique id for name searching}
+      scopeid: totalscoperange; {monotonic increasing block count for scope
+                                 checking}
+      case blockkind: blocktype of
+        withblock:
+          (withoffset: addressrange; {offset of with variable}
+           withpacking: boolean; {this is a packed type}
+           withlevel: levelindex {level of with variable} );
+        codeblock:
+          (blocksize: addressrange; {size of local variables for block}
+           paramsize: addressrange; {size of parameters for block}
+           firststmt, {for debugger support}
+           laststmt : integer; {values returned by stf_stmt}
+           blockref: proctableindex; {global procedure table index}
+           labellist: labelptr; {all labels defined at this level}
+           oldtabletop: index; {top of table at entry, for restore at end}
+           threshold: index; {last name on entry, for restore at end}
+           blockname: index; {name entry for the block}
+           oldundeftabletop: undefindex; {to restore undef table at end}
+           namesdeclared: hashindex; {number of names defined in this block}
+           highestkey: hashindex; {key of highest name declared} )
+    end;
+
+  intstates = (opstate, stmtstate); {intermediate code is statement or expr}
+
+  forstackindex = 0..fordepth;
+
+  debughashtabletype = array [debughashindex] of targetint;
+
+ { declarations for kluged type to allow writing to environment file }
+  proctableblock = array [0..proctableentriesperblock] of proctableentry;
+  tableblock = array [0..tableentriesperblock] of tableentry;
+
+  envirtype = (en_analys_var_block, en_keytable_block, en_proctable_block,
+	       en_symboltable_block, en_disk_block);
+  envirrecord =
+    record
+      case envirtype of
+	en_analys_var_block:
+	 (eproctabletop: proctableindex;
+          eundeftabletop: undefindex;
+	  elastfilekey: integer;
+	  eanyexternals: boolean;
+	  elastid: 0..deadscope;
+	  elastscope: 0..totalscopes;
+	  etabletop: index;
+	  edisplay0, edisplay1: displayentry;
+	  eblockref: proctableindex;
+	  elevel: levelindex;
+	  edisplaytop: levelindex;
+          elastdebugrecord: integer;
+          elastprocrecord: integer;
+	  enullboundindex, eintindex, esubrangeindex, erealindex, edoubleindex,
+	   echartypeindex, eboolindex, etextindex, enoneindex,
+	   enilindex: index;
+	  econsttablelimit: integer;
+          estringfilebase: integer;
+          etargetrealsize: integer;
+          etargetintsize: integer;
+          etargetmaxint: integer;
+          etargetminint: integer;
+          eptrsize: integer;
+          eglobalsize: addressrange;
+          eownsize: addressrange;
+          edefinesize: addressrange;
+          eanyfile: boolean;
+          einputoffset: index;
+          edebughashtable: debughashtabletype;
+          enilvalue: operand;
+          einputindex: index;
+          eoutputindex: index );
+	  en_keytable_block:
+          (ekeyblock: packed array [0..worddiskbufsize] of shortint);
+	en_proctable_block: (eproctable: proctableblock);
+	en_symboltable_block: (esymboltable: tableblock);
+	en_disk_block: (ediskblock: diskblock);
+    end;
+
+var
+
+  nooverflow: integer; {kludge for lib$int_over(on/off)}
+  glboverflow, glbov: boolean; {needed for function return}
+  legalfunctypes: typeset; {types which a function can return}
+  neverskipset, { These tokens are NEVER skipped by parser }
+   begconstset, { Legal tokens which start a signed constant }
+   blockheadset, { Begblockset - [beginsym] }
+   begblockset, { Legal tokens which start a block }
+   begparamhdr, { Legal tokens which start a param }
+   nextparamhdr, { Legal tokens which start next param }
+   begstmtset, { Legal tokens which start a stmt }
+   begunsignedset, { Legal tokens which start unsigned consts }
+   begsimplset, { Legal tokens which begin simple types }
+   begstructset, { Legal tokens which start a structured type }
+   begtypset, { Legal tokens which start a type def }
+   begfactset, { Legal tokens which start a factor }
+   constfollowset, { Tokens which may follow a constant decl }
+   typefollowset, { Tokens which may follow a type decl }
+   begexprset, { Legal and illegal tokens which start an expression }
+   exprops, { Expression operators (relational ops) }
+   sexprops, { Simple expression operators (adding ops) }
+   termops: tokenset { Term operators (multiplying ops) } ;
+
+  {token records bracketing the current, having several helps error recovery}
+  thistoken, lasttoken: tokenrecord;
+
+  token: tokentype; {current token}
+  tokenbufindex: 0..diskbufsize; {current token file entry}
+
+  dbgsourceindex: unsignedint;
+  sourcestringindex: unsignedint; {pos in stringtable of source file name}
+
+  display: array [levelindex] of displayentry; {compile time display}
+
+  {the following are entries for standard types}
+  intindex, shortintindex, realindex, doubleindex, chartypeindex,
+    boolindex, noneindex, nilindex, textindex, inputindex, outputindex,
+    subrangeindex: index;
+
+  nullboundindex: index; {undefined boundid}
+
+  emptysetgenerated: boolean; {true if '[]' already emitted}
+  emptysetcount: integer; {where it is, if it is}
+  inputdeclared, outputdeclared: boolean; {true if declared in program stmt}
+
+  optable: array [eql..andsym] of operatortype; {maps tokens into operators}
+
+  oprndstk: array [0..oprnddepth] of operand; {stack for expression
+                                               evaluation}
+  sp: - 1..oprnddepth; {top of operand stack}
+
+  keymap: array [hashindex] of index; {Index into symboltable by name}
+
+  stringfilebase: integer; {top of stringfile when we enter analys}
+
+  undeftable: array [undefindex] of undefentry; {forward reference table}
+
+  debughashtable: debughashtabletype;
+  lastdebugrecord: integer; {last record written in debugger file}
+  lastprocrecord: integer; {last procedure record written in debugger file}
+  lastfilekey: integer; {used to generate unique ids for file and ptr types}
+  tabletop: index; {last entry in symboltable}
+  undeftabletop: undefindex; {last entry in forward def table}
+  displaytop: levelindex; {top of display stack}
+  labelflag: labelptr; {used to mark end of form and label lists}
+
+  lastid: scoperange; {last named scope created}
+  lastscope: totalscoperange; {last marker for scope checking}
+  level: levelindex; { current block level }
+  lev: levelindex; { Returned by search -- level of item found }
+
+  tokencount: integer; {count of tokens read}
+
+  nilvalue: operand; {value of reserved word nil}
+
+  intstate: intstates; {state of intermediate file, operator or statement}
+  emitflag: boolean; {set if intfile to be emitted, reset on error}
+  checkundefs: boolean; {set if valid to check for undef var usage}
+  nolabelsofar: boolean; {set if no labels encountered yet}
+  anyfile: boolean; {used in record parsing to see if contains file}
+  anyexternals: boolean; {set if any externals in entire compilation unit}
+  anynonlocallabels: boolean; {set if any non-local labels in this block}
+  nextintcode: 0..diskbufsize; {intfile buffer pointer}
+  paramlistid: integer; {scope id for last param list}
+  nowdebugging: boolean; {current block has debugging code}
+
+  {The following are used by the constant folding routines}
+
+  quoflag: boolean; {true if div is for a quotient operation, not rem}
+  divfolded: boolean; {tells "remop" or "quoop" folding that "divop" folded}
+  divide_extended: boolean; {divide left operand was extended}
+  divide_range: operand_range; {range of left operand of a div}
+  linearize: boolean; {true if constants folding into array base addr}
+  linearfactor: integer; {saves const from genbinary to array index}
+  skipfactor: boolean; {true sez factor already read when expression called}
+
+  varindex: index; {index of latest variable parsed}
+  varptr: entryptr; {pointer to name entry for varindex}
+  resulttype: index; {type of current operation being parsed}
+  resultptr: entryptr; {pointer to type block of resulttype}
+  resultform: types; {form for resulttype}
+  result_range: operand_range; {range for current operation}
+
+  forstack: array [forstackindex] of
+      record
+        containedgoto: boolean; {true says for loop contained goto statement}
+        forindex: index; {controlled vars for for loops}
+        forrange: range;
+      end;
+
+  forsp: forstackindex; {top of forstack}
+
+  loopfactor: integer; {non-zero if within loop}
+
+  {The following are used by genunary and genbinary}
+  foldedunary: boolean; {set if unary operation successfully folded}
+  oconst: boolean; {set if unary op operand is constant}
+  ocost, olen: integer; {operation cost and result length for unary op}
+  oextended: boolean; {set if the operation is extended range}
+  lconst, rconst: boolean; {left or right operand constant for binary op}
+  foldedbinary: boolean; {binary folding attempt was successful}
+  l, r: 0..oprnddepth; {operand indices for folding binary op}
+  c1, c2, newcost: integer; {used for computing costs of binary op}
+  newlen: addressrange; {result length for binary operation}
+  unaryform, binaryform: types; {operation result types for unary, binary op}
+  unaryop, binaryop: operatortype; {op being generated for genunary, genbinary}
+
+  nest: integer; {statement nesting depth for goto checking}
+  jumpoutnest: integer; {outermost nesting level for jumps out of for loops}
+  probing: boolean; {set if tentative probe of symbol table, not real usage}
+
+  anynonpascalcalls: boolean; {set if block contains any non-pascal calls}
+
+  fewestblocks, mostblocks: 0..amaxblocksin; {monitor virt mem scheme}
+
+{ Gross kludge to enable placement of structured constants in analys
+  overlay: }
+
+  structfollow: tokenset; {tokens which can follow structured constant}
+  structtype: index; {type of structured constant}
+  structvalue: operand; {the returned value}
+  tempvars: integer; {number of locals available for register assignment}
+
+  lastblocksin: 1..amaxblocksin; {last block actually allocated}
+  thrashing: boolean; {set true when sym table spills onto disk}
+  bigtable: array [0..bigtablesize] of tableentry; {symboltable if
+                                                    bigcompiler}
+  blocksin: array [1..amaxblocksin] of blockmap; {name blocks in memory}
+  blockslow: array [1..maxblockslow] of nameblock;
+
+procedure adecreasebuffers;
+
+procedure aincreasebuffers;
+
+procedure gettoken;
+
+procedure warnbefore(err: warning {Error message number} );
+
+{ Generate an error message at the center of the last token.
+}
+
+procedure warnbetween(err: warning {Error message number} );
+
+{ Generate an error message half way between the last token and the
+  current token.
+}
+
+procedure warn(err: warning {Error message number} );
+
+{ Generate an error message in the middle of the current token.
+}
+
+procedure warnnonstandard(err: warning {Error message number} );
+
+{ Generate a warning only if the standard switch is set.
+  Used to warn of non-standard features.
+}
+
+procedure fatal(err: warning {Error message number} );
+
+{ Generate a fatal warning which will terminate the compilation.
+}
+
+procedure putbyte(a: integer {value of byte to access} );
+
+{ Write the byte "a" to the next location in the string file.  This
+  is assumed to be added to the constant table, and the global
+  "consttablelimit" is incremented as a result.
+}
+
+procedure genform(f: types {form to emit} );
+
+{ If no errors found so far, emit a form to the intermediate file.
+}
+
+
+procedure genint(i: integer {value to emit} );
+
+{ If no errors found so far, emit an integer value to the intermediate file.
+  Since each intermediate file element is only in the range 0..255 (one byte),
+  multiple elements are used.
+
+  Note that only unsigned integers are emitted.
+}
+
+
+procedure genop(o: operatortype {operator to emit} );
+
+{ If no errors are found so far, emit an operator to the intermediate file.
+}
+
+
+procedure genstmt(s: stmttype {statement to emit} );
+
+{ If no errors are found so far, emit a statement to the intermediate file.
+}
+
+procedure verify(set1: tokenset; {acceptable tokens}
+                 set2: tokenset; {tokens to finish skip}
+                 err: warning {Message if token not ok} );
+
+{ Check that the current token is in set1, emit an error message
+  "err" if not, and skip until the token is in set1 + set2 +
+  neverskipset.  The error message will be placed as close
+  to the estimated location of the token as possible.
+}
+
+procedure verify1(set1: tokenset; {acceptable tokens}
+                  err: warning {message if token not ok} );
+
+{ Same as verify, except no separate skip set is provided.
+}
+
+procedure verifytoken(tok: tokentype; {acceptable token}
+                      err: warning {message if token not ok} );
+
+{ Check for a given token (tok) and skip it if found.  If not
+  found, emit an error message set by "err".  This is used for
+  redundant tokens in the syntax, where parsing can continue if it
+  is missing.
+}
+
+implementation
+
+procedure warnbefore (err: warning {Error message number} ) ;
 
 { Generate an error message at the center of the last token.
 }
@@ -37,7 +592,7 @@ procedure warnbefore {err: warning (Error message number) } ;
   end {warnbefore} ;
 
 
-procedure warnbetween {err: warning (Error message number) } ;
+procedure warnbetween(err: warning {Error message number} );
 
 { Generate an error message half way between the last token and the
   current token.
@@ -53,7 +608,7 @@ procedure warnbetween {err: warning (Error message number) } ;
   end {warnbetween} ;
 
 
-procedure warn {err: warning (Error message number) } ;
+procedure warn(err: warning {Error message number} );
 
 { Generate an error message in the middle of the current token.
 }
@@ -65,7 +620,7 @@ procedure warn {err: warning (Error message number) } ;
   end {warn} ;
 
 
-procedure warnnonstandard {err: warning (Error message number) } ;
+procedure warnnonstandard(err: warning {Error message number} );
 
 { Generate a warning only if the standard switch is set.
   Used to warn of non-standard features.
@@ -77,7 +632,7 @@ procedure warnnonstandard {err: warning (Error message number) } ;
   end {warnnonstandard} ;
 
 
-procedure fatal {err: warning (Error message number) } ;
+procedure fatal(err: warning {Error message number} );
 
 { Generate a fatal warning which will terminate the compilation.
 }
@@ -120,68 +675,6 @@ procedure fatal {err: warning (Error message number) } ;
   assumed to be written.
 }
 
-
-procedure accessblk(blockwanted: integer {Index of block to access} );
-
-{ Make the block with index "blockwanted" available at the top
-  of "blocksin".  If not already in core, the contents of the file
-  block with that index are read in.  If the least recently used block
-  must be written ("written" set and no more space in core), it is
-  written to the appropriate place in the file.
-
-  This procedure is used locally from the virtual memory package.
-
-  Although the code within "accessblk" will work with amaxblocksin
-  equal to 1, the compiler code assumes that amaxblocksin >= 2, and
-  will not work without this condition.
-}
-
-  var
-
-    i: 0..amaxblocksin; {Induction var for search and copy}
-    temp: blockmap; {temp storage for moving block to head of list.}
-
-
-  begin {accessblk}
-    if needcaching then
-      begin
-      if not thrashing and switcheverplus[test] then
-        writeln('analys thrashing state reached');
-      thrashing := true;
-       {find this block or last block in memory}
-     i := 1;
-     repeat
-        i := i + 1
-      until (blocksin[i].blkno = blockwanted) or (i = lastblocksin);
-
-      {now make room for blockwanted at head of the list}
-      temp := blocksin[i];
-      for i := i downto 2 do blocksin[i] := blocksin[i - 1];
-
-      {write out old block if necessary, read blockwanted or create new buffer}
-      with temp do
-        begin
-        if blockwanted <> blkno then
-          begin
-          if written then
-            begin
-            seek(cache, blkno + 1);
-            cache^ := buffer^.physical;
-            put(cache)
-            end;
-          written := false;
-          seek(cache, blockwanted + 1);
-          buffer^.physical := cache^;
-          end;
-        blkno := blockwanted;
-        end;
-
-      {update list}
-      blocksin[1] := temp
-      end;
-  end {accessblk} ;
-
-
 procedure areadaccess{i: index; (node wanted)
                       var p: entryptr (provides access to desired node ) } ;
 
@@ -190,42 +683,8 @@ procedure areadaccess{i: index; (node wanted)
 
 }
 
-  var
-    blockno: integer; {1..tablesize + 1}
-
-
   begin {areadaccess}
-    if bigcompilerversion then writeln('areadaccess called!')
-    else
-      begin
-      if needcaching then
-        begin
-        blockno := i div (entriesperblock + 1) + 1;
-        if thrashing or (blockno >= lastblocksin) then
-          begin
-          if blocksin[1].blkno <> i div (entriesperblock + 1) then
-            accessblk(i div (entriesperblock + 1));
-          p := ref(blocksin[1].buffer^.logical[i mod (entriesperblock +
-                   1)]);
-          end
-        else
-          with blocksin[blockno] do
-            begin
-            if buffer = nil then new(buffer);
-            p := ref(buffer^.logical[i mod (entriesperblock + 1)]);
-            end;
-        end
-      else {nocaching}
-        begin
-        blockno := i div (entriesperblock + 1) + 1;
-        if blockno > amaxblocksin then abort(manynodes);
-        with blocksin[blockno] do
-          begin
-          if buffer = nil then new(buffer);
-          p := ref(buffer^.logical[i mod (entriesperblock + 1)]);
-          end;
-        end;
-      end;
+    if bigcompilerversion then writeln('areadaccess called!');
   end {areadaccess} ;
 
 
@@ -237,31 +696,8 @@ procedure awriteaccess {i: index; (node to access)
 
 }
 
-  var
-    blockno: integer; {1..tablesize + 1}
-
-
   begin {awriteaccess}
-    if bigcompilerversion then write('awriteaccess called!')
-    else
-      begin
-      if needcaching then
-        begin
-        areadaccess(i, p);
-        blocksin[1].written := true;
-        end
-      else
-        begin
-        blockno := i div (entriesperblock + 1) + 1;
-        if blockno > amaxblocksin then abort(manynodes);
-        with blocksin[blockno] do
-          begin
-          if buffer = nil then new(buffer);
-          p := ref(buffer^.logical[i mod (entriesperblock + 1)]);
-          written := true;
-          end;
-        end;
-      end;
+    if bigcompilerversion then write('awriteaccess called!');
   end {awriteaccess} ;
 
 
@@ -270,37 +706,7 @@ procedure adecreasebuffers;
 { If available memory is running low relinquish a cache buffer.
 }
 
-  var
-    i: 0..amaxblocksin; {induction variable}
-
-
   begin {adecreasebuffers}
-    if needcaching then
-      begin
-      if not newok(size(vartableblock)) and (space < arequiredspace) or
-         (space < apanicspace) then
-        begin
-        if lastblocksin <> maxblockslow then
-          begin
-          i := lastblocksin;
-          while blocksin[i].lowblock do i := i - 1;
-          with blocksin[i] do
-            begin
-            if written then
-              begin
-              seek(cache, blkno + 1);
-              cache^ := buffer^.physical;
-              put(cache);
-              end;
-            dispose(buffer);
-            for i := i to lastblocksin - 1 do blocksin[i] := blocksin[i + 1];
-            lastblocksin := lastblocksin - 1;
-            if lastblocksin < fewestblocks then fewestblocks := lastblocksin;
-            end;
-          end;
-        end;
-      end;
-    if space < apanicspace then abort(outofmem);
   end {adecreasebuffers} ;
 
 
@@ -310,209 +716,8 @@ procedure aincreasebuffers;
   dispose routine.
 }
 
-
   begin {aincreasebuffers}
-    if needcaching then
-      begin
-      while (lastblocksin < amaxblocksin) and ((space > aexcessivespace) or
-            newok(size(doublediskblock))) do
-        begin
-        if not thrashing and switcheverplus[test] then
-          writeln('analys thrashing state reached');
-        thrashing := true;
-        lastblocksin := lastblocksin + 1;
-        with blocksin[lastblocksin] do
-          begin
-          new(buffer);
-          lowblock := false;
-          written := false;
-          blkno := - 1;
-          end;
-        end;
-      end;
   end {aincreasebuffers} ;
-
-
-procedure getnexttoken;
-
-{ Get the next token from the intermediate file into the global "nexttoken".
-  In the process, linenumbers and switches are incremented as necessary.
-
-  The file is compressed as described in the "put" routine for the scanner,
-  and this routine undoes those compressions.
-}
-
-  var
-    t: tokentype; {temp storage for the token}
-
-
-  procedure gettempfile;
-
-{ Does the equivalent of a get on the temp file.  This also keeps track
-  of the number of bytes read from the temp file to make the switches
-  work.  The temp file is actually a block of hostfilebytes, and each
-  byte is referenced by:
-        tempfileone^[tokenbufindex].<value>
-}
-
-
-    begin {gettempfile}
-      if tokenbufindex = diskbufsize then
-        begin
-        tokenbufindex := 0;
-        get(tempfileone);
-        end
-      else tokenbufindex := tokenbufindex + 1;
-    end {gettempfile} ;
-
-
-  function getint: integer;
-
-{ Get an integer value from the file.  This is made into a function to
-  allow returning the value into subranges of integer.
-}
-
-    var
-      { This fudges an integer into bytes.  The constant "32" is }
-      { simply a large enough number to include all probable systems. }
-      fudge:
-        record
-          case boolean of
-            true: (int: integer);
-            false: (byte: packed array [1..32] of hostfilebyte);
-        end;
-      j: 1..32; {induction var}
-
-
-    begin {getint}
-      fudge.int := tempfileone^[tokenbufindex].byte;
-      gettempfile;
-      if fudge.int = hostfilelim then
-        for j := 1 to hostintsize * hostfileunits do
-          begin
-          fudge.byte[j] := tempfileone^[tokenbufindex].byte;
-          gettempfile;
-          end;
-      getint := fudge.int;
-    end {getint} ;
-
-
-  procedure getreal(var r: realarray);
-
-{ Get a real value from the file.
-}
-
-    var
-      { this fudges a real into bytes.  The constant "32" is }
-      { simply a large enough number to include all probable systems. }
-      fudge:
-        record
-          case boolean of
-            true: (rl: realarray);
-            false: (byte: packed array [1..32] of hostfilebyte);
-        end;
-      j: 1..32; {induction var}
-
-
-    begin {getreal}
-      for j := 1 to size(realarray) do
-        begin
-        fudge.byte[j] := tempfileone^[tokenbufindex].byte;
-        gettempfile;
-        end;
-      r := fudge.rl;
-    end {getreal} ;
-
-
-  begin {getnexttoken}
-    with nexttoken do
-      begin
-
-      repeat
-        t := tempfileone^[tokenbufindex].toke;
-        gettempfile;
-        if t = newfile then
-          begin
-          baseline := getint;
-          fileindex := getint; { stringtable index of file name }
-          end
-        else if t = lineinc then line := line + 1
-        else if t = lineadd then
-          begin
-          line := line + tempfileone^[tokenbufindex].byte;
-          gettempfile;
-          end
-      until (t <> lineinc) and (t <> lineadd) and (t <> newfile);
-
-      token := t;
-      left := tempfileone^[tokenbufindex].byte;
-      gettempfile;
-
-      if t in [ident, intconst, charconst, realconst, dblrealconst,
-              stringconst] then
-        begin
-        right := tempfileone^[tokenbufindex].byte;
-        gettempfile;
-        case t of
-          ident:
-            begin
-            key := getint;
-            keypos := getint;
-            end;
-          intconst: intvalue := getint;
-          charconst:
-            begin
-            intvalue := tempfileone^[tokenbufindex].byte;
-            gettempfile;
-            end;
-          realconst, dblrealconst: getreal(realvalue);
-          stringconst:
-            begin
-            pos := getint;
-            len := getint;
-            end;
-          end
-        end
-      else right := left + toklengths[t];
-      end {with}
-  end {getnexttoken} ;
-
-
-procedure gettokenfile;
-
-{ Read next token from token file created by SCAN.
-
-  The token file created by SCAN is organized as an array
-  0..diskbufsize of tokens rather than simply a file of tokens.
-  This greatly reduces i/o overhead, especially on record oriented
-  systems.  What this routine does is modify a global level
-  variable called tokenbufindex, which is an index into the array
-  of tokens in the token file buffer.  All references to tokens
-  are of the form: tokenfile^[nexttokenfile].
-}
-
-
-  begin {gettokenfile}
-    while (currentswitch <= lastswitch) and
-          ((switches[currentswitch].mlow <= getlow) and
-          (switches[currentswitch].mhi <= gethi) or
-          (switches[currentswitch].mhi < gethi)) do
-      with switches[currentswitch] do
-        begin
-        switchcounters[s] := switchcounters[s] + v;
-        mlow := putlow;
-        if false then mhi := puthi;
-        currentswitch := currentswitch + 1;
-        end;
-    if getlow = maxint then
-      begin
-      getlow := 0;
-      gethi := gethi + 1
-      end
-    else getlow := getlow + 1;
-    getnexttoken;
-  end {gettokenfile} ;
-
 
 procedure gettoken;
 
@@ -537,68 +742,8 @@ procedure gettoken;
     lasttoken := thistoken;
     thistoken := nexttoken;
     token := thistoken.token;
-
-if newdebugger then
-      if (switchcounters[symboltable] > 0) and
-    (lasttoken.fileindex <> thistoken.fileindex) then {switched files}
-      begin
-      dbgsourceindex :=
-        create_filename(
-          thistoken.fileindex,
-          do_hash(thistoken.fileindex, filename_length),
-          stringtable^[thistoken.fileindex],
-          filename_length);
-      end;
-
-
-    if scanalys then
-      begin
-      if token <> eofsym then scantoken;
-      end
-    else if token <> eofsym then gettokenfile
-    else
-      while currentswitch <= lastswitch do
-        with switches[currentswitch] do
-          begin
-          switchcounters[s] := switchcounters[s] + v;
-          mlow := putlow;
-          if false then mhi := puthi;
-          currentswitch := currentswitch + 1;
-          end;
+    if token <> eofsym then scantoken;
   end {gettoken} ;
-
-
-procedure putintfile;
-
-{ Write intermediate code file.
-
-  The output of ANALYS is an intermediate code file which is used   as
-  input to TRAVRS.  The intermediate code file is organized as blocks
-  containing arrays 0..diskbufsize of intermediate code records.  What
-  this routine does is to calculate an index (nextintcode) into the
-  current buffer where the next intermediate code record should be
-  written.
-
-  The intermediate code file should be accessed as: 
-
-     tempfiletwo^[nextintcode]:=<data>; putintfile; 
-}
-
-
-  begin {putintfile}
-    if false and (putlow = maxint) then
-      begin
-      putlow := 0;
-      puthi := puthi + 1;
-      end
-    else putlow := putlow + 1;
-    if nextintcode = diskbufsize then
-      begin
-      nextintcode := 0;
-      put(tempfiletwo);
-      end
-    else nextintcode := nextintcode + 1;
-  end {putintfile} ;
 
 
 
@@ -609,53 +754,12 @@ procedure putintfile;
 
     array [0..diskbufsize] of byte
 
-  The string file is always accessed as:
-
-    stringfile^[nextstringfile]    if caching enabled
-
-    stringblkptr^[nextstringfile]  if caching disabled
+  The string file is always accessed as stringblkptr^[nextstringfile];
 
   The following routines manipulate this file.
 }
 
-
-procedure putstringfile;
-
-{ Do the equivalent of a "put" on the stringfile.  The global
-  "nextstringfile" is incremented, and if the buffer is full an
-  actual "put" on the file is done.  The last element is assumed
-  to be placed in:
-
-    stringfile^[nextstringfile]    if caching enabled
-
-    stringblkptr^[nextstringfile]  if caching disabled
-}
-
-
-  begin {putstringfile}
-    if nextstringfile = diskbufsize then
-      begin
-      curstringblock := curstringblock + 1;
-      nextstringfile := 0;
-      if needcaching then
-        begin
-        put(stringfile);
-        end
-      else
-        begin
-        new(stringblkptr);
-        stringblkptrtbl[curstringblock] := stringblkptr;
-        end;
-      end
-    else
-      begin
-      nextstringfile := nextstringfile + 1;
-      end;
-    if needcaching then stringfiledirty := true;
-  end {putstringfile} ;
-
-
-procedure putbyte {a: integer (value of byte to access) } ;
+procedure putbyte(a: integer {value of byte to access});
 
 { Write the byte "a" to the next location in the string file.  This
   is assumed to be added to the constant table, and the global
@@ -664,10 +768,8 @@ procedure putbyte {a: integer (value of byte to access) } ;
 
 
   begin {putbyte}
-    if scanalys then stringfilecount := stringfilecount + 1
-    else consttablelimit := consttablelimit + 1;
-    if needcaching then stringfile^[nextstringfile] := a
-    else stringblkptr^[nextstringfile] := a;
+    stringfilecount := stringfilecount + 1;
+    stringblkptr^[nextstringfile] := a;
     putstringfile;
   end {putbyte} ;
 
@@ -675,6 +777,7 @@ procedure putbyte {a: integer (value of byte to access) } ;
 
 { Intermediate File Output
 
+  DRB not true for FPC
   The intermediate file is the interface to the next pass (travrs),
   and consists of blocks of undiscriminated variant records.  The
   type of the next record is determined strictly by context.
@@ -691,8 +794,7 @@ procedure putbyte {a: integer (value of byte to access) } ;
   controls the actual emission of output to this file.
 }
 
-
-procedure genform {f: types (form to emit) } ;
+procedure genform (f: types {form to emit});
 
 { If no errors found so far, emit a form to the intermediate file.
 }
@@ -701,13 +803,14 @@ procedure genform {f: types (form to emit) } ;
   begin {genform}
     if emitflag then
       begin
-      tempfiletwo^[nextintcode].f := f;
-      putintfile;
+      tempfilebuf.intcode := form;
+      tempfilebuf.f := f;
+      write(tempfiletwo, tempfilebuf);
       end;
   end {genform} ;
 
 
-procedure genint {i: integer (value to emit) } ;
+procedure genint(i: integer {value to emit} );
 
 { If no errors found so far, emit an integer value to the intermediate file.
   Since each intermediate file element is only in the range 0..255 (one byte),
@@ -730,26 +833,27 @@ procedure genint {i: integer (value to emit) } ;
 
   begin {genint}
     if emitflag then
+      tempfilebuf.intcode := literal;
       if (i >= 0) and (i < hostfilelim) then
         begin
-        tempfiletwo^[nextintcode].b := i;
-        putintfile;
+        tempfilebuf.b := i;
+        write(tempfiletwo, tempfilebuf);
         end
       else
         begin
-        tempfiletwo^[nextintcode].b := hostfilelim;
-        putintfile;
+        tempfilebuf.b := hostfilelim;
+        write(tempfiletwo, tempfilebuf);;
         fudge.int := i;
         for j := 1 to hostintsize * hostfileunits do
           begin
-          tempfiletwo^[nextintcode].b := fudge.byte[j];
-          putintfile;
+          tempfilebuf.b := fudge.byte[j];
+          write(tempfiletwo, tempfilebuf);;
           end;
         end;
   end {genint} ;
 
 
-procedure genop {o: operator (operator to emit) } ;
+procedure genop (o: operatortype {operator to emit} );
 
 { If no errors are found so far, emit an operator to the intermediate file.
 }
@@ -758,13 +862,14 @@ procedure genop {o: operator (operator to emit) } ;
   begin {genop}
     if emitflag then
       begin
-      tempfiletwo^[nextintcode].o := o;
-      putintfile;
+      tempfilebuf.intcode := op;
+      tempfilebuf.o := o;
+      write(tempfiletwo, tempfilebuf);
       end;
   end {genop} ;
 
 
-procedure genstmt {s: stmttype (statement to emit) } ;
+procedure genstmt (s: stmttype {statement to emit} );
 
 { If no errors are found so far, emit a statement to the intermediate file.
 }
@@ -778,18 +883,18 @@ procedure genstmt {s: stmttype (statement to emit) } ;
         genop(endexpr);
         intstate := stmtstate
         end;
-      tempfiletwo^[nextintcode].s := s;
-      putintfile;
+      tempfilebuf.intcode := stmt;
+      tempfilebuf.s := s;
+      write(tempfiletwo, tempfilebuf);
       end
   end {genstmt} ;
 
 
 
 
-procedure verify
-                {set1: tokenset; (acceptable tokens)
-                 set2: tokenset; (tokens to finish skip)
-                 err: warning (Message if token not ok) } ;
+procedure verify(set1: tokenset; {acceptable tokens}
+                 set2: tokenset; {tokens to finish skip}
+                 err: warning {Message if token not ok} );
 
 { Check that the current token is in set1, emit an error message
   "err" if not, and skip until the token is in set1 + set2 +
@@ -815,9 +920,8 @@ procedure verify
   end {verify} ;
 
 
-procedure verify1
-                 {set1: tokenset; (acceptable tokens)
-                  err: warning (message if token not ok) } ;
+procedure verify1(set1: tokenset; {acceptable tokens}
+                  err: warning {message if token not ok} );
 
 { Same as verify, except no separate skip set is provided.
 }
@@ -828,9 +932,8 @@ procedure verify1
   end {verify1} ;
 
 
-procedure verifytoken
-                     {tok: tokentype; (acceptable token)
-                      err: warning (message if token not ok) } ;
+procedure verifytoken(tok: tokentype; {acceptable token}
+                      err: warning {message if token not ok} );
 
 { Check for a given token (tok) and skip it if found.  If not
   found, emit an error message set by "err".  This is used for

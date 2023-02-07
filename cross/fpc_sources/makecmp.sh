@@ -7,4 +7,5 @@ fpc -gl p2rdreal
 fpc -gl csi
 fpc -gl scan
 fpc -gl sd
+fpc -gl at
 fpc -gl main
