@@ -7,9 +7,10 @@ fpc -gl p2rdreal
 fpc -gl csi
 fpc -gl scan
 fpc -gl sd
-fpc -gl at
+fpc -gl a_t
 fpc -gl hdra
 fpc -gl mda
 fpc -gl commona
 fpc -gl foldcom
+fpc -gl analys
 fpc -gl main

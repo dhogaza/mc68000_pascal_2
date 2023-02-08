@@ -23,7 +23,7 @@
 Update release version for PC-VV0-GS0 at 2.3.0.1
 }
 
-unit at;
+unit a_t;
 
 interface
 
@@ -96,9 +96,23 @@ type
         form: (f: types)
     end;
 
+  { this describes the local vars suitable for register allocation }
+
+  localvartype =
+    record
+      offset: addressrange; { location of local var }
+      size: addressrange; {size of local var}
+      debugrecord: integer; { for fixing debug symbol file }
+      is_param: boolean; { parameter ? }
+      typ: types; { type of the var }
+    end;
+
+  localfiletype = file of localvartype;
+
 var
   tempfiletwo: file of tempfiletwocomponent;
   tempfilebuf: tempfiletwocomponent;
+  locals: localfiletype;
 
 implementation
 end.

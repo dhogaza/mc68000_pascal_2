@@ -34,7 +34,7 @@ unit mda;
 
 interface
 
-uses config, hdr, utils, hdra;
+uses config, hdr, utils, hdra, a_t;
 
 procedure alloc(align: alignmentrange; {variable alignment}
                 length: addressrange; {length of variable}

@@ -541,8 +541,10 @@ procedure warnat(error: warning; {Error message number}
       end;
     if fatalflag then
       begin
+{DRB: need to solve goto 99;
       scan2;
-{DRB: need to solve goto 99;}
+      }
+
       end;
   end {warnat} ;
 

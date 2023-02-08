@@ -1,4 +1,3 @@
-{$nomain}
 {[b+,o=80]}
 { NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
 
@@ -34,280 +33,21 @@ Update release version for PC-VV0-GS0 at 2.3.0.1
   the code for the body and declarations to be overlayed
 }
 
+unit analys;
+
+interface
+
+uses config, hdr, utils, scan, a_t, hdra, commona, mda;
+
+procedure analys;
+
+implementation
 
 procedure block;
 
 { Syntactic routine to parse a block,  see the body for details.
 }
   forward;
-
-
-{ Environment file handling.  The state of analys is saved/restored
-  by these two routines.
-}
-
-
-procedure awriteenv;
- { write out the analyzer state to the environment file }
-
-  var
-    i, j: integer; {induction variables}
-    envirblock: envirrecord; {block data from environment file}
-    p: entryptr; {for accessing symbol table}
-
-  begin {awriteenv}
-
-    { write analys variables }
-    with envirblock do
-      begin
-      eproctabletop := proctabletop;
-      eundeftabletop := undeftabletop;
-      elastfilekey := lastfilekey;
-      eanyexternals := anyexternals;
-      elastid := lastid;
-      elastscope := lastscope;
-      etabletop := tabletop;
-      edisplay0 := display[0];
-      edisplay1 := display[1];
-      eblockref := blockref;
-      elevel := level;
-      edisplaytop := displaytop;
-      elastdebugrecord := lastdebugrecord;
-      enullboundindex := nullboundindex;
-      eintindex := intindex;
-      esubrangeindex := subrangeindex;
-      erealindex := realindex;
-      edoubleindex := doubleindex;
-      echartypeindex := chartypeindex;
-      eboolindex := boolindex;
-      etextindex := textindex;
-      enoneindex := noneindex;
-      enilindex := nilindex;
-      econsttablelimit := consttablelimit;
-      estringfilebase := stringfilebase;
-      etargetrealsize := targetrealsize;
-      etargetintsize := targetintsize;
-      etargetmaxint := targetmaxint;
-      etargetminint := targetminint;
-      eptrsize := ptrsize;
-      eglobalsize := globalsize;
-      eownsize := ownsize;
-      edefinesize := definesize;
-      enilvalue := nilvalue;
-      edebughashtable := debughashtable;
-      elastprocrecord := lastprocrecord;
-      eanyfile := anyfile;
-      einputoffset := inputoffset;
-      einputindex := inputindex;
-      eoutputindex := outputindex;
-      end;
-    write(enviroutfile, envirblock.ediskblock);
-
-   { write constants from the string table }
-   { if scanalys is true then scan will write them out}
-
-    if not scanalys then
-      begin
-      if needcaching then
-        begin {code depends on stringfile and envirfile being diskblocks}
-        seekstringfile(stringfilebase);
-        j := 0;
-        for i := 1 to consttablelimit - stringfilebase do
-          begin
-          envirblock.ediskblock[j] := stringfile^[nextstringfile];
-          if nextstringfile = diskbufsize then
-            begin
-            nextstringfile := 0;
-            get(stringfile);
-            end
-          else nextstringfile := nextstringfile + 1;
-          if j = diskbufsize then
-            begin
-            j := 0;
-            write(enviroutfile, envirblock.ediskblock);
-            end
-          else j := j + 1;
-          end;
-        if j > 0 then write(enviroutfile, envirblock.ediskblock);
-        end
-      else {not needcaching}
-        for i := 1 to ((consttablelimit - stringfilecount) + diskbufsize)
-                       div (diskbufsize + 1) do
-          write(enviroutfile, stringblkptrtbl[i]^);
-      end;
-
-   { write the key table }
-   i := 0;
-   for j := 0 to display[1].highestkey do
-     begin
-     envirblock.ekeyblock[i] := keymap[j];
-     if i = worddiskbufsize then
-       begin
-       write(enviroutfile, envirblock.ediskblock);
-       i := 0;
-       end
-     else i := i + 1;
-     end;
-   if i > 0 then write(enviroutfile, envirblock.ediskblock);
-
-   { write the proc table }
-
-   i := 0;
-   for j := 0 to proctabletop do
-     begin
-     envirblock.eproctable[i] := proctable[j];
-     if i = proctableentriesperblock then
-       begin
-       write(enviroutfile, envirblock.ediskblock);
-       i := 0;
-       end
-     else i := i + 1;
-     end;
-   if i > 0 then write(enviroutfile, envirblock.ediskblock);
-
-  { write the symbol table }
-   j := 0;
-   for i := 0 to tabletop do
-     begin
-     if bigcompilerversion then p := ref(bigtable[i])
-     else areadaccess(i, p);
-     envirblock.esymboltable[j] := p^;
-     if j = tableentriesperblock then
-       begin
-       j := 0;
-       write(enviroutfile, envirblock.ediskblock);
-       end
-     else j := j + 1;
-     end;
-   if j > 0 then write(enviroutfile, envirblock.ediskblock);
-
-  end; {awriteenv}
-
-procedure areadenv;
-
-{ Read analys environment file
-}
-
-  var
-    i, j: integer; {induction variables}
-    envirblock: envirrecord; {block data from environment file}
-    p: entryptr; {for accessing symbol table}
-    oconsttablelimit: integer; {old consttablelimit}
-
-  begin {areadenv}
-
-    read(envirinfile, envirblock.ediskblock);
-    { read analys variables }
-    with envirblock do
-      begin
-      proctabletop := eproctabletop;
-      undeftabletop := eundeftabletop;
-      lastfilekey := elastfilekey;
-      anyexternals := eanyexternals;
-      lastid := elastid;
-      lastscope := elastscope;
-      tabletop := etabletop;
-      display[0] := edisplay0;
-      display[0].labellist := labelflag;
-      display[1] := edisplay1;
-      display[1].labellist := labelflag;
-      blockref := eblockref;
-      level := elevel;
-      displaytop := edisplaytop;
-      lastdebugrecord := elastdebugrecord;
-      nullboundindex := enullboundindex;
-      intindex := eintindex;
-      subrangeindex := esubrangeindex;
-      realindex := erealindex;
-      doubleindex := edoubleindex;
-      chartypeindex := echartypeindex;
-      boolindex := eboolindex;
-      textindex := etextindex;
-      noneindex := enoneindex;
-      nilindex := enilindex;
-      oconsttablelimit := econsttablelimit;
-      stringfilebase := estringfilebase;
-      targetrealsize := etargetrealsize;
-      targetintsize := etargetintsize;
-      targetmaxint := etargetmaxint;
-      targetminint := etargetminint;
-      ptrsize := eptrsize;
-      globalsize := eglobalsize;
-      ownsize := eownsize;
-      definesize := edefinesize;
-      nilvalue := enilvalue;
-      debughashtable := edebughashtable;
-      lastprocrecord := elastprocrecord;
-      anyfile := eanyfile;
-      inputoffset := einputoffset;
-      inputindex := einputindex;
-      outputindex := eoutputindex;
-      end;
-
-   { read constants from the string table }
-   { if scanalys is true then scan will read them}
-
-    if not scanalys then
-      begin
-      j := 0;
-      if needcaching then
-        begin {code depends on stringfile and envirfile being diskblocks}
-        seekstringfile(stringtablelimit);
-        for i := 1 to oconsttablelimit - stringfilebase do
-          begin
-          if j = 0 then read(envirinfile, envirblock.ediskblock);
-          stringfile^[nextstringfile] := envirblock.ediskblock[j];
-          if nextstringfile = diskbufsize then
-            begin {we waste a little disk space for simplicity here}
-            nextstringfile := 0;
-            put(stringfile);
-            end
-          else nextstringfile := nextstringfile + 1;
-          j := (j + 1) mod (diskbufsize + 1);
-          end;
-        end
-      else {not needcaching}
-        for i := 1 to ((oconsttablelimit - stringfilecount) + diskbufsize)
-                       div (diskbufsize + 1) do
-          begin
-          if stringblkptrtbl[i] = nil then new(stringblkptrtbl[i]);
-          read(envirinfile, stringblkptrtbl[i]^);
-          end;
-      consttablelimit := stringtablelimit + (oconsttablelimit - stringfilebase);
-      end;
-
-   { read the key table }
-   i := 0;
-   for j := 0 to display[1].highestkey do
-     begin
-     if i = 0 then read(envirinfile, envirblock.ediskblock);
-     keymap[j] := envirblock.ekeyblock[i];
-     i := (i + 1) mod (worddiskbufsize + 1);
-     end;
-
-   { read the proc table }
-
-   i := 0;
-   for j := 0 to proctabletop do
-     begin
-     if i = 0 then read(envirinfile, envirblock.ediskblock);
-     proctable[j] := envirblock.eproctable[i];
-     i := (i + 1) mod (proctableentriesperblock + 1);
-     end;
-
-  { read the symbol table }
-   j := 0;
-   for i := 0 to tabletop do
-     begin
-     if bigcompilerversion then p := ref(bigtable[i])
-     else awriteaccess(i, p);
-     if j = 0 then read(envirinfile, envirblock.ediskblock);
-     p^ := envirblock.esymboltable[j];
-     j := (j + 1) mod (tableentriesperblock + 1);
-     end;
-
-  end   {areadenv};
-
 
 procedure enterblock(level: levelindex; {lex level of block}
                      bn: index; {name index for block name}
@@ -405,8 +145,7 @@ procedure fixupparamoffsets(endofdefs: boolean {last chance} );
           ownsize := forcealign(ownsize, targetintsize, false);
         end;
 
-      if bigcompilerversion then p := ref(bigtable[bn])
-      else areadaccess(bn, p);
+      if bigcompilerversion then p := @(bigtable[bn]);
 
       if targetopsys = vms then
         if (p^.funclen <= ptrsize) or (p^.funclen = 8) then
@@ -427,8 +166,7 @@ procedure fixupparamoffsets(endofdefs: boolean {last chance} );
       i := bn + 1;
       while i <= t do
         begin
-        if bigcompilerversion then p := ref(bigtable[i])
-        else awriteaccess(i, p);
+        if bigcompilerversion then p := @(bigtable[i]);
         if not p^.form then
           begin
 {
@@ -461,32 +199,6 @@ procedure fixupparamoffsets(endofdefs: boolean {last chance} );
         i := i + 1;
         end;
 
-if newdebugger then
-if switchcounters[symboltable] > 0 then
-begin
-i := bn + 1;
-        while i <= t do
-          begin
-          if bigcompilerversion then p := ref(bigtable[i])
-          else awriteaccess(i, p);
-          if not p^.form and (p^.namekind in [param, varparam, boundid,
-               confparam, varconfparam]) and (p^.charlen <> 0) then
-              p^.dbgsymbol := create_varname(
-                p^.charindex,
-                do_hash(p^.charindex, p^.charlen),
-                stringtable^[p^.charindex],
-                p^.charlen, dbgscope,
-                create_type(p^.vartype),
-                dbgsourceindex,
-                0, {source pos}
-                0, {declaration length}
-                p^.namekind,
-                p^.offset - blocksize, {actual offset, relative to fp}
-                p^.length,
-                p^.varalloc);
-	  i := i + 1;
-end {while}
-end {if newdebugger etc.}
       end {with display};
   end {fixupparamoffsets} ;
 
@@ -544,31 +256,15 @@ procedure exitblock(level: levelindex {level of block being exited} );
 
     with display[level] do
       begin
-      if (switchcounters[symboltable] > 0) and
-          not switcheverplus[defineswitch]and not newdebugger then
-        begin {condition in twice to remove reference to dumpsymboltable}
-        if not newdebugger then dumpsymboltable(level, regok)
-        end
-      else
-        begin
-        if newdebugger and (switchcounters[symboltable] > 0)
-        then genint(display[level].dbgscope) else genint(0);
+        genint(0);
         for i := oldtabletop + 1 to tabletop do
           begin
-          if bigcompilerversion then p := ref(bigtable[i])
-          else areadaccess(i, p);
-          if not p^.form and (p^.namekind = varname) then
-            begin
-             if (level > 1) and (p^.dbgsymbol <> 0) then
-             {update the offset field for vars living in a stack frame}
-             dbg_alloc(p^.dbgsymbol, p^.varalloc, p^.offset-blocksize);
-
-             { tell travrs about any var that may be assigned to a register }
-             if regok and p^.registercandidate then
+          if bigcompilerversion then p := @(bigtable[i]);
+          { tell travrs about any var that may be assigned to a register }
+          if not p^.form and (p^.namekind = varname) and
+             regok and p^.registercandidate then
                possibletemp(p^.offset, p^.vartype, p^.dbgsymbol);
-             end;
           end;
-        end;
 
       { signal the end of local vars for this block }
 
@@ -595,8 +291,7 @@ procedure exitblock(level: levelindex {level of block being exited} );
           while t > threshold do
             begin
             namesdeclared := namesdeclared - 1;
-            if bigcompilerversion then p := ref(bigtable[t])
-            else areadaccess(t, p);
+            if bigcompilerversion then p := @(bigtable[t]);
             t := p^.nextname;
             end;
           keymap[i] := t;
@@ -607,8 +302,6 @@ procedure exitblock(level: levelindex {level of block being exited} );
         tabletop := oldtabletop;
         undeftabletop := oldundeftabletop;
         end;
-
-      if not bigcompilerversion then aincreasebuffers;
 
       end;
 
@@ -634,8 +327,7 @@ procedure listundefprocs;
   begin {listundefprocs}
     for i := display[level].oldundeftabletop + 1 to undeftabletop do
       begin
-      if bigcompilerversion then p := ref(bigtable[undeftable[i].tableref])
-      else areadaccess(undeftable[i].tableref, p);
+      if bigcompilerversion then p := @(bigtable[undeftable[i].tableref]);
       with p^, undeftable[i] do
         if form then
           begin
@@ -645,15 +337,6 @@ procedure listundefprocs;
             known.  The "dbgsymbol" testing code is just bulletproofing. }
           if newdebugger then {get rid of "create_" call if not}
             begin
-            if (dbgsymbol <> 0) then
-              begin
-              if bigcompilerversion then pp := ref(bigtable[ptrtypename])
-              else areadaccess(ptrtypename, pp);
-              if pp^.namekind = typename then
-                update_pointerform(dbgsymbol,
-                 size,
-                 create_type(pp^.typeindex))
-              end
             end
           end
         else if namekind in [forwardproc, forwardfunc] then
@@ -677,8 +360,7 @@ procedure listundeftypes;
   begin {listundeftypes}
     for i := display[level].oldundeftabletop + 1 to undeftabletop do
       begin
-      if bigcompilerversion then p := ref(bigtable[undeftable[i].tableref])
-      else areadaccess(undeftable[i].tableref, p);
+      if bigcompilerversion then p := @(bigtable[undeftable[i].tableref]);
       with undeftable[i] do
         begin
         if p^.namekind = undeftypename then
@@ -881,8 +563,7 @@ procedure enterident(id: integer; {scope id for entry}
       search(t);
       if id <> display[displaytop].blockid then
         begin
-        if bigcompilerversion then p := ref(bigtable[t])
-        else areadaccess(t, p);
+        if bigcompilerversion then p := @(bigtable[t]);
         if (t <> 0) and (p^.namekind in [undefname, undeftypename]) and
            (p^.lastoccurrence >= lastscope) then
           warn(duplicateident);
@@ -890,8 +571,7 @@ procedure enterident(id: integer; {scope id for entry}
         end;
       if t <> 0 then
         begin
-        if bigcompilerversion then p := ref(bigtable[t])
-        else areadaccess(t, p);
+        if bigcompilerversion then p := @(bigtable[t]);
         if switcheverplus[multidef] and
            (p^.namekind = varname) and
            (p^.varalloc in [usealloc, definealloc]) then newindex := t
@@ -915,8 +595,7 @@ procedure enterident(id: integer; {scope id for entry}
                                            1;
       if key > display[displaytop].highestkey then
         display[displaytop].highestkey := key;
-      if bigcompilerversion then p := ref(bigtable[tabletop])
-      else awriteaccess(tabletop, p);
+      if bigcompilerversion then p := @(bigtable[tabletop]);
       p^.dbgsymbol := 0;
       p^.form := false;
       p^.nextname := keymap[key];
@@ -998,14 +677,12 @@ procedure programheading;
           begin
           enterlocalident(identindex, noname);
           enterundef(identindex);
-          if bigcompilerversion then idenp := ref(bigtable[identindex])
-          else awriteaccess(identindex, idenp);
+          if bigcompilerversion then idenp := @(bigtable[identindex]);
           idenp^.namekind := undefname;
           end
         else
           begin
-          if bigcompilerversion then idenp := ref(bigtable[identindex])
-          else awriteaccess(identindex, idenp);
+          if bigcompilerversion then idenp := @(bigtable[identindex]);
           if idenp^.programdecl then warn(duplicateident)
           else if identindex = inputindex then inputdeclared := true
           else if identindex = outputindex then outputdeclared := true
@@ -1054,14 +731,13 @@ var p:entryptr; {The usual}
 begin {getdbgsymbol}
 if i = 0 then getdbgsymbol := 0
 else begin
-if bigcompilerversion then p := ref(bigtable[i])
-else areadaccess(i, p);
+if bigcompilerversion then p := @(bigtable[i]);
 getdbgsymbol := p^.dbgsymbol;
 end;
 end   {getdbgsymbol};
 
 
-function create_type { (typeindex:index) : unsignedword };
+function create_type(typeindex:index) : unsignedword;
 
 { Creates an ODB symbol table entry for the given type.  Some
   special ones are simply defined (by create_simpleform) by
@@ -1074,89 +750,8 @@ var
   paramindex : index;
 
 begin {create_type}
-if newdebugger then {otherwise dead-code stuff out}
-begin
-  if typeindex = 0 then create_type := 0
-else
-begin
-  if bigcompilerversion then tp := ref(bigtable[typeindex])
-  else areadaccess(typeindex, tp);
-  if (tp^.dbgsymbol = 0) and
-   (typeindex <> noneindex) and
-   (tp^.typ in [ints, subranges, arrays, sets, variantlabs, conformantarrays,
-     strings, scalars, ptrs, chars, bools, fields, reals, doubles]) then
-    begin
-    case tp^.typ of
-    scalars:
-      tp^.dbgsymbol := create_scalarform;
-    ints, chars, bools, reals, doubles:
-      tp^.dbgsymbol := create_simpleform(
-        sizeof(tp,false),
-        tp^.typ,
-        tp^.extendedrange);
-    ptrs:
-   if typeindex = nilindex then
-tp^.dbgsymbol := create_simpleform(sizeof(tp, false), tp^.typ, tp^.extendedrange)
-else
-      begin
-      if bigcompilerversion then p := ref(bigtable[tp^.ptrtypename])
-      else awriteaccess(tp^.ptrtypename, p);
-      if p^.namekind in [typename, undeftypename] then
-	begin {prevent self-referential pointer types}
-	tp^.dbgsymbol := create_pointerform;
-        if p^.namekind = typename then { target type already known }
-	  update_pointerform(tp^.dbgsymbol,
-           tp^.size,
-           create_type(p^.typeindex))
-        else
-          {we'll call update_pointerform at end of declarations}
-          enterundef(typeindex)
-	end
-      end;
-    sets:
-	tp^.dbgsymbol := create_setform(
-	  sizeof(tp,false),
-	  tp^.packedflag,
-	  tp^.bitaddress,
-	  create_type(tp^.basetype));
-    subranges:
-        tp^.dbgsymbol := create_subrangeform(
-          sizeof(tp,false),
-          tp^.extendedrange,
-          tp^.lowerord, tp^.upperord, create_type(tp^.parenttype));
-    arrays, conformantarrays, strings:
-      tp^.dbgsymbol := create_arrayform(
-        tp^.typ,
-        tp^.size,
-        tp^.packedflag,
-        tp^.bitaddress,
-        create_type(tp^.indextype),
-        create_type(tp^.elementtype),
-        tp^.elementsize);
-     fields:
-       tp^.dbgsymbol := create_fieldform(
-        false, {we're not creating a new scope for a record}
-        tp^.size,
-        tp^.packedflag,
-        tp^.bitaddress,
-        tp^.fieldid,
-        create_type(tp^.nextvariant),
-        create_type(tp^.firstlabel),
-        create_type(tp^.firstvariant),
-        getdbgsymbol(tp^.tagfield),
-        getdbgsymbol(tp^.firstfield),
-        getdbgsymbol(tp^.lastfield));
-      variantlabs:
-        tp^.dbgsymbol := create_variantlabel(create_type(tp^.nextvarlab),
-tp^.varlabvalue);
-      otherwise {no action}
-      end; { case }
-    if tp^.dbgsymbol <> 0 then blocksin[1].written := true
-    end;
-  create_type := tp^.dbgsymbol
-end;
-end;
-  end   {create_type} ;
+  create_type := 0;
+end   {create_type} ;
 
 procedure gettyp(follow: tokenset; {legal following symbols}
                  var resulttype: index {resulting type desc} );
@@ -1198,8 +793,7 @@ procedure onevar(id: integer; {Scope in which to enter ident}
   begin {onevar}
     {The following actually consumes the token}
     enterident(id, where, undefname);
-    if bigcompilerversion then p := ref(bigtable[where])
-    else awriteaccess(where, p);
+    if bigcompilerversion then p := @(bigtable[where]);
     with p^ do
       begin
       if namekind <> undefname then programdecl := false;
@@ -1296,10 +890,7 @@ procedure onevar(id: integer; {Scope in which to enter ident}
             begin
             if varblock > maxvarptrs then fatal(toomanyextvars)
             else
-              begin
-              if not bigcompilerversion then adecreasebuffers;
               new(vartable[varblock]);
-              end;
             lastvartableptr := varblock;
             end;
 
@@ -1331,9 +922,6 @@ procedure onevar(id: integer; {Scope in which to enter ident}
              (varalloc in [definealloc, usealloc]) then warn(badmultidef);
           varalloc := absolute;
           offset := assignedaddress.cvalue.intvalue;
-          if (targetmachine = pdp11) and (offset >= 1000B) and
-             (offset < 160000B) then
-            warnbefore(badorigin);
           end
         else warnbefore(badorigin);
         end
@@ -1391,8 +979,7 @@ procedure alloconevar(t: index; { name entry for variable }
 
 
   begin {alloconevar}
-    if bigcompilerversion then p := ref(bigtable[t])
-    else awriteaccess(t, p);
+    if bigcompilerversion then p := @(bigtable[t]);
     p^.namekind := varkind;
 
     if switcheverplus[multidef] and (p^.namekind = varname) and
@@ -1545,8 +1132,7 @@ procedure variablelist(follow: tokenset; { legal following symbols }
         varcount := varcount + 1;
         if last - 1 <> f then
           begin
-          if bigcompilerversion then fptr := ref(bigtable[f])
-          else awriteaccess(f, fptr);
+          if bigcompilerversion then fptr := @(bigtable[f]);
           fptr^.nextparamlink := last - 1;
           end;
         end;
@@ -1555,8 +1141,7 @@ procedure variablelist(follow: tokenset; { legal following symbols }
       verifytoken(colon, nocolonerr);
       gettyp(follow + startset, f);
 
-      if bigcompilerversion then fptr := ref(bigtable[f])
-      else areadaccess(f, fptr);
+      if bigcompilerversion then fptr := @(bigtable[f]);
       if notrecord and fptr^.containsfile then
         proctable[display[level].blockref].opensfile := true;
 
@@ -1564,30 +1149,9 @@ procedure variablelist(follow: tokenset; { legal following symbols }
       repeat
         getallocdata(fptr, varkind, packedresult, size, typelen, a, align);
         alloconevar(t, f, varkind, size, a, typelen, false, packedresult);
-        if bigcompilerversion then tptr := ref(bigtable[t])
-        else areadaccess(t, tptr);
-
-if newdebugger then {ODB .sym definition}
-        if {(varkind = varname) and}
-          (switchcounters[symboltable] > 0) and
-            (tptr^.dbgsymbol = 0) then
-              tptr^.dbgsymbol := create_varname(
-                tptr^.charindex,
-                do_hash(tptr^.charindex, tptr^.charlen),
-                stringtable^[tptr^.charindex],
-                tptr^.charlen, {display[level].}dbgscope,
-                create_type(tptr^.vartype),
-                dbgsourceindex, {filename}
-                startpos, {source pos}
-                thistoken.line - startline + 1, {declaration length}
-                varkind,
-                tptr^.offset, {offset, subject to later update}
-                tptr^.length,
-                tptr^.varalloc);
-
+        if bigcompilerversion then tptr := @(bigtable[t]);
         t := tptr^.nextparamlink + 1;
-        if bigcompilerversion then fptr := ref(bigtable[f])
-        else areadaccess(f, fptr);
+        if bigcompilerversion then fptr := @(bigtable[f]);
         varcount := varcount - 1;
       until varcount = 0;
 
@@ -1601,982 +1165,8 @@ if newdebugger then {ODB .sym definition}
 
 
 
-
-procedure conststructure(follow: tokenset; {legal following symbols}
-                         form: index; {form found for this constant}
-                         var value1: operand {resulting value } );
-
-{ Syntactic routine to parse a constant structure.
-
-  Productions:
-
-  structured-constant = type-identifier structured-value  .
-
-  structured-value = "(" constant-element [* "," constant-element *]
-                     ")"  .
-
-  This routine checks for a legal type, and parses arrays with
-  one routine and records with another.
-
-  The constant value is buffered as it is generated, and is written
-  to the string file if the size cannot be represented as an integer.
-
-  NOTE:
-
-    In order to understand what is going on in the handling of constants
-    that are being treated as integers (representation = ints), it is
-    necessary to be aware of two inviolate rules:
-
-    (1) All integer constant elements are kept in HOST form within
-        the compiler.  They are changed to target form, if there is
-        a difference, only when they are actually written to the
-        constant buffer.
-
-    (2) If a value is smaller than an integer, the value is kept in
-        the low order bytes of the integer.  For high-to-low packing,
-        this implies that the internal representation of the last or
-        only portion of a packed value must be shifted down to the
-        low order as soon as the constant is complete.
-
-  The values of "reversebytes" and "hostintlowbytefirst" (defined in
-  config) determine the transformations that must take place, if any.
-
-  In some places, there are tests such as:
-    if hostintlowbytefirst <> reversebytes then ...
-  This test, if true, says that TARGET integers have the low byte first.
-
-  The possibilities are:
-
-    hostintlowbytefirst  reversebytes    Implications
-
-  =               False         False    Target has high byte first
-  <>              False          True    Target has low byte first
-  <>               True         False    Target has low byte first
-  =                True          True    Target has high byte first
-}
-
-  const
-    cbufsize = 32; {constant buffering, must be big enough to cover a real and
-                    an integer}
-
-  type
-    constbuffer = {holds and converts constant values}
-      record
-        case integer of
-          1: (b: packed array [1..cbufsize] of hostfilebyte);
-          2: (i: integer);
-          3: (r: realarray {double} );
-          4: (p: integer {targep} );
-      end;
-
-  var
-    cbuf: constbuffer; {holds bytes to write}
-    cbytes: 0..cbufsize; {current bytes in cbuf}
-    curloc: addressrange; {current location relative to start of constant}
-    baseloc: addressrange; {start of packed buffers}
-    pbuf1, pbuf2: integer; {packed data buffers}
-    f: entryptr; {for access to form data}
-    packedflag: boolean; {this is a packed form}
-
-  procedure putcbyte(b: hostfilebyte {constant byte to put} );
-
-{ Put a byte to the constant buffer, writing the buffer to the string
-  file if it is full.
-}
-
-    var
-      i: 1..cbufsize; {induction value}
-
-
-    begin {putcbyte}
-      if emitflag then
-        begin
-        if cbytes = cbufsize then
-          begin
-          if scanalys then seekstringfile(stringfilecount)
-          else seekstringfile(consttablelimit);
-          for i := 1 to cbufsize do putbyte(cbuf.b[i]);
-          cbytes := 0;
-          end;
-        cbytes := cbytes + 1;
-        cbuf.b[cbytes] := b;
-        end;
-    end {putcbyte} ;
-
-
-  procedure alignpartialint(var int: integer; {integer to be aligned}
-                            bytes: addressrange {actual size in use} );
-
-{ If the value is in the high order end of the integer, and it hasn't
-  used all bytes of the integer, we need to slide the value down to the
-  low order end, consistent with the rule that all values are kept in
-  the low order end of the integer.
-}
-
-    var
-      kludge: constbuffer; {used to shift left or right}
-      dist: 0..cbufsize; {distance to shift}
-      i: 0..cbufsize; {induction on bytes in integer}
-
-
-    begin {alignpartialint}
-      if (bytes < hostintsize * hostfileunits) and (bytes > 0) then
-        begin
-        kludge.i := int;
-        dist := hostintsize * hostfileunits - bytes;
-        if hostintlowbytefirst then
-          begin {shift left}
-          for i := 1 to bytes do kludge.b[i] := kludge.b[i + dist];
-          for i := bytes + 1 to hostintsize * hostfileunits do
-            kludge.b[i] := 0;
-          end
-        else
-          begin {shift right}
-          for i := bytes downto 1 do kludge.b[i + dist] := kludge.b[i];
-          for i := dist downto 1 do kludge.b[i] := 0;
-          end;
-        int := kludge.i;
-        end;
-    end {alignpartialint} ;
-
-
-  procedure reversestructure(var s: constbuffer; {structure to munge}
-                             bytes: integer {number of bytes to flip} );
-
-{ Reverse the bytes within each integer of a structure.
-}
-
-    var
-      i, j: 1..cbufsize; {induction on bytes of an integer}
-      k: 0..cbufsize; {offset of integer in constant buffer}
-      t: hostfilebyte; {temp for flipping structure}
-
-
-    begin {reversestructure}
-
-      if reversebytes then
-        begin
-        k := 0;
-
-        while bytes - k > 0 do
-          begin {reverse the active bytes in each integer}
-          i := k + 1;
-          j := k + hostintsize * hostfileunits;
-          if bytes - k < hostintsize * hostfileunits then
-            if hostintlowbytefirst then j := bytes {do left part}
-            else i := j + 1 - (bytes - k); {do right part}
-          while i < j do
-            begin
-            t := s.b[i];
-            s.b[i] := s.b[j];
-            s.b[j] := t;
-            i := i + 1;
-            j := j - 1;
-            end;
-          k := k + hostintsize * hostfileunits;
-          end;
-        end;
-    end {reversestructure} ;
-
-
-  procedure putcint(int: integer; {integer to write}
-                    bytes: addressrange {bytes to write} );
-
-{ Put "bytes" bytes of an integer to the constant buffer.  If
-  there are more bytes specified than in an integer, empty bytes
-  are appended to the end.
-}
-
-    var
-      kludge: constbuffer; {used to separate bytes of the integer}
-      datasize: 0..cbufsize; {number of bytes of actual integer}
-      i: addressrange; {induction on "bytes"}
-
-
-    begin {putcint}
-      if emitflag then
-        begin
-        kludge.i := int;
-        datasize := min(bytes, hostintsize);
-        if reversebytes then
-          reversestructure(kludge, hostintsize * hostfileunits);
-        if hostintlowbytefirst <> reversebytes {low order first} then
-          for i := 1 to datasize do putcbyte(kludge.b[i])
-        else {high order first}
-          for i := hostintsize * hostfileunits + 1 - datasize to hostintsize *
-           hostfileunits do
-            putcbyte(kludge.b[i]);
-        for i := hostintsize * hostfileunits + 1 to bytes do putcbyte(0);
-        end;
-    end {putcint} ;
-
-
-  procedure putcreal(r: realarray; {double}
-                     size: integer);
-
-{ Put a real value to the constant buffer.
-}
-
-    var
-      kludge: constbuffer; {used to separate the bytes of the real}
-      i: 1..cbufsize; {induction on words of the real number}
-      t: hostfilebyte; {temp for switching bytes}
-
-
-    begin {putcreal}
-      kludge.r := r;
-      if reversebytes then
-        for i := 1 to (size * hostfileunits) div 2 do
-          begin
-          t := kludge.b[i * 2 - 1];
-          kludge.b[i * 2 - 1] := kludge.b[i * 2];
-          kludge.b[i * 2] := t;
-          end;
-      for i := 1 to size * hostfileunits do putcbyte(kludge.b[i]);
-    end {putcreal} ;
-
-
-  procedure putcptr(p: integer {targep} {pointer to generate} );
-
-{ Put a pointer value to the constant buffer.  Pointer constants are
-  kept in target form, so there is no need to call reversestructure.
-
-  NOTE: This routine assumes that a pointer will never be smaller
-        than an integer.
-}
-
-    var
-      kludge: constbuffer; {used to separate the bytes of the pointer}
-      i: 1..cbufsize; {induction on bytes of the pointer}
-
-
-    begin {putcptr}
-      for i := 1 to ptrsize * hostfileunits do kludge.b[i] := 0;
-      kludge.p := p;
-      if hostintsize < ptrsize then
-        begin
-        if hostintlowbytefirst = reversebytes {high order first} then
-          for i := 1 to (ptrsize - hostintsize) * hostfileunits do
-            putcbyte(0);
-        for i := 1 to hostintsize * hostfileunits do putcbyte(kludge.b[i]);
-        if hostintlowbytefirst <> reversebytes {low order first} then
-          for i := 1 to (ptrsize - hostintsize) * hostfileunits do
-            putcbyte(0);
-        end
-      else {pointer size = integer size}
-        for i := 1 to ptrsize * hostfileunits do putcbyte(kludge.b[i]);
-    end {putcptr} ;
-
-
-  procedure flushpackbuffer;
-
-{ Flush anything in the packed constant buffer and update baseloc and
-  curloc to reflect the new location.
-}
-
-    var
-      bytes: addressrange; {how many bytes it takes to hold the value}
-
-
-    begin {flushpackbuffer}
-      if curloc > baseloc then
-        begin
-        bytes := (curloc - baseloc + bitsperunit - 1) div bitsperunit;
-        if packinghightolow then alignpartialint(pbuf1, bytes);
-        putcint(pbuf1, bytes);
-        baseloc := ((baseloc + bitsperunit - 1) div bitsperunit + bytes) *
-                   bitsperunit;
-        curloc := baseloc;
-        pbuf1 := 0;
-        end;
-    end {flushpackbuffer} ;
-
-  procedure flushbuffer;
-
-{ Flush any partial value kept as an intvalue thus far.
-}
-    var
-      i: 1..cbufsize; {induction var}
-
-    begin {flushbuffer}
-      if not scanalys then seekstringfile(consttablelimit);
-      with value1.cvalue do
-        begin
-        if representation = ints then
-          begin
-          if reversebytes then
-            reversestructure(cbuf, hostintsize * hostfileunits);
-          if hostintlowbytefirst = reversebytes {high order first} then
-            alignpartialint(cbuf.i, cbytes);
-          intvalue := cbuf.i;
-          negated := false; { PJS force init }
-          end
-        else if emitflag then
-          begin
-          for i := 1 to cbytes do putbyte(cbuf.b[i]);
-          cbytes := 0;
-          end;
-        end;
-    end   {flushbuffer};
-
-  procedure putvalue(vloc: addressrange; {loc to put value}
-                     eltstring: boolean; {target elt is a string}
-                     whichbuf: boolean; {which string buffer}
-                     packing: boolean; {this is being packed in}
-                     eltsize: addressrange; {size of constant element}
-                     var value1: operand {value to place} );
-
-{ Put a constant value in "value" into the current structured constant.
-  There is an assumption that only items capable of representation as
-  integers will actually be packed.  The packing is done by the routine
-  "packedstore".
-
-  Strings require some extra work as a length byte must prefix the
-  actual data, as the result might need padding, and it might be
-  a character needing conversion to a string!
-}
-
-    var
-      full: boolean; {a packed word is full}
-      start, finish: addressrange; {start and end of constant in file}
-      bytes: addressrange; {bytes already used in the packing buffer}
-
-
-    procedure putpackedvalue(data: integer; {bits to put}
-                             dataloc: addressrange; {where to put bits}
-                             datasize: addressrange {number of bits to put} );
-
-{ Put one packed data item.  This code was inline until strings were
-  added, as conversion of a character to a string requires both the
-  length and data bytes to be emitted.
-}
-
-
-      begin {putpackedvalue}
-        { If the value won't fit in this integer, then we need to
-          flush the packing buffer.
-
-          The VAX and iAPX, however, are a special case, for which packing
-          is done to the maximum extent possible. }
-
-        if (targetmachine <> iapx86) and (targetmachine <> vax) and
-           (targetmachine <> i80386) or
-           (switchcounters[oldpacking] > 0) then
-          begin
-          if dataloc + datasize > baseloc + bitsperunit * hostintsize then
-            begin
-            bytes := (dataloc - baseloc + bitsperunit - 1) div bitsperunit;
-            if packinghightolow then alignpartialint(pbuf1, bytes);
-            putcint(pbuf1, bytes);
-            baseloc := ((dataloc + bitsperunit - 1) div bitsperunit) *
-                       bitsperunit;
-            curloc := baseloc;
-            pbuf1 := 0;
-            end;
-          end {not vax} ;
-
-        packedstore(dataloc, datasize, baseloc, data, pbuf1, pbuf2, full);
-
-        if full then
-          begin {we write out the lower buffer}
-          putcint(pbuf1, hostintsize);
-          pbuf1 := pbuf2;
-          pbuf2 := 0;
-          baseloc := baseloc + hostintsize * bitsperunit;
-          end;
-        curloc := dataloc + datasize;
-      end {putpackedvalue} ;
-
-
-    begin {putvalue}
-      if packing and (value1.cvalue.representation = ints) then
-        begin
-        if eltstring then
-          begin
-          putpackedvalue(1, vloc, bitsperunit); {length of string = 1 char}
-          putpackedvalue(value1.cvalue.intvalue, vloc + bitsperunit,
-                         eltsize - bitsperunit);
-          end
-        else putpackedvalue(value1.cvalue.intvalue, vloc, eltsize);
-        end
-      else { not packing or (representation <> ints) }
-        begin
-        if packing then
-          begin
-          bytes := (vloc - baseloc + bitsperunit - 1) div bitsperunit;
-          if packinghightolow then alignpartialint(pbuf1, bytes);
-          putcint(pbuf1, bytes);
-          pbuf1 := 0;
-          end
-        else putcint(0, vloc - curloc);
-        with value1.cvalue do
-          case representation of
-            ints:
-              if eltstring then
-                begin {convert char to string w/length byte then pad}
-                putcbyte(1);
-                putcbyte(value1.cvalue.intvalue);
-                if packing then putcint(0, eltsize div bitsperunit - 2)
-                else putcint(0, eltsize - 2);
-                end
-              else putcint(intvalue, eltsize);
-            reals: putcreal(realvalue.realbuffer, targetrealsize);
-            doubles: putcreal(realvalue.realbuffer, doublesize);
-            ptrs: putcptr(ptrvalue);
-            otherwise
-              begin
-              if packing then bytes := eltsize div bitsperunit
-              else bytes := eltsize;
-              if scanalys and (pos < 0) then {has not been dumped to
-                                                        file at all, yet}
-                begin
-                flushbuffer;
-                if scanalys then {make sure this is deadcoded}
-                  dumpstr(bytes, whichbuf, eltstring);
-                end
-              else
-                begin
-                start := pos;
-                if start >= stringfilecount then
-                  start := start + (stringtablelimit - stringfilecount);
-                finish := start + len;
-                if eltstring then putcbyte(len);
-                while start < finish do
-                  begin
-                  seekstringfile(start);
-                  if needcaching then putcbyte(stringfile^[nextstringfile])
-                  else putcbyte(stringblkptr^[nextstringfile]);
-                  start := start + 1;
-                  end;
-                seekstringfile(stringfilecount);
-
-                if eltstring then len := len + 1; {a kludge, the length byte}
-
-                { This fixes structured constant bug tr2158.  Odd-byte length
-                  structures actually allocated the next greater even numbered
-                  byte worth of space and were not padded correctly.  Putvalue
-                  only emitted the actual data bytes but moved the current
-                  location counter to the allocated boundary.  This change
-                  causes Putvalue to correctly emit the actual data bytes, and
-                  eltsize-len (i.e. allocated length - data length) bytes of
-                  pad. }
-
-                if bytes < len then
-                  if eltstring then warn(stringoverflowerr)
-                  else warn(compilerwritererr);
-                putcint(0, bytes - len);
-                end;
-              end;
-            end {case} ;
-        curloc := vloc + eltsize;
-        baseloc := curloc;
-        end;
-    end {putvalue} ;
-
-
-  procedure initcdump(var value1: operand; {value to initialize}
-                      consttypeindx: index; {index for this element type}
-                      consttype: entryptr {type of this element} );
-
-{ Initialize the value of the constant and set up the constant buffer
-  for generating the value.
-}
-
-    var
-      t: addressrange; {aligned value of consttablelimit}
-
-
-    begin {initcdump}
-      cbytes := 0;
-      cbuf.i := 0;
-      pbuf1 := 0;
-      pbuf2 := 0;
-      curloc := 0;
-      baseloc := 0;
-      with value1 do
-        begin
-        typeindex := consttypeindx;
-        oprndlen := sizeof(consttype, false);
-        operandkind := constoperand;
-        end;
-      if (value1.oprndlen > targetintsize) or (value1.oprndlen = 3) or
-         ((targetmachine = mc68000) and not switcheverplus[cpu68020]) or
-        scanalys then
-        begin {must align the string file}
-        if scanalys then
-          begin
-          t := forcealign(stringfilecount, alignmentof(consttype,
-                          false) * hostfileunits, false);
-          putcint(0, t - stringfilecount);
-          end
-        else
-          begin
-          t := forcealign(consttablelimit, alignmentof(consttype,
-                          false) * hostfileunits, false);
-          putcint(0, t - consttablelimit);
-          end;
-        curloc := 0;
-        baseloc := 0;
-        value1.extended := false;
-        value1.cvalue.representation := consttype^.typ;
-        value1.cvalue.stringconstflag := false;
-        if scanalys then value1.cvalue.pos := t
-        else value1.cvalue.pos := t - stringtablelimit + stringfilecount;
-        value1.cvalue.len := value1.oprndlen * hostfileunits;
-        if value1.cvalue.representation = ints then
-          value1.cvalue.negated := false; {PJS force init }
-        end
-      else
-        begin
-        value1.cvalue.representation := ints;
-        value1.cvalue.negated := false; { PJS force init }
-        end;
-    end {initcdump} ;
-
-
-  procedure finishdump(var value1: operand; {value being finished off}
-                       packing: boolean {this is a packed value} );
-
-{ After the entire constant has been parsed, this forces final output,
-  if necessary, and finishes off the resulting operand
-}
-
-    begin {finishdump}
-      if value1.oprndlen > curloc then
-        if packing then
-          begin
-          flushpackbuffer;
-          if value1.oprndlen > curloc then
-            putcint(0, (value1.oprndlen - curloc) div bitsperunit);
-          end
-        else putcint(0, value1.oprndlen - curloc);
-      flushbuffer;
-    end {finishdump} ;
-
-
-  procedure innercstruct(eltloc: addressrange; {rel loc for this element}
-                         form: index; {form of this constant}
-                         outerpacked: boolean {outer structure was packed} );
-
-{ Given a structured value, determine the type and parse it.
-}
-
-    var
-      f: entryptr; {for access to form}
-      packedflag: boolean; {form is packed}
-
-
-    procedure constvalue(eltloc: addressrange; {rel loc for this element}
-                         elttype: index; {desired value type}
-                         eltstring: boolean; {current element is a string}
-                         packing: boolean; {set if packing this element}
-                         var value1: operand; {result, if not written}
-                         var written: boolean {value already written} );
-
-{ Parse a constant value.  If the value is in turn a structured constant,
-  it may be written to the string file as it is scanned.  Otherwise,
-  its value is placed in "value1", and must be written.
-}
-
-      var
-        tindex: index; {type name index}
-        p: entryptr; {access to type name block}
-        elp: entryptr; {for access to elttype}
-        kludge: constbuffer; {converts to integer}
-        i: 1..cbufsize; {induction var for conversion}
-        start, finish: addressrange; {start and end of constant in file}
-
-
-      procedure getconstant(follow: tokenset; {legal following symbols}
-                            elttype: index; {desired value type}
-                            var value1: operand {result} );
-
-{ Parse a simple constant and make sure it's in range for the field
-  it's being assigned to.
-}
-
-        var
-          elp: entryptr; {for access to elttype}
-          unsvalue: unsignedint; {for unsigned comparisons}
-
-
-        begin {getconstant}
-          constant(follow, false, value1);
-          with value1, cvalue do
-            if (representation = ints) and (elttype <> noneindex) and
-               compatible(typeindex, elttype) then
-              begin
-              if bigcompilerversion then elp := ref(bigtable[elttype])
-              else areadaccess(elttype, elp);
-              if extended and not elp^.extendedrange or (intvalue < 0) and
-                 negated and elp^.extendedrange then
-                warnbefore(badconsterr)
-              else if elp^.extendedrange then
-                begin
-                unsvalue := intvalue;
-                if (unsvalue < lower(elp)) or
-                   (unsvalue > upper(elp)) then
-                  warnbefore(badconsterr);
-                end
-              else if (intvalue < lower(elp)) or
-                      (intvalue > upper(elp)) then
-                warnbefore(badconsterr);
-              end;
-        end {getconstant} ;
-
-
-      begin {constvalue}
-        written := false;
-        if token = ident then
-          begin
-          search(tindex);
-          if bigcompilerversion then p := ref(bigtable[tindex])
-          else areadaccess(tindex, p);
-          with p^ do
-            if namekind = typename then
-              begin
-              if not compatible(typeindex, elttype) then warn(typesincomp);
-              gettoken;
-              innercstruct(eltloc, typeindex, packing);
-              written := true;
-              end
-            else getconstant(follow, elttype, value1);
-          end
-        else if token = lpar then
-          begin
-          if bigcompilerversion then elp := ref(bigtable[elttype])
-          else areadaccess(elttype, elp);
-          if not (elp^.typ in [arrays, fields, none]) then
-            begin
-            warn(badconsterr);
-            value1.typeindex := noneindex;
-            value1.cvalue.representation := ints;
-            end;
-          innercstruct(eltloc, elttype, packing);
-          written := true;
-          end
-        else getconstant(follow, elttype, value1);
-        if not written then
-          begin
-          if bigcompilerversion then
-            elp := ref(bigtable[value1.typeindex])
-          else areadaccess(value1.typeindex, elp);
-          if not (eltstring and ((elp^.typ = chars) or
-             (elp^.typ = arrays) and (elp^.stringtype)) or
-             compatible(elttype, value1.typeindex)) then
-            warnbefore(typesincomp);
-          if (value1.cvalue.representation in [arrays, fields]) and
-             (value1.cvalue.len <= hostintsize * hostfileunits) and
-             not eltstring and not scanalys then
-            begin
-            kludge.i := 0;
-            with value1.cvalue do
-              begin
-              i := 1;
-              start := pos;
-              if start >= stringfilecount then
-                start := start + (stringtablelimit - stringfilecount);
-              finish := start + len;
-              while start < finish do
-                begin
-                seekstringfile(start);
-                if needcaching then
-                  kludge.b[i] := stringfile^[nextstringfile]
-                else kludge.b[i] := stringblkptr^[nextstringfile];
-                start := start + 1;
-                i := i + 1;
-                end;
-
-              if reversebytes then
-                reversestructure(kludge, hostintsize * hostfileunits);
-              if hostintlowbytefirst = reversebytes {high order first} then
-                alignpartialint(kludge.i, len);
-              representation := ints;
-              intvalue := kludge.i;
-              negated := false; {PJS force init}
-              end;
-            end;
-          end;
-      end {constvalue} ;
-
-
-    procedure constelement(eltloc: addressrange; {loc to for this element}
-                           elttype: index; {type desired}
-                           eltsize: addressrange; {size of the element}
-                           eltstring: boolean; {current element is a string}
-                           packing: boolean {this is a packed field} );
-
-{ Read and store a constant element.  The result is written to the string
-  file buffer.
-}
-
-      var
-        temp: operand; {holds a value}
-        written: boolean; {value already written}
-        whichbuf: boolean; {which string buf contains thistoken's string if
-                            any}
-
-
-      begin {constelement}
-        whichbuf := curstringbuf;
-        constvalue(eltloc, elttype, eltstring, packing, temp, written);
-        if not written and (temp.typeindex <> noneindex) then
-          putvalue(eltloc, eltstring, whichbuf, packing, eltsize, temp);
-      end {constelement} ;
-
-
-    procedure constarray(eltloc: addressrange; {rel loc for this element}
-                         form: index {form for this array} );
-
-{ Syntactic routine to parse a constant array.
-  Each element is identical, and the number must match.
-}
-
-      var
-        eltcount: addressrange; {elements defined so far}
-        eltsinarray: addressrange; {total elements in array}
-        elttype: index; {element type}
-        eltstring: boolean; {element is a string}
-        packing: boolean; {set if packed array}
-        eltsize: addressrange; {size of each element}
-        f: entryptr; {for access to type data}
-
-
-      begin {constarray}
-        eltcount := 1;
-        if bigcompilerversion then f := ref(bigtable[form])
-        else areadaccess(form, f);
-        elttype := f^.elementtype;
-        packing := f^.packedflag;
-        eltsize := f^.elementsize;
-        eltsinarray := f^.arraymembers;
-        if bigcompilerversion then f := ref(bigtable[elttype])
-        else areadaccess(elttype, f);
-        eltstring := f^.typ = strings;
-        constelement(eltloc, elttype, eltsize, eltstring, packing);
-        while token in [lpar, comma] + begconstset do
-          begin
-          verifytoken(comma, nocommaerr);
-          eltloc := eltloc + eltsize;
-          if eltcount = eltsinarray then warnbefore(badconsterr);
-          eltcount := eltcount + 1;
-          constelement(eltloc, elttype, eltsize, eltstring, packing);
-          end;
-
-        if eltcount < eltsinarray then warnbefore(badconsterr);
-      end {constarray} ;
-
-
-    procedure constrecord(eltloc: addressrange; {start of this element}
-                          form: index {form for this record} );
-
-{ Syntactic routine to parse a constant record.
-}
-
-      var
-        currentfield: index; {name entry for this field}
-        finished: boolean; {we used all of the fields we have}
-
-
-      procedure constfield;
-
-{ Find the next field in this record and get a value for it.
-}
-
-        var
-          found: boolean; {field was found}
-          p: entryptr; {access to field names}
-          elttype: index; {form for a variant}
-          temp: operand; {temp value for variant}
-          written: boolean; {dummy argument to constvalue}
-          tagoffset: addressrange; {offset for tag field, if any}
-          localform: tableentry; {local copy of form entry}
-          f, f1: entryptr; {access to form data}
-
-
-        begin {constfield}
-          if finished then
-            constelement(eltloc, noneindex, unitsize, false, false)
-          else
-            begin
-            if bigcompilerversion then f := ref(bigtable[form])
-            else areadaccess(form, f);
-            localform := f^;
-            found := false;
-            while (currentfield < localform.lastfield) and not found do
-              begin
-              currentfield := currentfield + 1;
-              if bigcompilerversion then p := ref(bigtable[currentfield])
-              else areadaccess(currentfield, p);
-              if not p^.form then found := p^.name = localform.fieldid;
-              end;
-            if found then
-              begin
-              if bigcompilerversion then f1 := ref(bigtable[p^.vartype])
-              else areadaccess(p^.vartype, f1);
-              constelement(p^.offset + eltloc, p^.vartype, sizeof(f1,
-                           localform.packedflag), f1^.typ = strings,
-                           localform.packedflag)
-              end
-            else if localform.firstvariant = 0 then
-              begin
-              finished := true;
-              warnbefore(badconsterr);
-              constelement(curloc, noneindex, unitsize, false, false);
-              end
-            else
-              begin
-              tagoffset := 0;
-              if localform.tagfield <> 0 then
-                begin
-                if bigcompilerversion then
-                  p := ref(bigtable[localform.tagfield])
-                else areadaccess(localform.tagfield, p);
-                elttype := p^.vartype;
-                tagoffset := p^.offset;
-                end
-              else if localform.firstvariant <> 0 then
-                begin
-                if bigcompilerversion then
-                  f := ref(bigtable[localform.firstvariant])
-                else areadaccess(localform.firstvariant, f);
-                if f^.firstlabel <> 0 then
-                  begin
-                  if bigcompilerversion then
-                    f := ref(bigtable[f^.firstlabel])
-                  else areadaccess(f^.firstlabel, f);
-                  elttype := f^.varlabtype;
-                  end
-                else elttype := noneindex;
-                end
-              else elttype := noneindex;
-              constvalue(tagoffset + eltloc, elttype, false,
-                         localform.packedflag, temp, written);
-              if localform.tagfield <> 0 then
-                begin
-                if bigcompilerversion then f := ref(bigtable[elttype])
-                else areadaccess(elttype, f);
-                putvalue(tagoffset + eltloc, false, false,
-                         localform.packedflag, sizeof(f, localform.packedflag),
-                         temp);
-                end;
-              searchvariants(form, temp);
-              if bigcompilerversion then f := ref(bigtable[form])
-              else areadaccess(form, f);
-              currentfield := f^.firstfield - 1;
-              end;
-            end;
-        end {constfield} ;
-
-
-      begin {constrecord}
-        finished := false;
-        if bigcompilerversion then f := ref(bigtable[form])
-        else areadaccess(form, f);
-        currentfield := f^.firstfield - 1;
-
-        constfield;
-        while token in [lpar, comma] + begconstset do
-          begin
-          verifytoken(comma, nocommaerr);
-          constfield;
-          end;
-
-        if bigcompilerversion then f := ref(bigtable[form])
-        else areadaccess(form, f);
-        if (currentfield < f^.lastfield) or (f^.firstvariant <> 0) then
-          warnbefore(badconsterr);
-      end {constrecord} ;
-
-
-    procedure badconst;
-
-{ Parse off a bad constant.  Just throws away the values.
-}
-
-
-      begin {badconst}
-        warnbefore(badconsterr);
-        constelement(curloc, noneindex, unitsize, false, false);
-        while token in [lpar, comma] + begconstset do
-          begin
-          verifytoken(comma, nocommaerr);
-          constelement(curloc, noneindex, unitsize, false, false);
-          end;
-        value1.typeindex := noneindex;
-        value1.cvalue.representation := ints;
-      end {badconst} ;
-
-
-    begin {innercstruct}
-      if token = lpar then
-        begin
-        gettoken;
-        if bigcompilerversion then f := ref(bigtable[form])
-        else areadaccess(form, f);
-        packedflag := f^.packedflag;
-        if outerpacked and not packedflag then
-          begin
-          flushpackbuffer;
-          eltloc := eltloc div bitsperunit;
-          curloc := curloc div bitsperunit;
-          end
-        else if not outerpacked and packedflag then
-          begin
-          eltloc := eltloc * bitsperunit;
-          curloc := curloc * bitsperunit;
-          baseloc := curloc;
-          end;
-        if f^.typ in [strings, arrays] then constarray(eltloc, form)
-        else if f^.typ = fields then constrecord(eltloc, form)
-        else badconst;
-        if not outerpacked and packedflag then
-          begin
-          flushpackbuffer;
-          curloc := curloc div bitsperunit;
-          end
-        else if outerpacked and not packedflag then
-          begin
-          curloc := curloc * bitsperunit;
-          baseloc := curloc;
-          end;
-        verifytoken(rpar, norparerr);
-        end
-      else
-        begin
-        warnbefore(typenotallowed);
-        value1.typeindex := noneindex;
-        value1.cvalue.representation := ints;
-        end;
-    end {innercstruct} ;
-
-
-  begin {conststructure}
-    if not scanalys and switcheverplus[defineswitch] then
-      warnbefore(baddefine);
-    gettoken;
-    if bigcompilerversion then f := ref(bigtable[form])
-    else areadaccess(form, f);
-    packedflag := f^.packedflag;
-    initcdump(value1, form, f);
-    innercstruct(0, form, false);
-    finishdump(value1, packedflag);
-  end {conststructure} ;
-
-
-procedure cstruct;
-
- { Merely an overlay entry point kludge }
-
-
-  begin {cstruct}
-    conststructure(structfollow, structtype, structvalue);
-  end {cstruct} ;
-
-
-procedure gettyp
-                 {follow : tokenset; ( legal following symbols )
-                  var resulttype:index (resulting type desc) } ;
+procedure gettyp(follow: tokenset; {legal following symbols}
+                 var resulttype: index {resulting type desc} );
 
 { Syntactic routine to parse a type.
 
@@ -2637,8 +1227,7 @@ procedure gettyp
 
       begin {onescalar}
         enterlocalident(t, noname);
-        if bigcompilerversion then p := ref(bigtable[t])
-        else awriteaccess(t, p);
+        if bigcompilerversion then p := @(bigtable[t]);
         with p^, constvalue do
           begin
           namekind := constname;
@@ -2646,24 +1235,7 @@ procedure gettyp
           representation := ints;
           intvalue := latestord;
           negated := false;
-
-if newdebugger then {ODB .sym definition}
-	  if switchcounters[symboltable] > 0 then
-            dbgsymbol := create_intvalconst(
-              charindex,
-              do_hash(charindex, charlen),
-              stringtable^[charindex],
-              charlen,
-              display[level].dbgscope,
-              create_type(typeindex),
-              dbgsourceindex, {filename}
-              0, {startposition}
-              0, {declaration-length}
-	      scalars, {consttype}
-	      constvalue.intvalue,
-	      false);
-
-            end;
+          end;
 
       end {onescalar} ;
 
@@ -2684,8 +1256,7 @@ if newdebugger then {ODB .sym definition}
           onescalar;
           end;
 
-        if bigcompilerversion then resulp := ref(bigtable[resulttype])
-        else awriteaccess(resulttype, resulp);
+        if bigcompilerversion then resulp := @(bigtable[resulttype]);
         with resulp^ do
           begin
           lastord := latestord;
@@ -2701,8 +1272,7 @@ if newdebugger then {ODB .sym definition}
         if token = ident then
           begin
           search(t);
-          if bigcompilerversion then p := ref(bigtable[t])
-          else areadaccess(t, p);
+          if bigcompilerversion then p := @(bigtable[t]);
           if (t = 0) or (p^.namekind = undeftypename) and
              (p^.typeindex = noneindex) or (p^.namekind = noname) then
             begin {undefined, assume was meant to be type id.}
@@ -2723,8 +1293,7 @@ if newdebugger then {ODB .sym definition}
           verifytoken(dotdot, nodotdoterr);
           constant(follow, true, uppervalue);
           extended := uppervalue.extended;
-          if bigcompilerversion then f := ref(bigtable[lowervalue.typeindex])
-          else areadaccess(lowervalue.typeindex, f);
+          if bigcompilerversion then f := @(bigtable[lowervalue.typeindex]);
           if (lowervalue.typeindex <> noneindex) and
              (uppervalue.typeindex <> noneindex) and
              ((lowervalue.typeindex <> uppervalue.typeindex) or
@@ -2765,8 +1334,7 @@ if newdebugger then {ODB .sym definition}
                   if size = defaulttargetintsize - 1 then
                     size := defaulttargetintsize;
                   parenttype := lowervalue.typeindex;
-                  if bigcompilerversion then p := ref(bigtable[parenttype])
-                  else areadaccess(parenttype, p);
+                  if bigcompilerversion then p := @(bigtable[parenttype]);
                   if (switchcounters[pdp11data] > 0) and (p^.size > 1) then
                     align := pdpalign
                   else align := min(intalign, size);
@@ -2797,8 +1365,7 @@ if newdebugger then {ODB .sym definition}
                     else size := simplesize(upperord);
                   align := size;
                   parenttype := lowervalue.typeindex;
-                  if bigcompilerversion then p := ref(bigtable[parenttype])
-                  else areadaccess(parenttype, p);
+                  if bigcompilerversion then p := @(bigtable[parenttype]);
                   { the strategy here is to allocate 2 bytes if
                     it is subrange of a parenttype which is going
                     to be 4 bytes.
@@ -2820,8 +1387,7 @@ if newdebugger then {ODB .sym definition}
                     else size := simplesize(upperord);
                   align := size;
                   parenttype := lowervalue.typeindex;
-                  if bigcompilerversion then p := ref(bigtable[parenttype])
-                  else areadaccess(parenttype, p);
+                  if bigcompilerversion then p := @(bigtable[parenttype]);
                   { the strategy here is to allocate 1 or 2 bytes if
                     it is subrange of a parenttype which is going
                     to be 4 bytes.
@@ -2853,8 +1419,7 @@ if newdebugger then {ODB .sym definition}
                     else size := simplesize(upperord);
                   align := size;
                   parenttype := lowervalue.typeindex;
-                  if bigcompilerversion then p := ref(bigtable[parenttype])
-                  else areadaccess(parenttype, p);
+                  if bigcompilerversion then p := @(bigtable[parenttype]);
                   { the strategy here is to allocate 2 bytes if
                     it is subrange of a parenttype which is going
                     to be 4 bytes but to align 2 bytes on 2 byte bounds and
@@ -2889,8 +1454,7 @@ if newdebugger then {ODB .sym definition}
                     end
                   else
                     begin
-                    if bigcompilerversion then p := ref(bigtable[parenttype])
-                    else areadaccess(parenttype, p);
+                    if bigcompilerversion then p := @(bigtable[parenttype]);
                     size := min(p^.size, forcealign(size, intalign, false));
                     align := p^.align;
                     end;
@@ -2952,8 +1516,7 @@ if newdebugger then {ODB .sym definition}
           probing := true;
           search(t);
           probing := false;
-          if bigcompilerversion then p := ref(bigtable[t])
-          else areadaccess(t, p);
+          if bigcompilerversion then p := @(bigtable[t]);
           if (t = 0) or
              not (p^.namekind in [undeftypename, noname, typename]) then
             begin
@@ -2968,14 +1531,12 @@ if newdebugger then {ODB .sym definition}
             begin
             enterlocalident(t, noname);
             enterundef(t);
-            if bigcompilerversion then p := ref(bigtable[t])
-            else awriteaccess(t, p);
+            if bigcompilerversion then p := @(bigtable[t]);
             p^.namekind := undeftypename;
             p^.typeindex := newtype;
             end
           else gettoken;
-          if bigcompilerversion then resulp := ref(bigtable[resulttype])
-          else awriteaccess(resulttype, resulp);
+          if bigcompilerversion then resulp := @(bigtable[resulttype]);
           resulp^.ptrtypename := t
           end
         else warnbetween(novarerr);
@@ -3023,8 +1584,7 @@ if newdebugger then {ODB .sym definition}
       begin {arraywork}
         gettyp(follow + [ofsym, comma, rpar, rbrack] + begsimplset,
                newindextype);
-        if bigcompilerversion then f := ref(bigtable[newindextype])
-        else areadaccess(newindextype, f);
+        if bigcompilerversion then f := @(bigtable[newindextype]);
         if not (f^.typ in [none, chars, bools, scalars, subranges]) then
           begin
           warnbefore(badindex);
@@ -3057,8 +1617,7 @@ if newdebugger then {ODB .sym definition}
           verifytoken(ofsym, nooferr);
           gettyp(follow, elttype)
           end;
-        if bigcompilerversion then f := ref(bigtable[elttype])
-        else areadaccess(elttype, f);
+        if bigcompilerversion then f := @(bigtable[elttype]);
         if isstring then isstring := f^.typ in [chars, none];
         enterform(arrays, resulttype, resulp);
         with resulp^ do
@@ -3138,8 +1697,7 @@ if newdebugger then {ODB .sym definition}
       gettoken;
       verifytoken(ofsym, nooferr);
       gettyp(follow, newfilebasetype);
-      if bigcompilerversion then f := ref(bigtable[newfilebasetype])
-      else areadaccess(newfilebasetype, f);
+      if bigcompilerversion then f := @(bigtable[newfilebasetype]);
       if f^.containsfile then warnbefore(nofilefile);
       enterform(files, resulttype, resulp);
       with resulp^ do
@@ -3182,15 +1740,13 @@ if newdebugger then {ODB .sym definition}
       gettoken;
       verifytoken(ofsym, nooferr);
       gettyp(follow, newbasetype);
-      if bigcompilerversion then f := ref(bigtable[newbasetype])
-      else areadaccess(newbasetype, f);
+      if bigcompilerversion then f := @(bigtable[newbasetype]);
       if not (f^.typ in [none, scalars, bools, chars, subranges]) then
         warnbefore(badsetbase)
       else if (lower(f) < 0) or (upper(f) > maxsetord) then
         warnbefore(bigsetbase);
       stripsubrange(newbasetype);
-      if bigcompilerversion then f := ref(bigtable[newbasetype])
-      else areadaccess(newbasetype, f);
+      if bigcompilerversion then f := @(bigtable[newbasetype]);
       if f^.typ = ints then m := maxsetord + 1
       else m := upper(f) + 1;
       enterform(sets, resulttype, resulp);
@@ -3333,8 +1889,7 @@ if newdebugger then {ODB .sym definition}
           begin {checklabs}
             while (header <> 0) do
               begin
-              if bigcompilerversion then f := ref(bigtable[header])
-              else areadaccess(header, f);
+              if bigcompilerversion then f := @(bigtable[header]);
               with f^ do
                 begin
                 if (labelval.cvalue.intvalue = varlabvalue) then
@@ -3357,8 +1912,7 @@ if newdebugger then {ODB .sym definition}
           t := latestvariant;
           while (t <> 0) do
             begin
-            if bigcompilerversion then f := ref(bigtable[t])
-            else areadaccess(t, f);
+            if bigcompilerversion then f := @(bigtable[t]);
             with f^ do
               begin
               t := nextvariant;
@@ -3405,8 +1959,7 @@ if newdebugger then {ODB .sym definition}
           lastfield := tabletop + 1;
           repeat
             lastfield := lastfield - 1;
-            if bigcompilerversion then p := ref(bigtable[lastfield])
-            else areadaccess(lastfield, p);
+            if bigcompilerversion then p := @(bigtable[lastfield]);
           until (p^.name = fieldid) or (lastfield < firstfield);
           containsfile := anyfile;
           anyfile := oldany;
@@ -3419,8 +1972,7 @@ if newdebugger then {ODB .sym definition}
             if (token = ident) and (nexttoken.token = colon) then
               begin
               onevar(id, fieldname, t, false);
-              if bigcompilerversion then p := ref(bigtable[t])
-              else awriteaccess(t, p);
+              if bigcompilerversion then p := @(bigtable[t]);
               p^.varianttag := true;
               tagfield := t; { tagfield is in a packed record }
               gettoken;
@@ -3433,38 +1985,14 @@ if newdebugger then {ODB .sym definition}
             gettyp(follow + [ofsym, endsym, ident, colon], casetype);
             if tagfield <> 0 then
               begin {allocate a tag field}
-              if bigcompilerversion then caseptr := ref(bigtable[casetype])
-              else areadaccess(casetype, caseptr);
+              if bigcompilerversion then caseptr := @(bigtable[casetype]);
               a := max(a, alignmentof(caseptr, packflag));
               alloconevar(tagfield, casetype, fieldname, startsize,
                           alignmentof(caseptr, packflag), sizeof(caseptr,
                           packflag), false, packflag);
-
-
-if newdebugger then {ODB .sym definition}
-        if switchcounters[symboltable] > 0 then
-begin
-              if bigcompilerversion then p := ref(bigtable[tagfield])
-              else awriteaccess(tagfield, p);
-with p^ do
-              dbgsymbol := create_varname(
-                charindex,
-                do_hash(charindex, charlen),
-                stringtable^[charindex],
-                charlen, dbgscope,
-                create_type(casetype),
-                dbgsourceindex, {filename}
-                0, {source pos}
-                0, {declaration length}
-                fieldname,
-                offset, {offset, subject to later update}
-                length,
-                varalloc);
-                  end
               end;
 
-            if bigcompilerversion then caseptr := ref(bigtable[casetype])
-            else areadaccess(casetype, caseptr);
+            if bigcompilerversion then caseptr := @(bigtable[casetype]);
             lowesttag := lower(caseptr);
             highesttag := upper(caseptr);
             stripsubrange(casetype);
@@ -3497,8 +2025,7 @@ with p^ do
                 verifytoken(lpar, nolparerr);
                 fieldlist(follow + [comma, colon, rpar], tagfield,
                           latestlabel, latestvariant, size, f1);
-                if bigcompilerversion then f1ptr := ref(bigtable[f1])
-                else awriteaccess(f1, f1ptr);
+                if bigcompilerversion then f1ptr := @(bigtable[f1]);
                 containsfile := containsfile or f1ptr^.containsfile;
                 f1ptr^.packedflag := packflag;
                 f1ptr^.bitaddress := packflag;
@@ -3519,8 +2046,7 @@ with p^ do
           align := a;
           end;
         anyfile := oldany;
-        if bigcompilerversion then resulp := ref(bigtable[result])
-        else awriteaccess(result, resulp);
+        if bigcompilerversion then resulp := @(bigtable[result]);
         resulp^ := localresult;
       end {fieldlist} ;
 
@@ -3532,30 +2058,7 @@ with p^ do
       lastid := lastid + 1;
       lastscope := lastscope + 1;
       id := lastid;
-
-{ Create field entry now so ODB can create a hash table for the
-  new scope.
-}
-
-if newdebugger then {ODB .sym definition}
-if switchcounters[symboltable] > 0 then
-dbgscope := create_fieldform(true, 0, packflag, packflag, id, 0,
- 0, 0, 0, 0, 0);
-
       fieldlist(follow + [endsym], 0, 0, 0, 0, resulttype);
-
-if newdebugger then {ODB .sym definition}
-if switchcounters[symboltable] > 0 then
-begin
-if bigcompilerversion then p := ref(bigtable[resulttype])
-else awriteaccess(resulttype, p);
-       p^.dbgsymbol := dbgscope;
-       update_fieldform(dbgscope,
-        getdbgsymbol(p^.lastfield),
-        create_type(p^.firstvariant),
-        getdbgsymbol(p^.tagfield));
-end;
-
       verifytoken(endsym, noenderr);
     end {recordtyp} ;
 
@@ -3650,8 +2153,7 @@ end;
       end
     else simpletyp;
     verify1(follow, badtypesyntax);
-    if bigcompilerversion then resulp := ref(bigtable[resulttype])
-    else areadaccess(resulttype, resulp);
+    if bigcompilerversion then resulp := @(bigtable[resulttype]);
     anyfile := anyfile or resulp^.containsfile;
   end {gettyp} ;
 
@@ -3703,7 +2205,6 @@ procedure labeldefinition;
           if t <> labelflag then warn(duplabeldef)
           else
             begin
-            if not bigcompilerversion then adecreasebuffers;
             new(t);
             with t^ do
               begin
@@ -3772,8 +2273,7 @@ procedure constantdefinition;
       enterlocalident(t, noname);
       verifytoken(eql, noeqlerr);
       constant(neverskipset, true, newvalue);
-      if bigcompilerversion then p := ref(bigtable[t])
-      else awriteaccess(t, p);
+      if bigcompilerversion then p := @(bigtable[t]);
       with p^ do
         begin
         namekind := constname;
@@ -3781,43 +2281,6 @@ procedure constantdefinition;
         constvalue := newvalue.cvalue;
         if consttype = nilindex then warnnonstandard(badconsterr);
         end;
-
-if newdebugger then
-begin
-	if bigcompilerversion then tp := ref(bigtable[p^.consttype])
-	else areadaccess(p^.consttype, tp);
-	if (switchcounters[symboltable] > 0) then
-	  begin
-	  if tp^.typ in [subranges, ints, bools, scalars] then
-            p^.dbgsymbol := create_intvalconst(
-              p^.charindex,
-              do_hash(p^.charindex, p^.charlen),
-              stringtable^[p^.charindex],
-              p^.charlen,
-              display[level].dbgscope,
-              create_type(p^.typeindex),
-              dbgsourceindex, {filename}
-              startpos, {startposition}
-              thistoken.line - startline + 1, {declaration-length}
-	      tp^.typ, {consttype}
-	      newvalue.cvalue.intvalue,
-	      (newvalue.cvalue.intvalue < 0) and not newvalue.cvalue.negated)
-	  else if tp^.typ in [reals, doubles] then
-            p^.dbgsymbol := create_realvalconst(
-              p^.charindex,
-              do_hash(p^.charindex, p^.charlen),
-              stringtable^[p^.charindex],
-              p^.charlen,
-              display[level].dbgscope,
-              create_type(p^.typeindex),
-              dbgsourceindex, {filename}
-              startpos, {startposition}
-              thistoken.line - startline + 1, {declaration-length}
-              tp^.typ,
-	      newvalue.cvalue.realvalue.realbuffer {in dbl-prec target format})
-        end;
-end;
-
       verifytoken(semicolon, nosemiheaderr);
       verify1(constfollowset + neverskipset, baddeclerr);
     until not (token in constfollowset);
@@ -3856,28 +2319,13 @@ procedure typedefinition;
       verifytoken(eql, noeqlerr);
       gettyp([eql, ident, semicolon, uparrow..stringsym, nilsym,
              intconst..stringconst, plus, minus, lpar], f);
-      if bigcompilerversion then p := ref(bigtable[t])
-      else awriteaccess(t, p);
+      if bigcompilerversion then p := @(bigtable[t]);
       with p^ do
         begin
         namekind := typename;
         typeindex := f;
         refdefined := false;
         end;
-
-if newdebugger then
-      if switchcounters[symboltable] > 0 then
-        p^.dbgsymbol := create_typename(
-          p^.charindex,
-          do_hash(p^.charindex, p^.charlen),
-          stringtable^[p^.charindex],
-          p^.charlen,
-          display[level].dbgscope,
-          create_type(p^.typeindex),
-          dbgsourceindex, {filename}
-          startpos, {startposition}
-          thistoken.line - startline + 1 {declaration-length});
-
       verifytoken(semicolon, nosemiheaderr);
       verify1(typefollowset + neverskipset, baddeclerr);
     until not (token in typefollowset);
@@ -3932,8 +2380,7 @@ procedure changeparamids(firstparam: index; {entry of first parameter}
   begin {changeparamids}
     for i := firstparam to lastparam do
       begin
-      if bigcompilerversion then p := ref(bigtable[i])
-      else awriteaccess(i, p);
+      if bigcompilerversion then p := @(bigtable[i]);
       if not p^.form and (p^.name <> deadscope) then p^.name := n;
       end;
   end {changeparamids} ;
@@ -3975,8 +2422,7 @@ procedure getfunctiontype(functiondefinition: boolean; {in func def}
           i := i - 1;
           searchsection(display[i].blockid, t);
         until (i = 0) or (t <> 0);
-        if bigcompilerversion then f := ref(bigtable[t])
-        else areadaccess(t, f);
+        if bigcompilerversion then f := @(bigtable[t]);
         if f^.namekind = typename then returntype := f^.typeindex
         else warn(notypenameerr);
         gettoken;
@@ -3986,8 +2432,7 @@ procedure getfunctiontype(functiondefinition: boolean; {in func def}
         warn(notypenameerr);
         gettyp(neverskipset + [rpar], returntype);
         end;
-      if bigcompilerversion then f := ref(bigtable[returntype])
-      else areadaccess(returntype, f);
+      if bigcompilerversion then f := @(bigtable[returntype]);
       if (not (f^.typ in legalfunctypes)) and
          (switchcounters[standard] > 0) then
         warn(badfunctype);
@@ -4069,8 +2514,7 @@ procedure parameterdefinition(var paramsize: addressrange; {size of parms}
         if token = lpar then
           parameterdefinition(sizedummy,
                               [colon, rpar, semicolon] + begparamhdr);
-        if bigcompilerversion then p := ref(bigtable[routineindex])
-        else awriteaccess(routineindex, p);
+        if bigcompilerversion then p := @(bigtable[routineindex]);
         p^.lastinsection := true;
         p^.offset := paramsize;
         p^.length := procparamsize;
@@ -4151,8 +2595,7 @@ procedure parameterdefinition(var paramsize: addressrange; {size of parms}
         verifytoken(colon, nocolonerr);
         if token <> ident then warn(notypenameerr);
         gettyp(follow + [semicolon, rbrack, ofsym, arraysym], thisindextype);
-        if bigcompilerversion then p := ref(bigtable[thisindextype])
-        else areadaccess(thisindextype, p);
+        if bigcompilerversion then p := @(bigtable[thisindextype]);
         if not (p^.typ in [none, chars, bools, scalars, subranges, ints]) then
           warn(badindex);
 
@@ -4187,19 +2630,16 @@ procedure parameterdefinition(var paramsize: addressrange; {size of parms}
           indextype := thisindextype;
           elementtype := elttype;
           stringtype := false;
-          if bigcompilerversion then p := ref(bigtable[elttype])
-          else areadaccess(elttype, p);
+          if bigcompilerversion then p := @(bigtable[elttype]);
           containsfile := p^.containsfile;
           elementsize := arraysizeof(p, packflag);
 { the following test should follow the wry logic in arraywork }
           if packflag and (elementsize > bitsperunit * packingunit) then
             elementsize := arraysizeof(p, false) * bitsperunit;
           end;
-        if bigcompilerversion then p := ref(bigtable[lowid])
-        else awriteaccess(lowid, p);
+        if bigcompilerversion then p := @(bigtable[lowid]);
         p^.sparelink := result;
-        if bigcompilerversion then p := ref(bigtable[highid])
-        else awriteaccess(highid, p);
+        if bigcompilerversion then p := @(bigtable[highid]);
         p^.lastinsection := true;
         p^.sparelink := 0; {used only by lowid}
       end {conformantparam} ;
@@ -4224,22 +2664,19 @@ procedure parameterdefinition(var paramsize: addressrange; {size of parms}
       begin {allocboundids}
         align := intalign;
         repeat
-          if bigcompilerversion then p := ref(bigtable[paramtype])
-          else areadaccess(paramtype, p);
+          if bigcompilerversion then p := @(bigtable[paramtype]);
           elttype := p^.elementtype;
           indextype := p^.indextype;
           lowid := p^.lowbound;
           highid := p^.highbound;
-          if bigcompilerversion then p := ref(bigtable[indextype])
-          else areadaccess(indextype, p);
+          if bigcompilerversion then p := @(bigtable[indextype]);
           getallocdata(p, boundid, false, paramsize, indexlen, a, align);
           alloconevar(lowid, indextype, boundid, paramsize, a, indexlen,
                       false, false);
           alloconevar(highid, indextype, boundid, paramsize, a, indexlen,
                       false, false);
           paramtype := elttype;
-          if bigcompilerversion then p := ref(bigtable[paramtype])
-          else areadaccess(paramtype, p);
+          if bigcompilerversion then p := @(bigtable[paramtype]);
         until p^.typ <> conformantarrays;
       end {allocboundids} ;
 
@@ -4301,8 +2738,7 @@ procedure parameterdefinition(var paramsize: addressrange; {size of parms}
             univflag := true;
             end;
           search(paramtype);
-          if bigcompilerversion then paramptr := ref(bigtable[paramtype])
-          else areadaccess(paramtype, paramptr);
+          if bigcompilerversion then paramptr := @(bigtable[paramtype]);
           if paramptr^.namekind <> typename then
             begin
             warn(notypenameerr);
@@ -4313,15 +2749,13 @@ procedure parameterdefinition(var paramsize: addressrange; {size of parms}
           end
         else warn(notypenameerr);
 
-        if bigcompilerversion then paramptr := ref(bigtable[paramtype])
-        else areadaccess(paramtype, paramptr);
+        if bigcompilerversion then paramptr := @(bigtable[paramtype]);
         if paramptr^.containsfile and (paramkind in [param, confparam]) then
           warn(novaluefile);
 
         for t := first to last do
           begin
-          if bigcompilerversion then paramptr := ref(bigtable[paramtype])
-          else areadaccess(paramtype, paramptr);
+          if bigcompilerversion then paramptr := @(bigtable[paramtype]);
           getallocdata(paramptr, paramkind, false, paramsize, typelen, a,
                        align);
           if (paramkind = param) then
@@ -4338,15 +2772,13 @@ procedure parameterdefinition(var paramsize: addressrange; {size of parms}
                       false);
           if univflag then
             begin
-            if bigcompilerversion then p := ref(bigtable[t])
-            else awriteaccess(t, p);
+            if bigcompilerversion then p := @(bigtable[t]);
             p^.univparam := true;
             end;
           end;
         if paramkind in [varconfparam, confparam] then
           allocboundids(paramtype);
-        if bigcompilerversion then paramptr := ref(bigtable[last])
-        else awriteaccess(last, paramptr);
+        if bigcompilerversion then paramptr := @(bigtable[last]);
         paramptr^.lastinsection := true;
         paramptr^.nextparamlink := tabletop;
         if token = semicolon then gettoken
@@ -4448,8 +2880,7 @@ procedure procdefinition;
       searchlevel(procindex);
       if procindex <> 0 then
         begin
-        if bigcompilerversion then procptr := ref(bigtable[procindex])
-        else areadaccess(procindex, procptr);
+        if bigcompilerversion then procptr := @(bigtable[procindex]);
         with procptr^ do
           begin
           forwardbody := namekind in [externalproc, externalfunc, forwardproc,
@@ -4466,33 +2897,14 @@ procedure procdefinition;
     if not forwardbody then
       begin
       enterlocalident(procindex, noname);
-      if bigcompilerversion then procptr := ref(bigtable[procindex])
-      else awriteaccess(procindex, procptr);
+      if bigcompilerversion then procptr := @(bigtable[procindex]);
       procptr^.procref := newproc;
       proctable[procptr^.procref].backlink := display[level].blockref;
       end
     else gettoken;
     if level = maxlevel then fatal(levelerr);
-    if bigcompilerversion then procptr := ref(bigtable[procindex])
-    else areadaccess(procindex, procptr);
+    if bigcompilerversion then procptr := @(bigtable[procindex]);
     enterblock(level + 1, procindex, procptr^.procref);
-
-if newdebugger then
-    if (switchcounters[symboltable] > 0) and (procptr^.dbgsymbol = 0) then
-      with procptr^ do
-        begin
-        dbgsymbol := create_procname(
-          charindex,
-          do_hash(charindex, charlen),
-          stringtable^[charindex],
-          charlen,
-          display[level].dbgscope, {visibilitylink}
-          dbgsourceindex, {filename}
-          lasttoken.filepos, {startposition}
-          level);
-      end;
-    display[level+1].dbgscope := procptr^.dbgsymbol;
-
     if token = lpar then
       begin
       hasparameters := true;
@@ -4503,15 +2915,13 @@ if newdebugger then
     paramindex := tabletop;
     getfunctiontype(functiondefinition, forwardbody, returntype);
     verifytoken(semicolon, nosemierr);
-    if bigcompilerversion then procptr := ref(bigtable[procindex])
-    else awriteaccess(procindex, procptr);
+    if bigcompilerversion then procptr := @(bigtable[procindex]);
     with procptr^ do
       begin
       proctable[procref].globaldeath := false;
       proctable[procref].charindex := charindex;
       proctable[procref].charlen := min(maxprocnamelen, charlen);
-      if bigcompilerversion then f := ref(bigtable[returntype])
-      else areadaccess(returntype, f);
+      if bigcompilerversion then f := @(bigtable[returntype]);
 {
       Reset the calling linkage to Pascal-2.  This is needed
       for non-pascal declared routines for which a body is present.
@@ -4550,8 +2960,7 @@ if newdebugger then
       if token = ident then
         begin
         search(directiveindex);
-        if bigcompilerversion then f := ref(bigtable[directiveindex])
-        else areadaccess(directiveindex, f);
+        if bigcompilerversion then f := @(bigtable[directiveindex]);
         if f^.namekind = directivename then
           begin
           directive := f^.procid;
@@ -4649,23 +3058,7 @@ if newdebugger then
           end;
         level := level + 1;
         block;
-
-        if bigcompilerversion then procptr := ref(bigtable[procindex])
-        else areadaccess(procindex, procptr);
-
-if newdebugger then
-        if switchcounters[symboltable] > 0 then
-          with display[level] do
-            begin
-            update_procname(
-              dbgscope,
-              0, {declaration-length}
-              blocksize,
-              firststmt,
-              laststmt,
-              create_type(procptr^.functype))
-            end;
-
+        if bigcompilerversion then procptr := @(bigtable[procindex]);
         level := level - 1;
         if not procptr^.funcassigned then
           warnat(nofuncass, funcline, funccol);
@@ -4675,8 +3068,7 @@ if newdebugger then
           changeparamids(procindex + 1, directiveindex, deadscope);
         for directiveindex := procindex + 1 to directiveindex do
           begin
-          if bigcompilerversion then f := ref(bigtable[directiveindex])
-          else awriteaccess(directiveindex, f);
+          if bigcompilerversion then f := @(bigtable[directiveindex]);
           if not f^.form then f^.modified := f^.parammodified;
           end;
         end;
@@ -4762,19 +3154,15 @@ procedure block;
         if (switchcounters[mainbody] <= 0) and (token <> eofsym) then
           warn(extrastmterr);
         end;
+	{DRB
       if hostopsys = msdos then body else ovrlay(xbody);
+      }
       verifytoken(endsym, noenderr);
       end;
     verify1(neverskipset + [dot], blockenderr);
 
     listundeflabels;
     genstmt(endblk);
-    if ((level = 1) or ((level = 0) and switcheverplus[symboltable])) and
-        switcheverplus[defineswitch] and (lasterror = 0) then
-      begin
-      if scanalys then swriteenv;
-      awriteenv;
-      end;
     exitblock(level);
   end {block} ;
 
@@ -4829,9 +3217,7 @@ procedure initanalys;
           else
             begin
             stringtablelimit := stringtablelimit + 1;
-            if needcaching then
-              stringfile^[nextstringfile] := ord(letters[i])
-            else stringblkptr^[nextstringfile] := ord(letters[i]);
+            stringblkptr^[nextstringfile] := ord(letters[i]);
             putstringfile;
             end;
           end;
@@ -4871,8 +3257,7 @@ procedure initanalys;
                                          (today <= uslate));
         end;
       keymap[i] := tabletop;
-      if bigcompilerversion then p := ref(bigtable[tabletop])
-      else awriteaccess(tabletop, p);
+      if bigcompilerversion then p := @(bigtable[tabletop]);
       with p^ do
         begin
         form := false;
@@ -4952,33 +3337,14 @@ procedure initanalys;
       abort(inconsistent);
       end;
 
-    { Complain if caching and the nodes per block value is wrong or if not
-      caching and the entire nodetable can not fit in the array maxblocksin.
-      These conditions are not fatal to give TRAVRS and CODE a chance to
-      complain too.
-    }
-    if needcaching then
-      begin
-      if analysmaxnodeinblock + 1 >
-         (doublediskbuflimit + 1) div rdup(size(tableentry)) then
-        writeln('ANALYZE (caching) ANALYSMAXNODEINBLOCK should be ',
-                (doublediskbuflimit + 1) div rdup(size(tableentry)) - 1: 1);
-      end
-    else if not bigcompilerversion then
-      if amaxblocksin * (analysmaxnodeinblock + 1) < tablesize then
-        writeln('ANALYZE (non-caching) AMAXBLOCKSIN should be ',
-                (tablesize + analysmaxnodeinblock) div
-                (analysmaxnodeinblock + 1): 1,
-                ' or ANALYSMAXNODEINBLOCK should be ',
-                (tablesize + amaxblocksin - 1) div amaxblocksin: 1);
-
     { Check the sizes environment file components. }
 
+{DRB
     if tableentriesperblock + 1 <>
-       (diskbufsize + 1) div rdup(size(tableentry)) then
+       (diskbufsize + 1) div rdup(sizeof(tableentry)) then
       writeln('Environment files:  TABLEENTRIESPERBLOCK should be ',
-             (diskbufsize + 1) div rdup(size(tableentry)) - 1: 1);
-
+             (diskbufsize + 1) div rdup(sizeof(tableentry)) - 1: 1);
+}
     { End of special configuration checks}
 
     emitflag := true;
@@ -5053,41 +3419,6 @@ procedure initanalys;
     probing := false;
     sourcestringindex := 0;
 
-    if not bigcompilerversion then
-      begin
-      for i := 1 to maxblockslow do
-        with blocksin[i] do
-          begin
-          blkno := i - 1;
-          written := true;
-          lowblock := true;
-          buffer := ref(blockslow[i]);
-          end;
-
-      i := maxblockslow + 1;
-      while (i <= amaxblocksin) and ((space > arequiredspace) or
-            newok(size(doublediskblock))) do
-        with blocksin[i] do
-          begin
-          blkno := i - 1;
-          written := true;
-          lowblock := false;
-          if needcaching then
-            begin
-            {we should figure out how many blocks will
-             fit without allocating them!}
-            {e.g. (space-arequiredspace) div
-                  (diskbufsize * hostfileunits + size(checkword)) }
-            new(buffer);
-            end
-          else buffer := nil;
-          i := i + 1;
-          end;
-
-      lastblocksin := i - 1;
-      thrashing := false;
-      end;
-
     fewestblocks := lastblocksin;
     mostblocks := lastblocksin;
 
@@ -5108,8 +3439,7 @@ procedure initanalys;
     lastvartableptr := 0;
     lastvartableentry := 0;
 
-    if scanalys then scantoken
-    else getnexttoken;
+    scantoken;
     gettoken;
 
     nullboundindex := 0;
@@ -5238,21 +3568,6 @@ procedure initanalys;
         align := intalign;
         end;
       enterstandardid(integerid, typename, targetintsize, intindex);
-    if switcheverplus[symboltable] then
-if newdebugger then
-begin
-enterdebuggerid('integer  ', 7);
-      p^.dbgsymbol := create_typename(
-        p^.charindex,
-        do_hash(p^.charindex, p^.charlen),
-        stringtable^[p^.charindex],
-        p^.charlen,
-        0, {dbgscope}
-        create_type(p^.typeindex),
-        0, {filename}
-        0, {startposition}
-        0 {declaration-length});
-end;
 
       {define 'shortint' subrange}
       enterform(subranges, f, fptr);
@@ -5267,21 +3582,6 @@ end;
         parenttype := intindex;
         end;
       enterstandardid(shortintid, typename, shorttargetintsize, shortintindex);
-    if switcheverplus[symboltable] then
-if newdebugger then
-begin
-enterdebuggerid('shortint ', 8);
-      p^.dbgsymbol := create_typename(
-        p^.charindex,
-        do_hash(p^.charindex, p^.charlen),
-        stringtable^[p^.charindex],
-        p^.charlen,
-        0, {dbgscope}
-        create_type(p^.typeindex),
-        0, {filename}
-        0, {startposition}
-        0 {declaration-length});
-end;
 
       {define dummy subrange for set building operations}
       enterform(subranges, f, fptr);
@@ -5306,21 +3606,6 @@ end;
         align := realalign;
         end;
       enterstandardid(realid, typename, targetrealsize, realindex);
-    if switcheverplus[symboltable] then
-if newdebugger then
-begin
-enterdebuggerid('real     ', 4);
-      p^.dbgsymbol := create_typename(
-        p^.charindex,
-        do_hash(p^.charindex, p^.charlen),
-        stringtable^[p^.charindex],
-        p^.charlen,
-        0, {dbgscope}
-        create_type(p^.typeindex),
-        0, {filename}
-        0, {startposition}
-        0 {declaration-length});
-end;
 
       {define 'double'}
       enterform(doubles, f, fptr);
@@ -5334,21 +3619,6 @@ end;
       if switcheverplus[doublereals] then doubleindex := realindex;
 
       enterstandardid(doubleid, typename, doublesize, doubleindex);
-    if switcheverplus[symboltable] then
-if newdebugger then
-begin
-enterdebuggerid('double   ', 6);
-      p^.dbgsymbol := create_typename(
-        p^.charindex,
-        do_hash(p^.charindex, p^.charlen),
-        stringtable^[p^.charindex],
-        p^.charlen,
-        0, {dbgscope}
-        create_type(p^.typeindex),
-        0, {filename}
-        0, {startposition}
-        0 {declaration-length});
-end;
 
       {define 'char'}
       enterform(chars, f, fptr);
@@ -5359,21 +3629,6 @@ end;
         align := charalign;
         end;
       enterstandardid(charid, typename, charsize, chartypeindex);
-    if switcheverplus[symboltable] then
-if newdebugger then
-begin
-enterdebuggerid('char     ', 4);
-      p^.dbgsymbol := create_typename(
-        p^.charindex,
-        do_hash(p^.charindex, p^.charlen),
-        stringtable^[p^.charindex],
-        p^.charlen,
-        0, {dbgscope}
-        create_type(p^.typeindex),
-        0, {filename}
-        0, {startposition}
-        0 {declaration-length});
-end;
 
       {define 'boolean'}
       enterform(bools, f, fptr);
@@ -5384,21 +3639,6 @@ end;
         align := scalaralign;
         end;
       enterstandardid(booleanid, typename, scalarsize, boolindex);
-    if switcheverplus[symboltable] then
-if newdebugger then
-begin
-enterdebuggerid('boolean  ', 7);
-      p^.dbgsymbol := create_typename(
-        p^.charindex,
-        do_hash(p^.charindex, p^.charlen),
-        stringtable^[p^.charindex],
-        p^.charlen,
-        0, {dbgscope}
-        create_type(p^.typeindex),
-        0, {filename}
-        0, {startposition}
-        0 {declaration-length});
-end;
 
       {define 'text'}
       enterform(files, f, fptr);
@@ -5420,22 +3660,6 @@ end;
       p^.constvalue.representation := ints;
       p^.constvalue.intvalue := targetmaxint;
       p^.constvalue.negated := false;
-    if switcheverplus[symboltable] then
-if newdebugger then
-      p^.dbgsymbol := create_intvalconst(
-        p^.charindex,
-        do_hash(p^.charindex, p^.charlen),
-        stringtable^[p^.charindex],
-        p^.charlen,
-        0, {dbgscope}
-        create_type(intindex),
-        0, {filename}
-        0, {startposition}
-        0, {declaration-length}
-	ints, {consttype}
-	p^.constvalue.intvalue,
-	false {extendedrange});
-
 
       {define 'minint'}
       enterstandardid(minintid, constname, 0, intindex);
@@ -5443,21 +3667,6 @@ if newdebugger then
       p^.constvalue.representation := ints;
       p^.constvalue.intvalue := targetminint;
       p^.constvalue.negated := true;
-    if switcheverplus[symboltable] then
-if newdebugger then
-      p^.dbgsymbol := create_intvalconst(
-        p^.charindex,
-        do_hash(p^.charindex, p^.charlen),
-        stringtable^[p^.charindex],
-        p^.charlen,
-        0, {dbgscope}
-        create_type(intindex),
-        0, {filename}
-        0, {startposition}
-        0, {declaration-length}
-	ints, {consttype}
-	p^.constvalue.intvalue,
-	false {extendedrange});
 
       {define 'true'}
       enterstandardid(trueid, constname, 0, boolindex);
@@ -5465,23 +3674,6 @@ if newdebugger then
       p^.constvalue.representation := ints;
       p^.constvalue.intvalue := ord(true);
       p^.constvalue.negated := false;
-    {define 'true'}
-    if switcheverplus[symboltable] then
-if newdebugger then
-      p^.dbgsymbol := create_intvalconst(
-        p^.charindex,
-        do_hash(p^.charindex, p^.charlen),
-        stringtable^[p^.charindex],
-        p^.charlen,
-        0, {dbgscope}
-        create_type(boolindex),
-        0, {filename}
-        0, {startposition}
-        0, {declaration-length}
-	bools, {consttype}
-	p^.constvalue.intvalue,
-	false {extendedrange});
-
 
       {define 'false'}
       enterstandardid(falseid, constname, 0, boolindex);
@@ -5489,22 +3681,6 @@ if newdebugger then
       p^.constvalue.representation := ints;
       p^.constvalue.intvalue := ord(false);
       p^.constvalue.negated := false;
-  	  {define 'false'}
-    if switcheverplus[symboltable] then
-if newdebugger then
-      p^.dbgsymbol := create_intvalconst(
-        p^.charindex,
-        do_hash(p^.charindex, p^.charlen),
-        stringtable^[p^.charindex],
-        p^.charlen,
-        0, {dbgscope}
-        create_type(boolindex),
-        0, {filename}
-        0, {startposition}
-        0, {declaration-length}
-	bools, {consttype}
-	p^.constvalue.intvalue,
-	false {extendedrange});
 
       {define 'write'}
       enterstandardid(writeid, standardproc, 0, 0);
@@ -5761,8 +3937,7 @@ if newdebugger then
 
       {define 'nil' for debugger}
       tabletop := tabletop + 1;
-      if bigcompilerversion then p := ref(bigtable[tabletop])
-      else awriteaccess(tabletop, p);
+      if bigcompilerversion then p := @(bigtable[tabletop]);
       with p^ do
         begin
         form := false;
@@ -5773,39 +3948,9 @@ if newdebugger then
         constvalue := nilvalue.cvalue;
         end;
       enterdebuggerid('nil      ', 3);
-    if switcheverplus[symboltable] then
-if newdebugger then
-      p^.dbgsymbol := create_intvalconst(
-        p^.charindex,
-        do_hash(p^.charindex, p^.charlen),
-        stringtable^[p^.charindex],
-        p^.charlen,
-        0, {dbgscope}
-        create_type(nilindex),
-        0, {filename}
-        0, {startposition}
-        0, {declaration-length}
-	ptrs, {consttype}
-	0,
-	false {extendedrange});
-
-
-    if switchcounters[symboltable] > 0 then
-if newdebugger then
-      begin
-      dbgsourceindex :=
-        create_filename(
-          thistoken.fileindex,
-          do_hash(thistoken.fileindex, filename_length),
-          stringtable^[thistoken.fileindex],
-          filename_length);
-      end;
-
-
 
       {define 'main' program}
-      if bigcompilerversion then p := ref(bigtable[0])
-      else awriteaccess(0, p);
+      if bigcompilerversion then p := @(bigtable[0]);
       with p^ do
         begin
         name := 0;
@@ -5823,22 +3968,6 @@ if newdebugger then
 
       enterblock(1, 0, 0);
 
-    if (switchcounters[mainbody] > 0) and (switchcounters[symboltable] > 0) then
- if newdebugger then
-      with p^ do
-        begin
-        dbgsymbol := create_procname(
-          charindex,
-          do_hash(charindex, charlen),
-          stringtable^[charindex],
-          charlen,
-          0, {visibilitylink}
-          dbgsourceindex, {filename}
-          thistoken.filepos, {startposition}
-          0);
-    display[1].dbgscope := dbgsymbol;
-      end;
-
       display[1].blocksize := display[0].blocksize;
       display[1].oldtabletop := tabletop;
       level := 1;
@@ -5849,43 +3978,11 @@ if newdebugger then
       outputdeclared := false;
       enterdebuggerid('output   ', 6);
 
-    if (switchcounters[mainbody] > 0) and (switchcounters[symboltable] > 0) then
- if newdebugger then
-              p^.dbgsymbol := create_varname(
-                p^.charindex,
-                do_hash(p^.charindex, p^.charlen),
-                stringtable^[p^.charindex],
-                p^.charlen, display[1].dbgscope,
-                create_type(textindex),
-                0, {filename}
-                0, {source pos}
-                0, {declaration length}
-                varname,
-                p^.offset,
-                p^.length,
-                p^.varalloc);
-
       {define 'input'}
       inputoffset := display[level].blocksize;
       enterstandardid(inputid, varname, ptrsize, textindex);
       inputindex := tabletop;
       enterdebuggerid('input    ', 5);
-
-    if (switchcounters[mainbody] > 0) and (switchcounters[symboltable] > 0) then
- if newdebugger then
-              p^.dbgsymbol := create_varname(
-                p^.charindex,
-                do_hash(p^.charindex, p^.charlen),
-                stringtable^[p^.charindex],
-                p^.charlen, display[1].dbgscope,
-                create_type(textindex),
-                0, {filename}
-                0, {source pos}
-                0, {declaration length}
-                varname,
-                p^.offset,
-                p^.length,
-                p^.varalloc);
 
       end; {not environment switch}
 
@@ -5902,6 +3999,11 @@ if newdebugger then
 
     consttablelimit := stringtablelimit;
     stringfilebase := stringtablelimit; {save for writeenvirfile}
+
+    assign(tempfiletwo, 'temptwo.tmp');
+    rewrite(tempfiletwo);
+    assign(locals, 'locals.tmp');
+    rewrite(locals);
 
   end {initanalys} ;
 
@@ -5925,6 +4027,7 @@ procedure analys;
   begin {analys}
 
     {the next lines are superfluous: initanalys does the work}
+  {DRB
     if not needcaching then
       begin
       stringblkptr := stringblkptrtbl[1];
@@ -5934,13 +4037,9 @@ procedure analys;
         stringblkptrtbl[1] := stringblkptr;
         end;
       end;
-
-    if scanalys then { 'and' is not folded yet }
-      if switcheverplus[environswitch] then sreadenv;
+      }
 
     initanalys;
-
-    if switcheverplus[environswitch] then areadenv;
 
     if token = programsym then programheading
     else if switcheverplus[mainbody] then warnnonstandard(progexpected);
@@ -5973,30 +4072,16 @@ procedure analys;
       if token <> eofsym then enterblock(1, 0, 0);
     until token = eofsym;
 
-
-    if (switchcounters[mainbody] > 0) and (switchcounters[symboltable] > 0) then
-if newdebugger then
-          with display[1] do
-            begin
-            update_procname(
-              dbgscope,
-              0, {declaration-length}
-              blocksize,
-              firststmt,
-              laststmt, noneindex);
-            end;
-
     if intstate = opstate then genop(endexpr);
     genstmt(endall);
     exitblock(0);
+    {DRB
     if emitflag then
       begin
       put(tempfiletwo);
-      if not scanalys and needcaching then put(stringfile);
       end;
+      }
 
-    if not bigcompilerversion then flushbuffers;
     dispose(labelflag);
-    if needcaching then if switcheverplus[test] then
-        writeln('analys fewest/most blocks: ', fewestblocks: 1, mostblocks);
   end {analys} ;
+end.

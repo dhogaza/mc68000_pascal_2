@@ -13,7 +13,7 @@
 
 program pascal2;
 
-uses config, hdr, utils, csi, scan, sd;
+uses config, hdr, utils, csi, scan, sd, analys;
 
 label
   99; { Target for fatal errors }
@@ -166,11 +166,7 @@ begin {main}
 {DRB  opena;}
 {DRB  settime;}
   if scanalys then scan.scan1;
-  repeat
-    scan.scantoken;
-    sd.sd;
-  until nexttoken.token = eofsym;
-{DRB  analys;}
+  analys.analys;
   if scanalys then scan.scan2;
 {DRB
   if switcheverplus[timing] and switcheverplus[details] then

@@ -577,7 +577,6 @@ var
 
   debugfile: file of debugrecord;
   newdebugfile: file of p_dbg_file_record;
-  locals: localfiletype; { locals var description file }
 
   source: array [1..sourcedepth] of text; {files for including source}
   sourcelevel: 0..sourcedepth; {current source include level}

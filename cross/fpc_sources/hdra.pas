@@ -27,7 +27,7 @@ unit hdra;
 
 interface
 
-uses config, hdr, scan, at;
+uses config, hdr, scan, a_t;
 
 const
 
