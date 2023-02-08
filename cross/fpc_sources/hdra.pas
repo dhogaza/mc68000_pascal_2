@@ -23,6 +23,12 @@ Update release version for PC-VV0-GS0 at 2.3.0.1
 
 }
 
+unit hdra;
+
+interface
+
+uses config, hdr, scan, at;
+
 const
 
   {Analys pass sizing parameters}
@@ -38,10 +44,6 @@ const
 
   targetzero = 0; {target machine value of zero}
   targetone = 1; {target machine value of one}
-
-  %include 'athdr'; {analys - travrs interface}
-
-  %include 'sahdr'; {scan - analys interface}
 
 type
   tokenlengthtable = array [tokentype] of 0..10; {defines token lengths}
@@ -337,7 +339,6 @@ type
 	en_disk_block: (ediskblock: diskblock);
     end;
 
-  %include 'hdraown';
 
 var
 
@@ -388,7 +389,7 @@ var
   emptysetcount: integer; {where it is, if it is}
   inputdeclared, outputdeclared: boolean; {true if declared in program stmt}
 
-  optable: array [eql..andsym] of operator; {maps tokens into operators}
+  optable: array [eql..andsym] of operatortype; {maps tokens into operators}
 
   oprndstk: array [0..oprnddepth] of operand; {stack for expression
                                                evaluation}
@@ -468,7 +469,7 @@ var
   c1, c2, newcost: integer; {used for computing costs of binary op}
   newlen: addressrange; {result length for binary operation}
   unaryform, binaryform: types; {operation result types for unary, binary op}
-  unaryop, binaryop: operator; {op being generated for genunary, genbinary}
+  unaryop, binaryop: operatortype; {op being generated for genunary, genbinary}
 
   nest: integer; {statement nesting depth for goto checking}
   jumpoutnest: integer; {outermost nesting level for jumps out of for loops}
@@ -492,3 +493,6 @@ var
                                                     bigcompiler}
   blocksin: array [1..amaxblocksin] of blockmap; {name blocks in memory}
   blockslow: array [1..maxblockslow] of nameblock;
+
+  implementation
+  end.

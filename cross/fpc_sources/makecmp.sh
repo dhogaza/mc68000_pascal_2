@@ -8,4 +8,8 @@ fpc -gl csi
 fpc -gl scan
 fpc -gl sd
 fpc -gl at
+fpc -gl hdra
+fpc -gl mda
+fpc -gl commona
+fpc -gl foldcom
 fpc -gl main

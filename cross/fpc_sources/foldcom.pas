@@ -1,4 +1,3 @@
-{$nomain}
 {[b+]}
 { NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
 
@@ -24,11 +23,136 @@ Update release version for PC-VV0-GS0 at 2.3.0.1
 
 }
 
+unit foldcom;
 
-procedure add
-             {left, right: integer; (left and right operands)
-              var result: integer; (result)
-              var overflow: boolean (set if overflow occurred) } ;
+interface
+
+uses config, hdr, at;
+
+procedure usadd(left, right: integer; {left and right operands}
+                var result: integer; {result}
+                var overflow: boolean {set if overflow occurred} );
+
+{ Unsigned add of two target integers.  If the operation overflows,
+  "overflow"  is set, and "result" will be set to the max value possible.
+  ****Self hosted version
+  This will have to be changed if the target integers are not the same
+  size as the host integers;
+}
+
+
+procedure negate(operand: integer; {operand to negate}
+                 var result: integer; {result}
+                 var overflow: boolean {set if overflow results} );
+
+{ Negate a target integer.  If it overflows, the result will be set to
+  the limit at the appropriate sign.
+  ****Self hosted version
+}
+
+procedure subtract(left, right: integer; {operands}
+                   var result: integer; {result}
+                   var overflow: boolean {set if overflow results} );
+
+{ Subtract two target integers.  If the operation overflows, "overflow" will
+  be set, and "result" will be set to the max value possible.
+  ****Self hosted version
+ }
+
+
+procedure ussubtract(left, right: integer; {operands}
+                     var result: integer; {result}
+                     var overflow: boolean {set if overflow results} );
+
+{ Unsigned subtract.  The result is required to be unsigned as well
+  or overflow will be set.
+  ****Self hosted version
+}
+
+
+procedure multiply(left, right: integer; {operands}
+                   var result: integer; {result}
+                   var overflow: boolean {set if overflow results} );
+
+{ Multiply two target integers.  If the operation overflows, "overflow"
+  will be set and "result" will be set to the max signed value possible.
+  ****Self hosted version
+  This will have to be changed if the target integers are not the same
+  size as the host integers;
+}
+
+
+procedure usmultiply(left, right: integer; {operands}
+                     var result: integer; {result}
+                     var overflow: boolean {set if overflow results} );
+
+{ Unsigned equivalent of the multiply routine
+  ****self hosted version
+}
+
+
+procedure divide(left, right: integer; {operands}
+                 var result: integer; {result}
+                 var overflow: boolean {set if result overflows} );
+
+{ Divide two target integers.  If the operation overflows, "overflow"
+  will be set and "result" will be set to the max signed value possible.
+  ****Self hosted version
+  This will have to be changed if the target integers are not the same
+  size as the host integers;
+}
+
+procedure usdivide(left, right: integer; {operands}
+                   var result: integer; {result}
+                   var overflow: boolean {set if result overflows} );
+
+{ Unsigned version of divide.
+  *****16 bit 68K on a PDP11.  The PDP11 doesn't really have an unsigned
+  divide instruction, so we have to fake it.
+}
+
+
+procedure remainder(left, right: integer; {operands}
+                    var result: integer; {result}
+                    var overflow: boolean {set if result overflows} );
+
+{ Take the mod for target integers;  If "right" is zero, the result
+  will be zero, and "overflow" will be set.
+  ****self hosted version
+}
+
+
+procedure usremainder(left, right: integer; {operands}
+                      var result: integer; {result}
+                      var overflow: boolean {set if result overflows} );
+{ Unsigned version of remainder
+  ****self hosted version
+}
+
+
+procedure comparereal(left, right: real;
+                      var result: boolean;
+                      op: operatortype);
+
+{ Fold the comparison of a pair of real operands. }
+
+
+procedure uscompareint(left, right: unsignedint;
+                       var result: boolean;
+                       op: operatortype);
+
+{ Fold the compare of a pair of unsigned integer operands. }
+
+
+procedure compareint(left, right: integer;
+                     var result: boolean;
+                     op: operatortype);
+
+implementation
+
+procedure add(left, right: integer; {left and right operands}
+              var result: integer; {result}
+              var overflow: boolean {set if overflow occurred} );
 
 { Add two target integers.  If the operation overflows, "overflow" will
   be set, and "result" will be set to the max value possible.
@@ -36,7 +160,6 @@ procedure add
   This will have to be changed if the target integers are not the same
   size as the host integers;
 }
-
 
   begin {add}
     overflow := ((left >= 0) = (right >= 0)) and ((left >= 0) and
@@ -49,10 +172,10 @@ procedure add
   end {add} ;
 
 
-procedure usadd
-               {left, right: integer; (left and right operands)
-                var result: integer; (result)
-                var overflow: boolean (set if overflow occurred) } ;
+
+procedure usadd(left, right: integer; {left and right operands}
+                var result: integer; {result}
+                var overflow: boolean {set if overflow occurred} );
 
 { Unsigned add of two target integers.  If the operation overflows,
   "overflow"  is set, and "result" will be set to the max value possible.
@@ -74,10 +197,9 @@ procedure usadd
   end {usadd} ;
 
 
-procedure negate
-                {operand: integer; (operand to negate)
-                 var result: integer; (result)
-                 var overflow: boolean (set if overflow results) } ;
+procedure negate(operand: integer; {operand to negate}
+                 var result: integer; {result}
+                 var overflow: boolean {set if overflow results} );
 
 { Negate a target integer.  If it overflows, the result will be set to
   the limit at the appropriate sign.
@@ -92,10 +214,10 @@ procedure negate
   end {negate} ;
 
 
-procedure subtract
-                  {left, right: integer; (operands)
-                   var result: integer; (result)
-                   var overflow: boolean (set if overflow results) } ;
+
+procedure subtract(left, right: integer; {operands}
+                     var result: integer; {result}
+                     var overflow: boolean {set if overflow results} );
 
 { Subtract two target integers.  If the operation overflows, "overflow" will
   be set, and "result" will be set to the max value possible.
@@ -114,10 +236,9 @@ procedure subtract
   end {subtract} ;
 
 
-procedure ussubtract
-                    {left, right: integer; (operands)
-                     var result: integer; (result)
-                     var overflow: boolean (set if overflow results) } ;
+procedure ussubtract(left, right: integer; {operands}
+                     var result: integer; {result}
+                     var overflow: boolean {set if overflow results} );
 
 { Unsigned subtract.  The result is required to be unsigned as well
   or overflow will be set.
@@ -137,10 +258,10 @@ procedure ussubtract
   end {ussubtract} ;
 
 
-procedure multiply
-                  {left, right: integer; (operands)
-                   var result: integer; (result)
-                   var overflow: boolean (set if overflow results) } ;
+
+procedure multiply(left, right: integer; {operands}
+                   var result: integer; {result}
+                   var overflow: boolean {set if overflow results} );
 
 { Multiply two target integers.  If the operation overflows, "overflow"
   will be set and "result" will be set to the max signed value possible.
@@ -168,10 +289,9 @@ procedure multiply
   end {multiply} ;
 
 
-procedure usmultiply
-                    {left, right: integer; (operands)
-                     var result: integer; (result)
-                     var overflow: boolean (set if overflow results) } ;
+procedure usmultiply(left, right: integer; {operands}
+                     var result: integer; {result}
+                     var overflow: boolean {set if overflow results} );
 
 { Unsigned equivalent of the multiply routine
   ****self hosted version
@@ -190,11 +310,9 @@ procedure usmultiply
     else result := usleft * usright;
   end {usmultiply} ;
 
-
-procedure divide
-                {left, right: integer; (operands)
-                 var result: integer; (result)
-                 var overflow: boolean (set if result overflows) } ;
+procedure divide(left, right: integer; {operands}
+                 var result: integer; {result}
+                 var overflow: boolean {set if result overflows} );
 
 { Divide two target integers.  If the operation overflows, "overflow"
   will be set and "result" will be set to the max signed value possible.
@@ -214,10 +332,9 @@ procedure divide
   end {divide} ;
 
 
-procedure usdivide
-                  {left, right: integer; (operands)
-                   var result: integer; (result)
-                   var overflow: boolean (set if result overflows) } ;
+procedure usdivide(left, right: integer; {operands}
+                   var result: integer; {result}
+                   var overflow: boolean {set if result overflows} );
 
 { Unsigned version of divide.
   *****16 bit 68K on a PDP11.  The PDP11 doesn't really have an unsigned
@@ -239,17 +356,14 @@ procedure usdivide
     else result := usleft div usright;
   end {usdivide} ;
 
-
-procedure remainder
-                   {left, right: integer; (operands)
-                    var result: integer; (result)
-                    var overflow: boolean (set if result overflows) } ;
+procedure remainder(left, right: integer; {operands}
+                    var result: integer; {result}
+                    var overflow: boolean {set if result overflows} );
 
 { Take the mod for target integers;  If "right" is zero, the result
   will be zero, and "overflow" will be set.
   ****self hosted version
 }
-
 
   begin {remainder}
     overflow := right = 0;
@@ -269,12 +383,11 @@ procedure remainder
   end {remainder} ;
 
 
-procedure usremainder
-                     {left, right: integer; (operands)
-                      var result: integer; (result)
-                      var overflow: boolean (set if result overflows) } ;
 
-{ unsigned version of remainder
+procedure usremainder(left, right: integer; {operands}
+                      var result: integer; {result}
+                      var overflow: boolean {set if result overflows} );
+{ Unsigned version of remainder
   ****self hosted version
 }
 
@@ -290,14 +403,11 @@ procedure usremainder
     else result := usleft mod usright;
   end {usremainder} ;
 
-
-procedure comparereal
-                     {left, right: real;
+procedure comparereal(left, right: real;
                       var result: boolean;
-                      op: operator} ;
+                      op: operatortype);
 
- { Fold the compare of a pair of real operands. }
-
+{ Fold the comparison of a pair of real operands. }
 
   begin {comparereal}
    if realfolding then
@@ -313,11 +423,9 @@ procedure comparereal
    end
   end {comparereal} ;
 
-
-procedure uscompareint
-                      {left, right: unsignedint;
+procedure uscompareint(left, right: unsignedint;
                        var result: boolean;
-                       op: operator} ;
+                       op: operatortype);
 
  { Fold the compare of a pair of unsigned integer operands. }
 
@@ -342,14 +450,9 @@ procedure uscompareint
       end;
   end; {uscompareint}
 
-
-procedure compareint
-                    {left, right: integer;
+procedure compareint(left, right: integer;
                      var result: boolean;
-                     op: operator} ;
-
- { Fold the compare of a pair of unsigned integer operands. }
-
+                     op: operatortype);
 
   begin
     case op of
@@ -361,3 +464,5 @@ procedure compareint
       neqlit: result := left <> right;
       end;
   end; {compareint}
+
+  end.

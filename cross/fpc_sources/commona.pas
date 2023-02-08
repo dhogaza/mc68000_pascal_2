@@ -27,7 +27,7 @@ unit commona;
 
 interface
 
-uses config, hdr, utils, at, scan;
+uses config, hdr, utils, at, scan, hdra, mda;
 
 const
 
@@ -44,8 +44,6 @@ const
 type
   tokenlengthtable = array [tokentype] of 0..10; {defines token lengths}
 
-  alignmentrange = 0..maxalign; {possible alignment values}
-
   {the following type has moved to hdr.pas}
   {addressrange = 0..maxaddr;} {possible address values}
 
@@ -53,7 +51,6 @@ type
 
   { Structures to describe types and labels}
 
-  entryptr = ^tableentry;
   index = 0..tablesize;
   scoperange = 0..deadscope;
   totalscoperange = 0..totalscopes;
@@ -86,26 +83,6 @@ type
       pessimistic: range; {assumes any value allowed by storage}
     end;
 
-  const_descr =
-    record {describes a constant value}
-      case representation: types of {values for different types}
-        ints:
-          (intvalue: integer; {ord(value)}
-           negated: boolean {value was negated} );
-        ptrs: (ptrvalue: integer {targetptr} {referenced operand} );
-        reals, doubles:
-          (realvalue:
-             record {actual real value}
-               case boolean of
-                 false: (realbinary: double); {computable}
-                 true: (realbuffer: realarray); {just storage}
-             end);
-        arrays, fields, strings:
-          (pos, len: integer; {location in string file}
-           stringconstflag: boolean {true if 'string'} );
-        sets: (setvalue: ^setvalueblock);
-    end; {const_descr}
-
   operandtype = (constoperand, varoperand, exproperand);
 
   operand =
@@ -118,103 +95,6 @@ type
         constoperand: (cvalue: const_descr; {value of the constant} );
         varoperand, exproperand:
           (cost: integer {estimated registers to compute operand value} )
-    end;
-
-  tableentry =
-    packed record {symbol table entry}
-      dbgsymbol: p_symbolindex; {debugger form (PDB) or table (ODB) index}
-      case form: boolean of
-        true:
-          (size: addressrange; {size of type in units or bits}
-           align: alignmentrange; {alignmentrequirements}
-           packedflag: boolean; {true if user said "packed"}
-           bitaddress: boolean; {true if size is bits, not units}
-           containsfile: boolean; {true if type has a file component}
-           extendedrange: boolean; {true if upper bound > maxint}
-           disposable: boolean; {true if type can be quickly disposed of}
-           case typ: types of
-             subranges:
-               (lowerord, upperord: integer; {user said lowerord..upperord}
-                parentform: types; {"typ" value of the parent}
-                parenttype: index {type of lowerord, upperord} );
-             fields:
-               (fieldid: integer; {scope id for symbol table search}
-                nextvariant: index; {next variant record at this level}
-                firstlabel: index; {head of label chain describing this
-                                    variant}
-                firstvariant: index; {first subvariant defined by case at
-                                      level}
-                tagfield: index; {name entry of tagfield, 0 if none}
-                firstfield: index; {index of first field in symbol table}
-                lastfield: index {index of last field in record} );
-             variantlabs:
-               (nextvarlab: index; {points to next label for this variant}
-                varlabtype: index; {type of variant label}
-                varlabvalue: integer {ord(variant value)} );
-             arrays, conformantarrays, strings:
-               (indextype: index; { user said array [indextype] }
-                elementtype: index; { of elementtype }
-                highbound, lowbound: index; {bound id's if conformant}
-                stringtype: boolean; { set if a string type }
-                arraymembers: addressrange; {members in the indextype}
-                elementsize: addressrange {effective size of element} );
-             sets:
-               (constructedset: boolean; {declared or [i,j..k] ?}
-                basetype: index {user said set of basetype} );
-             files:
-               (filebasetype: index; {user defined file of filebasetype}
-                filekey: integer {used to identify file componants to travrs}
-               );
-             ptrs:
-               (ptrtypename: index; {user defined ^ptrtypename}
-                ptrkey: integer {used to identify ptr components to travrs} );
-             scalars: (lastord: integer {highest value of scalar} ); );
-        false:
-          (nextname: index; {pointer to previous incarnation of same name}
-           name: scoperange; {id of block in which declared}
-           charlen: 0..linelen; {length of character string defining name}
-           charindex: integer; {start of name in string file}
-           lastoccurrence: totalscoperange; {last scope which accessed this
-                                             unit}
-           case namekind: nametype of
-             typename, undeftypename:
-               (typeindex: index; {points to defined type}
-                refdefined: boolean {true if defined by ref function} );
-             constname:
-               (consttype: index; {type for this constant}
-                constvalue: const_descr {value for this constant} );
-             varname, fieldname, param, varparam, procparam, funcparam,
-             confparam, varconfparam, boundid, undefname:
-               (modified: boolean; {becomes true when value assigned}
-                nestedmod: boolean; {true if modified by nested procedure}
-                parammodified: boolean; {becomes true when param value changes}
-                knownvalid: boolean; {set when value is known to be in range}
-                programdecl: boolean; {set when declared in program header}
-                varianttag: boolean; {set true if record variant tag}
-                registercandidate: boolean; { true if travrs can assign to a
-                                             reg}
-                univparam: boolean; {true if universal parameter}
-                lastinsection: boolean; {last in a parameter section}
-                varalloc: allockind; {kind of allocation made}
-                nextparamlink: index; {if parameter, points to next param in
-                                       list}
-                offset: unsignedint; {address of item within block}
-                length: addressrange; {length of item}
-                vartype: index; {name's type}
-                sparelink: index; {for boundid, array for which it's a bound;
-                                   for use/shared vars index into vartable;
-                                   for fields used to pass info to debugger} );
-             standardproc, standardfunc, directivename:
-               (procid: standardids {which standard procedure} );
-             procname, funcname, forwardproc, forwardfunc, externalproc,
-             externalfunc:
-               (functype: index; {function result type}
-                funclen: addressrange; {length of resulting value}
-                paramlist: index; {Index of last parameter}
-                funcassigned: boolean; {true if function value defined}
-                procref: proctableindex; {index into global proc data for
-                                          routine}
-                savedparamsize: addressrange {size of parameters} ); );
     end;
 
   undefindex = 0..undeftablesize;
@@ -486,10 +366,6 @@ var
   blocksin: array [1..amaxblocksin] of blockmap; {name blocks in memory}
   blockslow: array [1..maxblockslow] of nameblock;
 
-procedure adecreasebuffers;
-
-procedure aincreasebuffers;
-
 procedure gettoken;
 
 procedure warnbefore(err: warning {Error message number} );
@@ -642,25 +518,6 @@ procedure stripsubrange(var objectindex: index {form to be stripped} );
 { Convert a subrange type to the base type for use in an expression.
 }
 
-function upper(f: entryptr {form to check} ): integer;
-
-{ Returns the upper bound of "f".  This is meaningful only for
-  scalar types.
-}
-
-function bits(i: integer {value to find size of} ): integer;
-
-{ Returns the number of bits needed to contain the value of i.
-}
-
-function sizeof(f: entryptr; {Form to get size of}
-                packedresult: boolean {set if packed value} ): addressrange;
-
-{ Returns the amount of storage needed to contain a value of the type
-  specified by "f".  If "packedresult" is set, this is in bits, otherwise
-  it is in addressing units.
-}
-
 function forcealign(size: addressrange; {value to align}
                     alignment: addressrange; {requirement}
                     packedresult: boolean {size is in bits} ): addressrange;
@@ -728,18 +585,6 @@ function compatible(left, right: index {types to compare} ): boolean;
   as defined by the Pascal standard.  If either input is undefined,
   they are assumed to be compatible to eliminate redundant error
   messages.
-}
-
-
-function alignmentof(f: entryptr; {form to check}
-                     packedresult: boolean {result is packed} ):
- alignmentrange;
-
-{ Compute the alignment requirement of a type.  This function is needed
-  strictly because the alignment of a subrange is kluged to the parent
-  type to give better code generation on certain types of machines.  This
-  kluge causes trouble with packed types, so is deleted if the result
-  is to be used in a packed structure.
 }
 
 procedure seekstringfile(n: integer {byte to access} );
@@ -1253,109 +1098,6 @@ procedure stripsubrange(var objectindex: index {form to be stripped} );
     if bigcompilerversion then ptr := @(bigtable[objectindex]);
     with ptr^ do if (typ = subranges) then objectindex := parenttype;
   end {stripsubrange} ;
-
-
-function lower(f: entryptr {form to check} ): integer;
-
-{ Returns the lower bound of "f".  This is meaningful only for
-  scalar types.
-}
-
-
-  begin {lower}
-    with f^ do
-      if typ = ints then lower := targetminint
-      else if typ = subranges then lower := lowerord
-      else lower := 0;
-  end {lower} ;
-
-function upper(f: entryptr {form to check} ): integer;
-
-{ Returns the upper bound of "f".  This is meaningful only for
-  scalar types.
-}
-
-  begin {upper}
-    with f^ do
-      case typ of
-        ints: upper := targetmaxint;
-        bools: upper := 1;
-        chars: upper := charsetsize - 1;
-        none: upper := 255;
-        scalars: upper := lastord;
-        subranges: upper := upperord;
-        otherwise upper := targetmaxint
-        end
-  end {upper} ;
-
-
-
-function bits(i: integer {value to find size of} ): integer;
-
-{ Returns the number of bits needed to contain the value of i.
-}
-
-  var
-    b: integer; {Accumulates number of bits}
-    value: unsignedint; {Temp so can use a register and shift inst}
-
-
-  begin {bits}
-    if i < 0 then bits := targetintsize * bitsperunit
-    else
-      begin
-      value := i;
-      b := 1;
-      while value > 1 do
-        begin
-        b := b + 1;
-        value := value div 2;
-        end;
-      bits := b;
-      end;
-  end {bits} ;
-
-function sizeof(f: entryptr; {Form to get size of}
-                packedresult: boolean {set if packed value} ): addressrange;
-
-{ Returns the amount of storage needed to contain a value of the type
-  specified by "f".  If "packedresult" is set, this is in bits, otherwise
-  it is in addressing units.
-}
-
-  var
-    lowerf: integer; { temp holding lower(f) }
-    magnitude: addressrange; {absolute value of max number of bits}
-
-
-  begin {sizeof}
-    if packedresult = f^.bitaddress then sizeof := f^.size
-    else if packedresult then
-      case f^.typ of
-        chars, bools, scalars, subranges, none:
-          begin
-          if (targetmachine = iapx86) and (f^.size > wordsize) then
-            sizeof := defaulttargetintsize * bitsperunit
-          else
-            begin
-            lowerf := lower(f);
-            if (lowerf < 0) then
-              begin
-              magnitude := max(abs(upper(f)), abs(lowerf + 1));
-              if magnitude = 0 then sizeof := 1 {handles the case of -1..0}
-              else sizeof := bits(magnitude) + 1; {the normal case}
-              end
-            else sizeof := bits(upper(f));
-            end;
-          end
-        otherwise
-          if maxaddr div bitsperunit < f^.size then sizeof := maxaddr
-          else sizeof := f^.size * bitsperunit;
-        end
-    else sizeof := (f^.size + bitsperunit - 1) div bitsperunit;
-  end {sizeof} ;
-
-
 
 function forcealign(size: addressrange; {value to align}
                     alignment: addressrange; {requirement}
@@ -2640,23 +2382,6 @@ function compatible(left, right: index {types to compare} ): boolean;
   end {compatible} ;
 
 
-
-function alignmentof(f: entryptr; {form to check}
-                     packedresult: boolean {result is packed} ):
- alignmentrange;
-
-{ Compute the alignment requirement of a type.  This function is needed
-  strictly because the alignment of a subrange is kluged to the parent
-  type to give better code generation on certain types of machines.  This
-  kluge causes trouble with packed types, so is deleted if the result
-  is to be used in a packed structure.
-}
-
-  begin {alignmentof}
-    if packedresult = f^.bitaddress then alignmentof := f^.align
-    else if packedresult then alignmentof := f^.align * bitsperunit
-    else alignmentof := (f^.align + bitsperunit - 1) div bitsperunit;
-  end {alignmentof} ;
 
 procedure seekstringfile(n: integer {byte to access} );
 

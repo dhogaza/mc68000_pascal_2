@@ -45,6 +45,7 @@ interface
 }
 
 type
+  integer = longint; {DRB fpc defaults to 16 bit}
   languages = (pascal, c, modula2, fortran77);
   architectures = (pdp11, vax, iapx86, mc68000, ns32k, i80386);
   opsystems = (vms, rsx, rsts, rt, unix, msdos, vdos, cpp, apollo);
@@ -471,6 +472,8 @@ type
   unsignedword = 0..maxusword;
 
   realarray = packed array [1..maxrealwords] of 0..maxusword;
+
+  alignmentrange = 0..maxalign; {possible alignment values}
 
 implementation
 

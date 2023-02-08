@@ -1,4 +1,3 @@
-{$nomain}
 {[b+,l+]}
 
 { NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
@@ -31,12 +30,205 @@ Update release version for PC-VV0-GS0 at 2.3.0.1
   target or host machine.
 }
 
+unit mda;
 
-procedure alloc {align: alignmentrange; (variable alignment) length:
-                 addressrange; (length of variable) var spacesize:
-                 addressrange; (size of data space) var varloc: addressrange
-                 (loc of new variable) var overflowed: boolean (true if size
-                 overflowed)} ;
+interface
+
+uses config, hdr, utils, hdra;
+
+procedure alloc(align: alignmentrange; {variable alignment}
+                length: addressrange; {length of variable}
+                var spacesize: addressrange; {size of data space}
+                var varloc: addressrange; {loc of new variable}
+                var overflowed: boolean {true if size overflowed} );
+
+{ Allocate space for a single unpacked variable or field.
+
+  A single field of length "length", with alignment "align",
+  is added to the end of a data space which already had
+  "spacesize" addressing units allocated.  The address of the
+  newly allocated field is returned in "varloc", and "spacesize"
+  is updated to include the new field.}
+
+
+procedure allocpacked(align: alignmentrange; {variable alignment}
+                      length: addressrange; {length of variable}
+                      var spacesize: addressrange; {size of data space}
+                      var varloc: addressrange; {loc of new variable}
+                      var overflowed: boolean; {true if size overflowed}
+                      var unusedspace: boolean {space skipped} );
+
+{ Allocate space for a single packed field.
+
+  A single field of length "length", with alignment "align",
+  is added to the end of a data space which already had
+  "spacesize" addressing units allocated.  The address of the
+  newly allocated field is returned in "varloc", and "spacesize"
+  is updated to include the new field.  "Unusedspace" is set
+  if some space was left due to the allocation strategy.  This
+  can be used to modify earlier fields for better access if
+  desired.
+}
+
+
+procedure getallocdata(form: entryptr; {type being allocated}
+                       varkind: nametype; {type of field or var}
+                       packedresult: boolean; {result goes in packed field}
+                       spacelen: addressrange; {space consumed so far}
+                       var fieldlen: addressrange; {size to allocate}
+                       var fieldalign: alignmentrange; {alignment for alloc}
+                       var maxalign: alignmentrange {max alignment so far} );
+
+{ Extract allocation data for a field or variable.
+
+  This routine determines the length and alignment requirements for a
+  field, variable, or parameter.  This may not be exactly the same
+  as the space required for the value, since the field may be accessed
+  indirectly, or other limitations may apply.
+
+  "Form" points to the type entry for this variable, and "varkind" gives
+  the usage.  "Fieldlen" and "fieldalign" must be set to define the space
+  to be allocated, and "maxalign" must be updated to the alignment for
+  the entire data space.  "Packedresult" and "spacelen" are included for
+  information.
+}
+
+
+function arraysizeof(f: entryptr; {form to get size of}
+                     packedresult: boolean {set if packed } ): addressrange;
+
+{ Returns the amount of storage needed to contain a value of the type
+  specified by "f", with desired modifications to ease array accessing.
+
+  "Packedresult" determines if the size is in bits or addressing units.
+}
+
+
+procedure packedstore(eltloc: addressrange; {rel address of this field}
+                      eltsize: addressrange; {size of this field}
+                      baseloc: addressrange; {rel address of first buffer}
+                      val: integer; {value to pack}
+                      var pbuf1, pbuf2: integer; {packed buffers}
+                      var full: boolean {buffer 1 is full} );
+
+{ This routine stores the value "val" as a packed field.  The field address,
+  in bits is "eltloc".  The result is to be returned in two integer buffers
+  "pbuf1" and "pbuf2", which should be otherwise undisturbed.  The boolean
+  "full" is set when "pbuf1" is full, and should be written.  "Baseloc" is
+  the address (in bits) of the start of "pbuf1"
+}
+
+
+function roundpackedsize(spacesize: addressrange; {rounded space}
+                         packedresult: boolean {true if packed record} ):
+ addressrange;
+
+{ Round length of declared type to an even multiple of bitsperunit if
+  the type is packed.  Used to simplify code generator, which wishes to
+  use unit-move instructions for structure assignments.
+}
+
+
+procedure possibletemp(off: addressrange;
+                       vartype: index;
+                       debugrec: integer);
+
+{
+    Purpose:
+      Determine if tha var at off is eligible for assignment to register
+
+    Inputs:
+      off: offset from local data area of the possible temp.
+      vartype: symbol table index to the var's type identifier.
+      debugrec: offset in the symbol file where var's allocation is
+                described.
+
+    Outputs:
+      If conditions are met then file "locals" has record appended.
+
+    Algorithm:
+      Straight forward.
+
+    Sideeffects:
+      None
+
+    Last Modified: 7/16/85
+
+}
+
+function forcealign(size: addressrange; {value to align}
+                    alignment: addressrange; {requirement}
+                    packedresult: boolean {size is in bits} ): addressrange;
+
+{ Forces "size" to the next higher multiple of "alignment".
+  Used to overcome limitations built into much contemporary hardware.
+}
+
+function lower(f: entryptr {form to check} ): integer;
+
+{ Returns the lower bound of "f".  This is meaningful only for
+  scalar types.
+}
+
+function upper(f: entryptr {form to check} ): integer;
+
+{ Returns the upper bound of "f".  This is meaningful only for
+  scalar types.
+}
+
+function bits(i: integer {value to find size of} ): integer;
+
+{ Returns the number of bits needed to contain the value of i.
+}
+
+  var
+    b: integer; {Accumulates number of bits}
+    value: unsignedint; {Temp so can use a register and shift inst}
+
+function sizeof(f: entryptr; {Form to get size of}
+                packedresult: boolean {set if packed value} ): addressrange;
+
+{ Returns the amount of storage needed to contain a value of the type
+  specified by "f".  If "packedresult" is set, this is in bits, otherwise
+  it is in addressing units.
+}
+
+function alignmentof(f: entryptr; {form to check}
+                     packedresult: boolean {result is packed} ):
+ alignmentrange;
+
+{ Compute the alignment requirement of a type.  This function is needed
+  strictly because the alignment of a subrange is kluged to the parent
+  type to give better code generation on certain types of machines.  This
+  kluge causes trouble with packed types, so is deleted if the result
+  is to be used in a packed structure.
+}
+
+implementation
+
+function alignmentof(f: entryptr; {form to check}
+                     packedresult: boolean {result is packed} ):
+ alignmentrange;
+
+{ Compute the alignment requirement of a type.  This function is needed
+  strictly because the alignment of a subrange is kluged to the parent
+  type to give better code generation on certain types of machines.  This
+  kluge causes trouble with packed types, so is deleted if the result
+  is to be used in a packed structure.
+}
+
+  begin {alignmentof}
+    if packedresult = f^.bitaddress then alignmentof := f^.align
+    else if packedresult then alignmentof := f^.align * bitsperunit
+    else alignmentof := (f^.align + bitsperunit - 1) div bitsperunit;
+  end {alignmentof} ;
+
+
+procedure alloc(align: alignmentrange; {variable alignment}
+                length: addressrange; {length of variable}
+                var spacesize: addressrange; {size of data space}
+                var varloc: addressrange; {loc of new variable}
+                var overflowed: boolean {true if size overflowed} );
 
 { Allocate space for a single unpacked variable or field.
 
@@ -63,12 +255,12 @@ procedure alloc {align: alignmentrange; (variable alignment) length:
   end; {alloc}
 
 
-procedure allocpacked {align: alignmentrange; (variable alignment) length:
-                       addressrange; (length of variable) var spacesize:
-                       addressrange; (size of data space) var varloc:
-                       addressrange; (loc of new variable) var overflowed:
-                       boolean; (true if size overflowed) var unusedspace:
-                       boolean (space skipped) } ;
+procedure allocpacked(align: alignmentrange; {variable alignment}
+                      length: addressrange; {length of variable}
+                      var spacesize: addressrange; {size of data space}
+                      var varloc: addressrange; {loc of new variable}
+                      var overflowed: boolean; {true if size overflowed}
+                      var unusedspace: boolean {space skipped} );
 
 { Allocate space for a single packed field.
 
@@ -112,13 +304,13 @@ procedure allocpacked {align: alignmentrange; (variable alignment) length:
   end; {allocpacked}
 
 
-procedure getallocdata {form: entryptr; (type being allocated) varkind:
-                        nametype; (type of field or var) packedresult:
-                        boolean; (result goes in packed field) spacelen:
-                        addressrange; (space consumed so far) var fieldlen:
-                        addressrange; (size to allocate) var fieldalign:
-                        alignmentrange; (alignment for alloc) var maxalign:
-                        alignmentrange (max alignment so far) } ;
+procedure getallocdata(form: entryptr; {type being allocated}
+                       varkind: nametype; {type of field or var}
+                       packedresult: boolean; {result goes in packed field}
+                       spacelen: addressrange; {space consumed so far}
+                       var fieldlen: addressrange; {size to allocate}
+                       var fieldalign: alignmentrange; {alignment for alloc}
+                       var maxalign: alignmentrange {max alignment so far} );
 
 { Extract allocation data for a field or variable.
 
@@ -161,21 +353,16 @@ procedure getallocdata {form: entryptr; (type being allocated) varkind:
       else fieldalign := alignmentof(form, packedresult);
       if packedresult and (fieldlen <= packingunit * bitsperunit) and
          (spacelen mod bitsperunit + fieldlen > bitsperunit) then
-        maxalign := max(maxalign, packingunit * bitsperunit);
-{The following fix corrects alignment problems with non-packed items but
- it is incompatible with old structures, so it is the subject of much
- debate.
-      else }
-      { Align non-packed items longer than a byte on a word boundary. }
-{      if not packedresult and (fieldlen >= 2) then
-        fieldalign := max(fieldalign, 2);}
+        maxalign := max(maxalign, packingunit * bitsperunit)
+      else if not packedresult and (fieldlen >= 2) then
+        fieldalign := max(fieldalign, 2);
       end;
     maxalign := max(maxalign, fieldalign);
   end; {getallocdata}
 
 
-function arraysizeof {f: entryptr; (form to get size of) packedresult: boolean
-                      (set if packed) ): addressrange } ;
+function arraysizeof(f: entryptr; {form to get size of}
+                     packedresult: boolean {set if packed } ): addressrange;
 
 { Returns the amount of storage needed to contain a value of the type
   specified by "f", with desired modifications to ease array accessing.
@@ -210,12 +397,12 @@ function arraysizeof {f: entryptr; (form to get size of) packedresult: boolean
   end {arraysizeof} ;
 
 
-procedure packedstore {eltloc: addressrange; (rel address of this field)
-                       eltsize: addressrange; (size of this field) baseloc:
-                       addressrange; (rel address of first buffer) val:
-                       integer; (value to pack) var pbuf1, pbuf2: integer;
-                       (packed buffers) var full: boolean (buffer 1 is full)
-                       } ;
+procedure packedstore(eltloc: addressrange; {rel address of this field}
+                      eltsize: addressrange; {size of this field}
+                      baseloc: addressrange; {rel address of first buffer}
+                      val: integer; {value to pack}
+                      var pbuf1, pbuf2: integer; {packed buffers}
+                      var full: boolean {buffer 1 is full} );
 
 { This routine stores the value "val" as a packed field.  The field address,
   in bits is "eltloc".  The result is to be returned in two integer buffers
@@ -253,9 +440,10 @@ procedure packedstore {eltloc: addressrange; (rel address of this field)
   end; {packedstore}
 
 
-function roundpackedsize {spacesize: addressrange; (rounded space)
-                          packedresult: boolean (true if packed record) ):
-                          addressrange } ;
+
+function roundpackedsize(spacesize: addressrange; {rounded space}
+                         packedresult: boolean {true if packed record} ):
+ addressrange;
 
 {Round length of declared type to an even multiple of bitsperunit if
  the type is packed.  Used to simplify code generator, which wishes to
@@ -271,10 +459,10 @@ function roundpackedsize {spacesize: addressrange; (rounded space)
 
 
 
-procedure possibletemp
-                      {off: addressrange;
+
+procedure possibletemp(off: addressrange;
                        vartype: index;
-                       debugrec: integer} ;
+                       debugrec: integer);
 
 {
     Purpose:
@@ -307,8 +495,7 @@ procedure possibletemp
   begin {possibletemp}
     if tempvars < maxtrackvar then
       begin
-      if bigcompilerversion then f := ref(bigtable[vartype])
-      else areadaccess(vartype, f);
+      if bigcompilerversion then f := @(bigtable[vartype]);
       if ((f^.typ = reals) and not switcheverplus[doublereals]) or
          (switcheverplus[fpc68881] and (f^.typ in [reals, doubles])) or
          ((f^.typ in [bools, chars, ints, ptrs, scalars, subranges]) and
@@ -322,3 +509,120 @@ procedure possibletemp
         end;
       end;
   end {possibletemp} ;
+
+function forcealign(size: addressrange; {value to align}
+                    alignment: addressrange; {requirement}
+                    packedresult: boolean {size is in bits} ): addressrange;
+
+{ Forces "size" to the next higher multiple of "alignment".
+  Used to overcome limitations built into much contemporary hardware.
+}
+
+  begin {forcealign}
+    if packedresult then alignment := alignment * bitsperunit;
+    if alignment > 1 then
+      size := ((size + alignment - 1) div alignment) * alignment;
+    forcealign := size;
+  end {forcealign} ;
+
+function lower(f: entryptr {form to check} ): integer;
+
+{ Returns the lower bound of "f".  This is meaningful only for
+  scalar types.
+}
+
+
+  begin {lower}
+    with f^ do
+      if typ = ints then lower := targetminint
+      else if typ = subranges then lower := lowerord
+      else lower := 0;
+  end {lower} ;
+
+function upper(f: entryptr {form to check} ): integer;
+
+{ Returns the upper bound of "f".  This is meaningful only for
+  scalar types.
+}
+
+  begin {upper}
+    with f^ do
+      case typ of
+        ints: upper := targetmaxint;
+        bools: upper := 1;
+        chars: upper := charsetsize - 1;
+        none: upper := 255;
+        scalars: upper := lastord;
+        subranges: upper := upperord;
+        otherwise upper := targetmaxint
+        end
+  end {upper} ;
+
+
+
+function bits(i: integer {value to find size of} ): integer;
+
+{ Returns the number of bits needed to contain the value of i.
+}
+
+  var
+    b: integer; {Accumulates number of bits}
+    value: unsignedint; {Temp so can use a register and shift inst}
+
+
+  begin {bits}
+    if i < 0 then bits := targetintsize * bitsperunit
+    else
+      begin
+      value := i;
+      b := 1;
+      while value > 1 do
+        begin
+        b := b + 1;
+        value := value div 2;
+        end;
+      bits := b;
+      end;
+  end {bits} ;
+
+function sizeof(f: entryptr; {Form to get size of}
+                packedresult: boolean {set if packed value} ): addressrange;
+
+{ Returns the amount of storage needed to contain a value of the type
+  specified by "f".  If "packedresult" is set, this is in bits, otherwise
+  it is in addressing units.
+}
+
+  var
+    lowerf: integer; { temp holding lower(f) }
+    magnitude: addressrange; {absolute value of max number of bits}
+
+
+  begin {sizeof}
+    if packedresult = f^.bitaddress then sizeof := f^.size
+    else if packedresult then
+      case f^.typ of
+        chars, bools, scalars, subranges, none:
+          begin
+          if (targetmachine = iapx86) and (f^.size > wordsize) then
+            sizeof := defaulttargetintsize * bitsperunit
+          else
+            begin
+            lowerf := lower(f);
+            if (lowerf < 0) then
+              begin
+              magnitude := max(abs(upper(f)), abs(lowerf + 1));
+              if magnitude = 0 then sizeof := 1 {handles the case of -1..0}
+              else sizeof := bits(magnitude) + 1; {the normal case}
+              end
+            else sizeof := bits(upper(f));
+            end;
+          end
+        otherwise
+          if maxaddr div bitsperunit < f^.size then sizeof := maxaddr
+          else sizeof := f^.size * bitsperunit;
+        end
+    else sizeof := (f^.size + bitsperunit - 1) div bitsperunit;
+  end {sizeof} ;
+
+end.
