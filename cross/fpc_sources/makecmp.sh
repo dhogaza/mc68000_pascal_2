@@ -14,4 +14,5 @@ fpc -gl commona
 fpc -gl foldcom
 fpc -gl analys
 fpc -gl body
+fpc -gl t_c
 fpc -gl main

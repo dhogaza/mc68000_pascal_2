@@ -23,6 +23,12 @@ Update release version for PC-VV0-GS0 at 2.3.0.1
 
 }
 
+unit t_c;
+
+interface
+
+uses config;
+
 type
 
   { Operators emitted by travrs, read by code }
@@ -70,13 +76,6 @@ type
               unscallroutine, wrbin, wrbool, wrchar, wrint, wrreal, wrst,
               wrxstr, xorint);
 
-  tempfileonetype = file of packed array [0..diskbufsize] of
-      packed record
-        case boolean of
-          true: (byte: hostfilebyte); {integer data}
-          false: (op: pseudoop); {operator from travrs}
-      end;
-
   { Define interface from travrs to code }
 
   keyindex = - keysize..keysize; {actual key table index}
@@ -92,12 +91,10 @@ type
     end;
 
 var
-{ The following file declarations must be included in each pass,
-  and must be the first variables declared in that pass.
-}
-
-  tempfileone: tempfileonetype; {interface file scan-analys, travrs-code}
-  tempfiletwo: tempfiletwotype; {interface file analys-travrs}
 
   pseudoinst: pseudocode; {next pseudo-instruction}
   pseudobuff: pseudocode; {next + 1 pseudo-instruction}
+
+implementation
+
+end.
