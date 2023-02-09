@@ -1,4 +1,3 @@
-{$nomain}
 {[b+,o=80]}
 { NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
 
@@ -23,13 +22,27 @@
 Update release version for PC-VV0-GS0 at 2.3.0.1
 }
 
+unit body;
+
+interface
+
+uses config, hdr, utils, scan, hdra, a_t, commona, mda, foldcom;
+
+procedure body;
+
+implementation
+
+type dorangeproc = procedure (left, right: range;
+                              var result: range;
+			      op: binaryfold;
+                              var mayoverflow: boolean);
+
 { Machine dependent routines for Body.
 
   These routines will possibly have to be rewritten for different machines.
 }
 
-
-procedure genrealvalue(op: operator; {type of real}
+procedure genrealvalue(op: operatortype; {type of real}
                        r: realarray);
 
 { Generates a real operand.  This is machine dependent, and must be
@@ -60,7 +73,7 @@ procedure genrealvalue(op: operator; {type of real}
         end;
       otherwise
         begin
-        for i := 1 to size(realarray) div (hostfileunits * hostintsize) do
+        for i := 1 to maxrealwords div (hostfileunits * hostintsize) do
           genint(kludge.i[i]);
         end;
       end;
@@ -197,20 +210,9 @@ procedure setvarrange(len: addressrange; {range of variable}
 
 procedure binaryrange(var left, right: operand_range; {arguments}
                       extended: boolean; {an extended range}
-                      procedure signedop(left, right: integer;
-                                         var result: integer;
-                                         var overflow: boolean);
-                      procedure unsignedop
-                           (left, right: integer;
-                            var result: integer;
-                            var overflow: boolean);
-                      procedure dorange(left, right: range;
-                                        var result: range;
-                                        procedure op
-                                             (l, r: integer;
-                                              var res: integer;
-                                              var overflow: boolean);
-                                        var mayoverflow: boolean);
+		      signedop: binaryfold;
+		      unsignedop: binaryfold;
+		      dorange: dorangeproc;
                       var result: operand_range;
                       var mayoverflow: boolean);
 
@@ -244,9 +246,7 @@ procedure binaryrange(var left, right: operand_range; {arguments}
 
 procedure modrange(left, right: range; {operands}
                    var result: range; {result}
-                   procedure op(left, right: integer;
-                                var result: integer;
-                                var overflow: boolean);
+		   op: binaryfold;
                    var mayoverflow: boolean);
 
   { Compute the resulting range for a "mod" operator.  In most cases, the
@@ -278,9 +278,7 @@ procedure modrange(left, right: range; {operands}
 
 procedure divrange(left, right: range; {operands}
                    var result: range; {result}
-                   procedure op(left, right: integer;
-                                var result: integer;
-                                var overflow: boolean);
+		   op: binaryfold;
                    var mayoverflow: boolean);
 
 { Compute the resulting range for a divide operation.  This is
@@ -380,9 +378,7 @@ procedure divrange(left, right: range; {operands}
 
 procedure addrange(left, right: range; {operands}
                    var result: range; {result}
-                   procedure op(left, right: integer;
-                                var result: integer;
-                                var overflow: boolean);
+		   op: binaryfold;
                    var mayoverflow: boolean);
 
 { Adjust the range of an operand as a result of an addition.
@@ -407,9 +403,7 @@ procedure addrange(left, right: range; {operands}
 
 procedure subrange(left, right: range; {operands}
                    var result: range; {result}
-                   procedure op(left, right: integer;
-                                var result: integer;
-                                var overflow: boolean);
+		   op: binaryfold;
                    var mayoverflow: boolean);
 
 { Adjust the range of an operand as a result of a subtracton.
@@ -434,9 +428,7 @@ procedure subrange(left, right: range; {operands}
 
 procedure mulrange(left, right: range; {operands}
                    var result: range; {result}
-                   procedure op(left, right: integer;
-                                var result: integer;
-                                var overflow: boolean);
+		   op: binaryfold;
                    var mayoverflow: boolean);
 
 { Compute the resulting range for an integer multiply.  This is
@@ -678,8 +670,7 @@ procedure genoprnd;
             doubles: genrealvalue(doubleop, realvalue.realbuffer);
             strings, arrays, fields:
               begin
-              if bigcompilerversion then f := ref(bigtable[typeindex])
-              else areadaccess(typeindex, f);
+              if bigcompilerversion then f := @(bigtable[typeindex]);
               if f^.disposable and (typeindex = tabletop) then
                 begin
                 lastdebugrecord := lastdebugrecord - 2;
@@ -727,7 +718,6 @@ procedure genoprnd;
               genint(setcount);
               genint(oprndlen);
               dispose(setvalue);
-              if not bigcompilerversion then aincreasebuffers;
               end;
             otherwise; {in case of syntax errors}
             end;
@@ -758,7 +748,6 @@ procedure debugstmt(s: stmttype;
       begin
       if (switcheverplus[debugging]) and (line <> 0) then
         begin
-        display[level].laststmt := stf_stmt(line, filepos);
         if display[level].firststmt = 0 then
           display[level].firststmt := display[level].laststmt;
         genint(display[level].laststmt);
@@ -870,8 +859,7 @@ procedure checkrange(subject: operand; {does this fit?}
       begin
       if believeit then r := optimistic
       else r := pessimistic;
-      if bigcompilerversion then typeptr := ref(bigtable[typeindex])
-      else areadaccess(typeindex, typeptr);
+      if bigcompilerversion then typeptr := @(bigtable[typeindex]);
       l := lower(typeptr);
       u := upper(typeptr);
       if typeptr^.extendedrange or r.extended then
@@ -902,8 +890,7 @@ procedure newresulttype(newtype: index);
 
   begin {newresulttype}
     resulttype := newtype;
-    if bigcompilerversion then resultptr := ref(bigtable[resulttype])
-    else areadaccess(resulttype, resultptr);
+    if bigcompilerversion then resultptr := @(bigtable[resulttype]);
     resultform := getform(resultptr);
   end {newresulttype} ;
 
@@ -995,7 +982,7 @@ function range_length(r: range {return length of this range in bytes} ):
        are stored in a "long", and there is full 32-bit support.
        The alternative code shrinks short operations to 16 bits.
 
-       {note: might want to use shorter range for comparisions at a
+       note: might want to use shorter range for comparisions at a
               later date.
       }
       vax, pdp11: range_length := targetintsize;
@@ -1103,7 +1090,7 @@ function getrealbuffer(i: integer {operand stack index} ): realarray;
     if (oprndstk[i].cvalue.representation = reals) or
        (oprndstk[i].cvalue.representation = doubles) then
       getrealbuffer := oprndstk[i].cvalue.realvalue.realbuffer
-    else getrealbuffer := realarray(1, 1, 1, 1);
+    else getrealbuffer[1] := 1;
   end {getrealbuffer} ;
 
 
@@ -1270,7 +1257,7 @@ procedure dumpconst(constantlen: addressrange; {length of const to be dumped}
 
 
 
-procedure genbinary(op: operator; {operation to generate}
+procedure genbinary(op: operatortype; {operation to generate}
                     form: types {type of operands} );
   forward;
 
@@ -1357,7 +1344,7 @@ procedure foldrem;
       begin
       mayoverflow := false;
       binaryrange(divide_range, oprndstk[sp].value_range, divide_extended,
-                  remainder, usremainder, modrange, result_range, mayoverflow);
+                  @remainder, @usremainder, @modrange, result_range, mayoverflow);
 
       foldedunary := foldedbinary;
       if foldedunary then
@@ -1394,7 +1381,7 @@ procedure foldquo;
     if freemodwithdiv then
       begin
       binaryrange(divide_range, oprndstk[sp].value_range, divide_extended,
-                  divide, usdivide, divrange, result_range, mayoverflow);
+                  @divide, @usdivide, @divrange, result_range, mayoverflow);
 
       foldedunary := foldedbinary;
       if foldedunary then
@@ -1436,7 +1423,7 @@ procedure foldmod;
       begin
       mayoverflow := false;
       binaryrange(oprndstk[l].value_range, oprndstk[r].value_range, oextended,
-                  remainder, usremainder, modrange, result_range, mayoverflow);
+                  @remainder, @usremainder, @modrange, result_range, mayoverflow);
       if (lconst and rconst) then returnresult(mayoverflow)
       else if rconst then
         begin
@@ -1444,8 +1431,7 @@ procedure foldmod;
         foldedbinary := false;
         with oprndstk[l] do
           begin
-          if bigcompilerversion then typeptr := ref(bigtable[typeindex])
-          else areadaccess(typeindex, typeptr);
+          if bigcompilerversion then typeptr := @(bigtable[typeindex]);
           rangenonneg := value_range.optimistic.minlimit >= 0;
           rangenonneg := rangenonneg or unsigned(typeptr, oprndlen, false);
           end;
@@ -1484,7 +1470,7 @@ procedure foldkwo;
     if not freemodwithdiv then
       begin
       binaryrange(oprndstk[l].value_range, oprndstk[r].value_range, oextended,
-                  divide, usdivide, divrange, result_range, mayoverflow);
+                  @divide, @usdivide, @divrange, result_range, mayoverflow);
 
       if (lconst and rconst) then returnresult(mayoverflow)
       else if rconst and (getintvalue(r) = 1) then returnoprnd(l)
@@ -1494,8 +1480,7 @@ procedure foldkwo;
         foldedbinary := false;
         with oprndstk[l] do
           begin
-          if bigcompilerversion then typeptr := ref(bigtable[typeindex])
-          else areadaccess(typeindex, typeptr);
+          if bigcompilerversion then typeptr := @(bigtable[typeindex]);
           rangenonneg := value_range.optimistic.minlimit >= 0;
           rangenonneg := rangenonneg or unsigned(typeptr, oprndlen, false);
           end;
@@ -1720,8 +1705,7 @@ procedure foldchk(adjustlow: boolean; {adjust lower bound to 0}
 
 
   begin {foldchk}
-    if bigcompilerversion then typeptr := ref(bigtable[oprndstk[sp].typeindex])
-    else areadaccess(oprndstk[sp].typeindex, typeptr);
+    if bigcompilerversion then typeptr := @(bigtable[oprndstk[sp].typeindex]);
     lowerbound := lower(typeptr);
     upperbound := upper(typeptr);
     if typeptr^.typ in [subranges, chars, bools, ints, scalars] then
@@ -1784,7 +1768,7 @@ procedure foldunary;
   end {foldunary} ;
 
           
-procedure genunary(op: operator; {operation to generate}
+procedure genunary(op: operatortype; {operation to generate}
                    form: types {type of operand} );
 
 { Generate a unary operation.  The operands are first checked to
@@ -1844,8 +1828,7 @@ procedure genunary(op: operator; {operation to generate}
           end;
         end;
       end;
-    if bigcompilerversion then resultptr := ref(bigtable[resulttype])
-    else areadaccess(resulttype, resultptr);
+    if bigcompilerversion then resultptr := @(bigtable[resulttype]);
   end {genunary} ;
 
 
@@ -1870,10 +1853,10 @@ procedure foldintplusminus(sign: integer {1 if add, -1 if sub} );
   begin {foldintplusminus}
     if sign > 0 then
       binaryrange(oprndstk[l].value_range, oprndstk[r].value_range, oextended,
-                  add, usadd, addrange, result_range, mayoverflow)
+                  @add, @usadd, @addrange, result_range, mayoverflow)
     else
       binaryrange(oprndstk[l].value_range, oprndstk[r].value_range, oextended,
-                  subtract, ussubtract, subrange, result_range, mayoverflow);
+                  @subtract, @ussubtract, @subrange, result_range, mayoverflow);
 
     if (lconst and rconst) then returnresult(mayoverflow)
     else if rconst and linearize then
@@ -1977,7 +1960,7 @@ procedure foldintmul;
 
   begin {foldintmul}
     binaryrange(oprndstk[l].value_range, oprndstk[r].value_range, oextended,
-                multiply, usmultiply, mulrange, result_range, mayoverflow);
+                @multiply, @usmultiply, @mulrange, result_range, mayoverflow);
 
     if (lconst and rconst) then returnresult(mayoverflow)
     else if lconst and (getintvalue(l) = 1) then returnoprnd(r)
@@ -2056,8 +2039,7 @@ procedure folddiv;
         power2check(getintvalue(r), power2, power2value);
         with oprndstk[l] do
           begin
-          if bigcompilerversion then typeptr := ref(bigtable[typeindex])
-          else areadaccess(typeindex, typeptr);
+          if bigcompilerversion then typeptr := @(bigtable[typeindex]);
           rangenonneg := value_range.optimistic.minlimit >= 0;
           if power2 and (rangenonneg or unsigned(typeptr, oprndlen, false)) then
             oprndstk[r].cvalue.intvalue := - power2value
@@ -2091,7 +2073,7 @@ procedure foldslash;
   end {foldslash} ;
 
 
-procedure foldcmp(op: operator {operation being folded} );
+procedure foldcmp(op: operatortype {operation being folded} );
 
 { Fold moves and compares.  If both operands are constant (obviously
   not a move), the comparison is folded into a boolean constant so
@@ -2381,8 +2363,9 @@ procedure foldbinary;
   end {foldbinary} ;
 
 
-procedure genbinary { op:operator; (operation to generate) form: types (type of
-                     operands)} ;
+
+procedure genbinary(op: operatortype; {operation to generate}
+                    form: types {type of operands} );
 
 { Generate intermediate file output for a binary operation.  If possible,
   the operation will be folded.  The operand stack is updated to reflect
@@ -2456,8 +2439,7 @@ procedure genbinary { op:operator; (operation to generate) form: types (type of
           end;
         end;
       end;
-    if bigcompilerversion then resultptr := ref(bigtable[resulttype])
-    else areadaccess(resulttype, resultptr);
+    if bigcompilerversion then resultptr := @(bigtable[resulttype]);
   end {genbinary} ;
 
 
@@ -2554,13 +2536,11 @@ procedure computeresult(maybestring: boolean {force char to string?});
     if sp >= 0 then righttype := oprndstk[sp].typeindex
     else righttype := noneindex;
     newresulttype(noneindex);
-    if bigcompilerversion then f := ref(bigtable[lefttype])
-    else areadaccess(lefttype, f);
+    if bigcompilerversion then f := @(bigtable[lefttype]);
     leftform := getform(f);
     leftstringtype := (leftform = arrays) and f^.stringtype;
     leftshortstring := leftstringtype and (f^.arraymembers = 1);
-    if bigcompilerversion then f := ref(bigtable[righttype])
-    else areadaccess(righttype, f);
+    if bigcompilerversion then f := @(bigtable[righttype]);
     rightform := getform(f);
     rightshortstring := (rightform = arrays) and f^.stringtype and
                         (f^.arraymembers = 1);
@@ -2693,7 +2673,7 @@ procedure computeresult(maybestring: boolean {force char to string?});
   end {computeresult} ;
 
 
-procedure gencheck(op: operator; {operator to generate}
+procedure gencheck(op: operatortype; {operator to generate}
                    checktype: index {type for check} );
 
 { If the top of the operand stack can be checked, check it.
@@ -2705,8 +2685,7 @@ procedure gencheck(op: operator; {operator to generate}
 
 
   begin {gencheck}
-    if bigcompilerversion then checkptr := ref(bigtable[checktype])
-    else areadaccess(checktype, checkptr);
+    if bigcompilerversion then checkptr := @(bigtable[checktype]);
     with checkptr^ do
       if typ = subranges then
         generate := (lowerord <> 0) or (upperord <> maxusint)
@@ -2991,8 +2970,7 @@ procedure statement(follow: tokenset {legal following symbols} );
 
     begin {genvalsize}
       packedaccess := false;
-      if bigcompilerversion then f := ref(bigtable[elttype])
-      else areadaccess(elttype, f);
+      if bigcompilerversion then f := @(bigtable[elttype]);
       with f^ do
         if typ = conformantarrays then
           begin
@@ -3184,8 +3162,7 @@ procedure statement(follow: tokenset {legal following symbols} );
           warnbefore(indexincomp);
         linearize := false;
         oprndstk[sp].typeindex := indexwanted;
-        if bigcompilerversion then indextypeptr := ref(bigtable[indexwanted])
-        else areadaccess(indexwanted, indextypeptr);
+        if bigcompilerversion then indextypeptr := @(bigtable[indexwanted]);
         lowerbound := lower(indextypeptr);
         if not conformant and (switchcounters[indexcheck] > 0) then
           genunary(indxchkop, ints)
@@ -3302,8 +3279,7 @@ procedure statement(follow: tokenset {legal following symbols} );
                 searchsection(fieldid, fieldindex);
                 if fieldindex <> 0 then
                   begin
-                  if bigcompilerversion then p := ref(bigtable[fieldindex])
-                  else areadaccess(fieldindex, p);
+                  if bigcompilerversion then p := @(bigtable[fieldindex]);
                   newresulttype(p^.vartype);
                   nowvariant := p^.varianttag;
                   setnowunpacking(packedflag, p^.offset, nowunpacking);
@@ -3345,8 +3321,7 @@ procedure statement(follow: tokenset {legal following symbols} );
             begin
             if typ = ptrs then
               begin
-              if bigcompilerversion then p := ref(bigtable[ptrtypename])
-              else areadaccess(ptrtypename, p);
+              if bigcompilerversion then p := @(bigtable[ptrtypename]);
               newresulttype(p^.typeindex);
               newoff := ptrkey;
               end
@@ -3456,13 +3431,12 @@ procedure statement(follow: tokenset {legal following symbols} );
     end {illegalassign} ;
 
 
-  procedure variable;
-                    {variantok: boolean; (true if case selector ok)
-                     packedok: boolean; (packed ok in context)
-                     forindexallowed: boolean; (for index ok in context)
-                     newflag: boolean; (newvarop to travrs)
-                     parsing: boolean; (true if parsing a variable)
-                     varindex: index}
+  procedure variable(variantok: boolean; {true if case selector ok}
+                     packedok: boolean; {packed ok in context}
+                     forindexallowed: boolean; {for index ok in context}
+                     newflag: boolean; {newvarop to travrs}
+                     parsing: boolean; {true if parsing a variable}
+                     varindex: index);
 
 { Syntactic routine to parse a variable reference.
 
@@ -3502,8 +3476,7 @@ procedure statement(follow: tokenset {legal following symbols} );
       unpacking := false;
       varlev := lev;
       ownvar := false;
-      if bigcompilerversion then varptr := ref(bigtable[varindex])
-      else awriteaccess(varindex, varptr);
+      if bigcompilerversion then varptr := @(bigtable[varindex]);
       with varptr^ do
         begin
         if checkforstack(varindex, i) then
@@ -3795,8 +3768,7 @@ procedure statement(follow: tokenset {legal following symbols} );
       if resultindex = 0 then illegalident(resultindex)
       else
         begin
-        if bigcompilerversion then p := ref(bigtable[resultindex])
-        else awriteaccess(resultindex, p);
+        if bigcompilerversion then p := @(bigtable[resultindex]);
         with p^ do
           if namekind in
              [varname, fieldname, param, varparam, confparam,
@@ -3830,8 +3802,7 @@ procedure statement(follow: tokenset {legal following symbols} );
         search(fileindex);
         if (fileindex = inputindex) or (fileindex = outputindex) then
           begin
-          if bigcompilerversion then f := ref(bigtable[fileindex])
-          else areadaccess(fileindex, f);
+          if bigcompilerversion then f := @(bigtable[fileindex]);
           filedeclared := f^.programdecl;
           end;
         end;
@@ -3872,8 +3843,7 @@ procedure statement(follow: tokenset {legal following symbols} );
             else
               begin
               if bigcompilerversion then
-                f := ref(bigtable[resultptr^.filebasetype])
-              else areadaccess(resultptr^.filebasetype, f);
+                f := @(bigtable[resultptr^.filebasetype]);
               genpushdefaultint(forcealign(sizeof(f, false), alignmentof(f,
                                            false),
                                 false) * (bitsperunit div bitsperfileunit));
@@ -3987,7 +3957,7 @@ procedure statement(follow: tokenset {legal following symbols} );
     end {parseextraargs} ;
 
 
-  procedure parameterlist;
+  procedure parameterlist(procindex: index {procedure name entry} );
 
 { Syntactic procedure to parse a parameter list.
 
@@ -4088,10 +4058,8 @@ procedure statement(follow: tokenset {legal following symbols} );
               if identical(formalt, actualt) then equivtypes := true
               else
                 begin
-                if bigcompilerversion then at := ref(bigtable[actualt])
-                else areadaccess(actualt, at);
-                if bigcompilerversion then ft := ref(bigtable[formalt])
-                else areadaccess(formalt, ft);
+                if bigcompilerversion then at := @(bigtable[actualt]);
+                if bigcompilerversion then ft := @(bigtable[formalt]);
                 if (at^.typ = conformantarrays) and
                    (ft^.typ = conformantarrays) then
                   equivtypes := (at^.packedflag = ft^.packedflag) and
@@ -4107,10 +4075,8 @@ procedure statement(follow: tokenset {legal following symbols} );
             formal := formal + 1;
             while c and (actual <= lastactual) do
               begin
-              if bigcompilerversion then ap := ref(bigtable[actual])
-              else areadaccess(actual, ap);
-              if bigcompilerversion then fp := ref(bigtable[formal])
-              else areadaccess(formal, fp);
+              if bigcompilerversion then ap := @(bigtable[actual]);
+              if bigcompilerversion then fp := @(bigtable[formal]);
               nexta := ap^.nextparamlink;
               nextf := fp^.nextparamlink;
               c := (ap^.namekind = fp^.namekind) and
@@ -4179,10 +4145,8 @@ procedure statement(follow: tokenset {legal following symbols} );
 
 
         begin {conformable}
-          if bigcompilerversion then formalptr := ref(bigtable[formal])
-          else areadaccess(formal, formalptr);
-          if bigcompilerversion then actualptr := ref(bigtable[actual])
-          else areadaccess(actual, actualptr);
+          if bigcompilerversion then formalptr := @(bigtable[formal]);
+          if bigcompilerversion then actualptr := @(bigtable[actual]);
           if (formalptr^.typ = conformantarrays) and
              (actualptr^.typ in [conformantarrays, arrays, strings]) then
             begin
@@ -4196,11 +4160,9 @@ procedure statement(follow: tokenset {legal following symbols} );
             if c and (actualptr^.typ in [arrays, strings]) then
               begin
               if bigcompilerversion then
-                formalptr := ref(bigtable[formalindex])
-              else areadaccess(formalindex, formalptr);
+                formalptr := @(bigtable[formalindex]);
               if bigcompilerversion then
-                actualptr := ref(bigtable[actualindex])
-              else areadaccess(actualindex, actualptr);
+                actualptr := @(bigtable[actualindex]);
               c := (lower(actualptr) >= lower(formalptr)) and
                    (upper(actualptr) <= upper(formalptr));
               end;
@@ -4269,8 +4231,7 @@ procedure statement(follow: tokenset {legal following symbols} );
             begin
             if pushbounds then
               begin
-              if bigcompilerversion then paramptr := ref(bigtable[paramtype])
-              else areadaccess(paramtype, paramptr);
+              if bigcompilerversion then paramptr := @(bigtable[paramtype]);
               actualptr := resultptr;
               while (actualptr^.typ in [arrays, conformantarrays, strings]) and
                     (paramptr^.typ = conformantarrays) do
@@ -4279,17 +4240,14 @@ procedure statement(follow: tokenset {legal following symbols} );
                 pt1 := paramptr^.elementtype;
                 at1 := actualptr^.elementtype;
                 if bigcompilerversion then
-                  indexptr := ref(bigtable[paramptr^.lowbound])
-                else areadaccess(paramptr^.lowbound, indexptr);
+                  indexptr := @(bigtable[paramptr^.lowbound]);
                 boundidsize := indexptr^.length;
                 boundidtype := indexptr^.vartype;
                 highid := actualptr^.highbound;
                 lowid := actualptr^.lowbound;
                 desiredindex := paramptr^.indextype;
                 if bigcompilerversion then
-                  indexptr := ref(bigtable[actualptr^.indextype])
-                else areadaccess(actualptr^.indextype, indexptr);
-
+                  indexptr := @(bigtable[actualptr^.indextype]);
                 if actualisconformant then pushbound(lowid)
                 else pushint(lower(indexptr));
                 oprndstk[sp].typeindex := boundidtype;
@@ -4304,10 +4262,8 @@ procedure statement(follow: tokenset {legal following symbols} );
                 genunary(pushvalue, getform(indexptr));
                 genoprnd;
 
-                if bigcompilerversion then paramptr := ref(bigtable[pt1])
-                else areadaccess(pt1, paramptr);
-                if bigcompilerversion then actualptr := ref(bigtable[at1])
-                else areadaccess(at1, actualptr);
+                if bigcompilerversion then paramptr := @(bigtable[pt1]);
+                if bigcompilerversion then actualptr := @(bigtable[at1]);
                 end;
               end;
             end
@@ -4330,8 +4286,7 @@ procedure statement(follow: tokenset {legal following symbols} );
             end;
           paramindex := maxparams
           end;
-        if bigcompilerversion then p := ref(bigtable[paramindex])
-        else areadaccess(paramindex, p);
+        if bigcompilerversion then p := @(bigtable[paramindex]);
         namekind := p^.namekind;
         nextparam := p^.nextparamlink + 1;
         if alreadywarned or (namekind in [param, confparam]) or
@@ -4341,11 +4296,9 @@ procedure statement(follow: tokenset {legal following symbols} );
           actualstdstring := (resultform = arrays) and resultptr^.stringtype;
           if not alreadywarned then
             begin
-            if bigcompilerversion then p := ref(bigtable[paramindex])
-            else areadaccess(paramindex, p);
+            if bigcompilerversion then p := @(bigtable[paramindex]);
             formaltype := p^.vartype;
-            if bigcompilerversion then paramptr := ref(bigtable[formaltype])
-            else areadaccess(formaltype, paramptr);
+            if bigcompilerversion then paramptr := @(bigtable[formaltype]);
             formallen := p^.length;
             if namekind = param then
               begin
@@ -4412,14 +4365,12 @@ procedure statement(follow: tokenset {legal following symbols} );
           if actualindex = 0 then illegalident(actualindex)
           else
             begin
-            if bigcompilerversion then actualptr := ref(bigtable[actualindex])
-            else areadaccess(actualindex, actualptr);
+            if bigcompilerversion then actualptr := @(bigtable[actualindex]);
             case namekind of
               varparam:
                 begin
                 modifyvariable(false, false);
-                if bigcompilerversion then p := ref(bigtable[paramindex])
-                else areadaccess(paramindex, p);
+                if bigcompilerversion then p := @(bigtable[paramindex]);
                 if not (p^.univparam or identical(p^.vartype, resulttype)) then
                   warnbefore(paramtypeerr);
                 oprndstk[sp].oprndlen := ptrsize;
@@ -4471,8 +4422,7 @@ procedure statement(follow: tokenset {legal following symbols} );
     begin {parameterlist}
       lastconfactual := noneindex;
       alreadywarned := false;
-      if bigcompilerversion then p := ref(bigtable[procindex])
-      else areadaccess(procindex, p);
+      if bigcompilerversion then p := @(bigtable[procindex]);
       with p^ do
         if (procindex = 0) or
            not (namekind in
@@ -4530,15 +4480,13 @@ procedure statement(follow: tokenset {legal following symbols} );
 
     begin {procedurecall}
       gettoken;
-      if bigcompilerversion then p := ref(bigtable[where])
-      else areadaccess(where, p);
+      if bigcompilerversion then p := @(bigtable[where]);
       with p^ do
         begin
         ftype := functype;
         pref := procref;
         end;
-      if bigcompilerversion then p := ref(bigtable[ftype])
-      else areadaccess(ftype, p);
+      if bigcompilerversion then p := @(bigtable[ftype]);
       plen := sizeof(p, false);
       genlit(pref);
       genop(reserve);
@@ -4583,8 +4531,7 @@ procedure statement(follow: tokenset {legal following symbols} );
       oprndstk[sp].typeindex := resulttype;
       oprndstk[sp].oprndlen := plen;
       setvarrange(plen, false, false);
-      if bigcompilerversion then p := ref(bigtable[ftype])
-      else areadaccess(ftype, p);
+      if bigcompilerversion then p := @(bigtable[ftype]);
       if unsigned(p, plen, false) then genunary(unscall, resultform)
       else genunary(call, resultform);
     end {procedurecall} ;
@@ -4606,8 +4553,7 @@ procedure statement(follow: tokenset {legal following symbols} );
     begin {paramcall}
       variable(true, false, true, false, true, where);
       ftype := resulttype;
-      if bigcompilerversion then p := ref(bigtable[ftype])
-      else areadaccess(ftype, p);
+      if bigcompilerversion then p := @(bigtable[ftype]);
       plen := sizeof(p, false);
       genop(reserve);
       genint(plen);
@@ -4658,26 +4604,22 @@ procedure statement(follow: tokenset {legal following symbols} );
         begin
         verifytoken(comma, nocommaerr);
         constant([comma, rpar], true, labvalue);
-        if bigcompilerversion then currentptr := ref(bigtable[currentrecord])
-        else areadaccess(currentrecord, currentptr);
+        if bigcompilerversion then currentptr := @(bigtable[currentrecord]);
         if getform(currentptr) = fields then
           begin
           tagtype := noneindex;
           if currentptr^.tagfield <> 0 then
             begin
-            if bigcompilerversion then p := ref(bigtable[currentptr^.tagfield])
-            else areadaccess(currentptr^.tagfield, p);
+            if bigcompilerversion then p := @(bigtable[currentptr^.tagfield]);
             tagtype := p^.vartype
             end
           else if currentptr^.firstvariant <> 0 then
             begin
             if bigcompilerversion then
-              f := ref(bigtable[currentptr^.firstvariant])
-            else areadaccess(currentptr^.firstvariant, f);
+              f := @(bigtable[currentptr^.firstvariant]);
             if f^.firstlabel <> 0 then
               begin
-              if bigcompilerversion then f := ref(bigtable[f^.firstlabel])
-              else areadaccess(f^.firstlabel, f);
+              if bigcompilerversion then f := @(bigtable[f^.firstlabel]);
               tagtype := f^.varlabtype;
               end;
             end;
@@ -4914,9 +4856,7 @@ procedure statement(follow: tokenset {legal following symbols} );
 
 
         procedure sqrrange(operand: range; {operand being squared}
-                           procedure op(left, right: integer;
-                                        var result: integer;
-                                        var overflow: boolean);
+		           op: binaryfold;
                            var result: range {resulting range} );
 
 { Compute resulting range for the "sqr" function
@@ -4946,16 +4886,16 @@ procedure statement(follow: tokenset {legal following symbols} );
             if resultform = ints then
               if extended then
                 begin
-                sqrrange(value_range.optimistic, usmultiply,
+                sqrrange(value_range.optimistic, @usmultiply,
                          value_range.optimistic);
-                sqrrange(value_range.pessimistic, usmultiply,
+                sqrrange(value_range.pessimistic, @usmultiply,
                          value_range.pessimistic);
                 end
               else
                 begin
-                sqrrange(value_range.optimistic, multiply,
+                sqrrange(value_range.optimistic, @multiply,
                          value_range.optimistic);
-                sqrrange(value_range.pessimistic, multiply,
+                sqrrange(value_range.pessimistic, @multiply,
                          value_range.pessimistic);
                 end;
           finishparams([none, ints, reals, doubles], resulttype);
@@ -5138,8 +5078,7 @@ procedure statement(follow: tokenset {legal following symbols} );
             if typeident = 0 then warn(undefidenterr)
             else
               begin
-              if bigcompilerversion then p := ref(bigtable[typeident])
-              else areadaccess(typeident, p);
+              if bigcompilerversion then p := @(bigtable[typeident]);
               if p^.namekind in [typename, undeftypename] then
                 begin
                 restype := p^.typeindex;
@@ -5184,8 +5123,7 @@ procedure statement(follow: tokenset {legal following symbols} );
         begin {sizefunction}
           firstypeparam(true, thistype);
           parsetagparams(thistype);
-          if bigcompilerversion then f := ref(bigtable[thistype])
-          else areadaccess(thistype, f);
+          if bigcompilerversion then f := @(bigtable[thistype]);
           pushint(sizeof(f, procid = bitsizeid));
           with oprndstk[sp] do
             begin
@@ -5212,8 +5150,7 @@ procedure statement(follow: tokenset {legal following symbols} );
         begin {lowerupperfunction}
           setflag := false;
           firstypeparam(true, thistype);
-          if bigcompilerversion then f := ref(bigtable[thistype])
-          else areadaccess(thistype, f);
+          if bigcompilerversion then f := @(bigtable[thistype]);
           if f^.typ in [sets, arrays] then
             begin {royal kludge per customer request}
             if f^.typ = arrays then thistype := f^.indextype
@@ -5222,8 +5159,7 @@ procedure statement(follow: tokenset {legal following symbols} );
               setflag := true;
               thistype := f^.basetype;
               end;
-            if bigcompilerversion then f := ref(bigtable[thistype])
-            else areadaccess(thistype, f);
+            if bigcompilerversion then f := @(bigtable[thistype]);
             end;
           if not (f^.typ in [none, bools, scalars, ints, subranges, chars]) then
             warnbefore(badfunctionarg);
@@ -5259,8 +5195,7 @@ procedure statement(follow: tokenset {legal following symbols} );
 
         begin {loopholefunction}
           firstypeparam(false, newtype);
-          if bigcompilerversion then newptr := ref(bigtable[newtype])
-          else areadaccess(newtype, newptr);
+          if bigcompilerversion then newptr := @(bigtable[newtype]);
           newsize := sizeof(newptr, false);
           newform := getform(newptr);
           newunsigned := unsigned(newptr, newsize, false);
@@ -5301,8 +5236,7 @@ procedure statement(follow: tokenset {legal following symbols} );
           if token = ident then
             begin
             search(varindex);
-            if bigcompilerversion then varptr := ref(bigtable[varindex])
-            else awriteaccess(varindex, varptr);
+            if bigcompilerversion then varptr := @(bigtable[varindex]);
             modifyvariable(true, false);
             end
           else
@@ -5315,8 +5249,7 @@ procedure statement(follow: tokenset {legal following symbols} );
           genunary(addrop, ptrs);
           if tabletop = tablesize then fatal(tablefull)
           else tabletop := tabletop + 1;
-          if bigcompilerversion then varptr := ref(bigtable[tabletop])
-          else awriteaccess(tabletop, varptr);
+          if bigcompilerversion then varptr := @(bigtable[tabletop]);
           with varptr^ do
             begin
             dbgsymbol := 0;
@@ -5674,8 +5607,7 @@ procedure statement(follow: tokenset {legal following symbols} );
             basetype := resulttype;
             end;
           if basetype = intindex then basetype := subrangeindex;
-          if bigcompilerversion then baseptr := ref(bigtable[basetype])
-          else areadaccess(basetype, baseptr);
+          if bigcompilerversion then baseptr := @(bigtable[basetype]);
           if not (getform(baseptr) in
              [ints, chars, bools, scalars, subranges, none]) then
             warnbefore(badsetbase)
@@ -5685,7 +5617,6 @@ procedure statement(follow: tokenset {legal following symbols} );
 
 
     begin {factor}
-      adecreasebuffers;
       newresulttype(noneindex);
       if token in begfactset then
         case token of
@@ -5697,8 +5628,7 @@ procedure statement(follow: tokenset {legal following symbols} );
               dumpstr(thistoken.len + 1, curstringbuf, true);
               end;
             pushconstant(follow);
-            if bigcompilerversion then resultptr := ref(bigtable[resulttype])
-            else awriteaccess(resulttype, resultptr);
+            if bigcompilerversion then resultptr := @(bigtable[resulttype]);
             resultptr^.align := 0;
             resultptr^.disposable := true;
             end;
@@ -5710,8 +5640,7 @@ procedure statement(follow: tokenset {legal following symbols} );
             if varindex = 0 then illegalident(varindex)
             else
               begin
-              if bigcompilerversion then varptr := ref(bigtable[varindex])
-              else areadaccess(varindex, varptr);
+              if bigcompilerversion then varptr := @(bigtable[varindex]);
               with varptr^ do
                 case namekind of
                   noname: illegalident(varindex);
@@ -5794,7 +5723,6 @@ procedure statement(follow: tokenset {legal following symbols} );
               extended := false;
               operandkind := constoperand;
               cvalue.representation := sets;
-              if not bigcompilerversion then adecreasebuffers;
               new(cvalue.setvalue);
               cvalue.setvalue^ := [];
               end;
@@ -5820,8 +5748,7 @@ procedure statement(follow: tokenset {legal following symbols} );
                 if token <> rbrack then verifytoken(comma, nocommaerr);
                 genoprnd;
                 end;
-              if bigcompilerversion then baseptr := ref(bigtable[basetype])
-              else areadaccess(basetype, baseptr);
+              if bigcompilerversion then baseptr := @(bigtable[basetype]);
               if getform(baseptr) in
                  [ints, chars, bools, scalars, subranges] then
                 begin
@@ -5831,8 +5758,7 @@ procedure statement(follow: tokenset {legal following symbols} );
                 end;
               oprndstk[sp].oprndlen := size;
               end;
-            if bigcompilerversion then setptr := ref(bigtable[settype])
-            else awriteaccess(settype, setptr);
+            if bigcompilerversion then setptr := @(bigtable[settype]);
             setptr^ := setentry;
             newresulttype(settype);
             verifytoken(rbrack, norbrackerr);
@@ -5855,9 +5781,8 @@ procedure statement(follow: tokenset {legal following symbols} );
     end {factor} ;
 
 
-  procedure expression
-                     {follow : tokenset; (legal following symbols)
-                      arrayopt:boolean (true if array opt wanted)} ;
+  procedure expression(follow: tokenset; {legal following sym}
+                       arrayopt: boolean {true if array opt wanted} );
 
 { Syntactic routine to parse an expression (with mods).
 
@@ -5971,13 +5896,11 @@ procedure statement(follow: tokenset {legal following symbols} );
                           else
                             begin
                             if bigcompilerversion then
-                              f := ref(bigtable[oprndstk[sp - 1].typeindex])
-                            else areadaccess(oprndstk[sp - 1].typeindex, f);
+                              f := @(bigtable[oprndstk[sp - 1].typeindex]);
                             if (lower(f) >= 0) or oprndstk[sp - 1].extended then
                               begin
                               if bigcompilerversion then
-                                f := ref(bigtable[oprndstk[sp].typeindex])
-                              else areadaccess(oprndstk[sp].typeindex, f);
+                                f := @(bigtable[oprndstk[sp].typeindex]);
                               if (lower(f) >= 0) or oprndstk[sp].extended then
                                 specialdiv := false;
                               end;
@@ -6004,13 +5927,11 @@ procedure statement(follow: tokenset {legal following symbols} );
                           else
                             begin
                             if bigcompilerversion then
-                              f := ref(bigtable[oprndstk[sp - 1].typeindex])
-                            else areadaccess(oprndstk[sp - 1].typeindex, f);
+                              f := @(bigtable[oprndstk[sp - 1].typeindex]);
                             if (lower(f) >= 0) or oprndstk[sp - 1].extended then
                               begin
                               if bigcompilerversion then
-                                f := ref(bigtable[oprndstk[sp].typeindex])
-                              else areadaccess(oprndstk[sp].typeindex, f);
+                                f := @(bigtable[oprndstk[sp].typeindex]);
                               if (lower(f) >= 0) or oprndstk[sp].extended then
                                 specialdiv := false;
                               end;
@@ -6112,8 +6033,7 @@ procedure statement(follow: tokenset {legal following symbols} );
         simpleexpression;
         if op = insym then
           begin
-          if bigcompilerversion then leftptr := ref(bigtable[lefttype])
-          else areadaccess(lefttype, leftptr);
+          if bigcompilerversion then leftptr := @(bigtable[lefttype]);
           if (resultform <> sets) or
              not (leftptr^.typ in
              [none, ints, chars, scalars, bools, subranges]) or not compatible(lefttype,
@@ -6361,8 +6281,7 @@ procedure statement(follow: tokenset {legal following symbols} );
             search(n);
             if n <> 0 then
               begin
-              if bigcompilerversion then p := ref(bigtable[n])
-              else areadaccess(n, p);
+              if bigcompilerversion then p := @(bigtable[n]);
               if p^.namekind in
                  [funcname, forwardfunc, externalfunc, funcparam] then
                 factor
@@ -6378,8 +6297,7 @@ procedure statement(follow: tokenset {legal following symbols} );
         with resultptr^ do
           if typ = ptrs then
             begin
-            if bigcompilerversion then p := ref(bigtable[ptrtypename])
-            else areadaccess(ptrtypename, p);
+            if bigcompilerversion then p := @(bigtable[ptrtypename]);
             currentrecord := p^.typeindex;
             if p^.namekind = undeftypename then
               begin
@@ -6387,13 +6305,11 @@ procedure statement(follow: tokenset {legal following symbols} );
               p^.lastoccurrence := display[level].scopeid;
               end;
             if bigcompilerversion then
-              currentptr := ref(bigtable[currentrecord])
-            else areadaccess(currentrecord, currentptr);
+              currentptr := @(bigtable[currentrecord]);
             containedfile := currentptr^.containsfile;
             end;
         parsetagparams(currentrecord);
-        if bigcompilerversion then currentptr := ref(bigtable[currentrecord])
-        else areadaccess(currentrecord, currentptr);
+        if bigcompilerversion then currentptr := @(bigtable[currentrecord]);
         pushint(sizeof(currentptr, false));
         oprndstk[sp].oprndlen := defaultptrsize;
         genunary(pushvalue, ints);
@@ -6422,8 +6338,7 @@ procedure statement(follow: tokenset {legal following symbols} );
         genunary(indrop, files);
         genop(newvarop);
         bumpsp;
-        if bigcompilerversion then f := ref(bigtable[filetype])
-        else areadaccess(filetype, f);
+        if bigcompilerversion then f := @(bigtable[filetype]);
         newresulttype(f^.filebasetype);
         with oprndstk[sp] do
           begin
@@ -6537,8 +6452,7 @@ procedure statement(follow: tokenset {legal following symbols} );
               readform := resultform;
               if filetype <> textindex then
                 begin
-                if bigcompilerversion then f := ref(bigtable[filetype])
-                else areadaccess(filetype, f);
+                if bigcompilerversion then f := @(bigtable[filetype]);
                 if not compatible(resulttype, f^.filebasetype) then
                   warnbefore(typesincomp);
                 genop(switchstack);
@@ -6689,11 +6603,9 @@ procedure statement(follow: tokenset {legal following symbols} );
               end
             else
               begin
-              if bigcompilerversion then f := ref(bigtable[filetype])
-              else areadaccess(filetype, f);
+              if bigcompilerversion then f := @(bigtable[filetype]);
               basetype := f^.filebasetype;
-              if bigcompilerversion then f := ref(bigtable[basetype])
-              else areadaccess(basetype, f);
+              if bigcompilerversion then f := @(bigtable[basetype]);
               if ((getform(f) = ints) and ((writeform = reals) or
                  (writeform = doubles))) or
                  not compatible(basetype, resulttype) then
@@ -6809,8 +6721,7 @@ procedure statement(follow: tokenset {legal following symbols} );
               highid := highbound;
               lowid := lowbound;
               end
-            else if bigcompilerversion then f := ref(bigtable[indextype])
-            else areadaccess(indextype, f);
+            else if bigcompilerversion then f := @(bigtable[indextype]);
             end;
           oprndstk[sp].oprndlen := ptrsize;
           genunary(pushaddr, ints);
@@ -6837,8 +6748,7 @@ procedure statement(follow: tokenset {legal following symbols} );
           if packing then
             begin
             genpushbool(packedelt);
-            if bigcompilerversion then f := ref(bigtable[elttype])
-            else areadaccess(elttype, f);
+            if bigcompilerversion then f := @(bigtable[elttype]);
             genpushbool(unsigned(f, eltsize, packedelt));
             end;
           end
@@ -7266,8 +7176,7 @@ procedure statement(follow: tokenset {legal following symbols} );
         end
       else genbinary(moveop, leftform);
       genoprndstmt;
-      if bigcompilerversion then varptr := ref(bigtable[varindex])
-      else awriteaccess(varindex, varptr);
+      if bigcompilerversion then varptr := @(bigtable[varindex]);
       with varptr^ do
         if namekind in
            [varname, fieldname, param, varparam, confparam, varconfparam] then
@@ -7401,7 +7310,6 @@ procedure statement(follow: tokenset {legal following symbols} );
 
 
       begin {caselabel}
-        if not bigcompilerversion then adecreasebuffers;
         new(p1);
         with p1^ do
           begin
@@ -7495,7 +7403,6 @@ procedure statement(follow: tokenset {legal following symbols} );
         dispose(latestlabel);
         latestlabel := p1;
         end;
-      if not bigcompilerversion then aincreasebuffers;
       verifytoken(endsym, noenderr);
       genstmt(endcase);
       checkundefs := oldcheck;
@@ -7643,13 +7550,11 @@ procedure statement(follow: tokenset {legal following symbols} );
         else
           begin
           if checkforstack(forvar, t) then warn(modifiedfor);
-          if bigcompilerversion then forvarptr := ref(bigtable[forvar])
-          else awriteaccess(forvar, forvarptr);
+          if bigcompilerversion then forvarptr := @(bigtable[forvar]);
           with forvarptr^ do
             if namekind in [varname, param, varparam] then
               begin
-              if bigcompilerversion then fortypeptr := ref(bigtable[vartype])
-              else areadaccess(vartype, fortypeptr);
+              if bigcompilerversion then fortypeptr := @(bigtable[vartype]);
 
               { We don't support for loop indexes that are origined, declared
                 USE, DEFINE or SHARED, or OWN.  OWN is allowed if the global
@@ -7791,8 +7696,7 @@ procedure statement(follow: tokenset {legal following symbols} );
         begin
         containedgoto := false; {hopefully remains false!}
         forindex := forvar;
-        if bigcompilerversion then fortypeptr := ref(bigtable[fortype])
-        else areadaccess(fortype, fortypeptr);
+        if bigcompilerversion then fortypeptr := @(bigtable[fortype]);
         settyperange(fortypeptr, forrange);
         if upflag then
           begin
@@ -7811,8 +7715,7 @@ procedure statement(follow: tokenset {legal following symbols} );
             end
           end;
         end;
-      if bigcompilerversion then forvarptr := ref(bigtable[forvar])
-      else awriteaccess(forvar, forvarptr);
+      if bigcompilerversion then forvarptr := @(bigtable[forvar]);
       with forvarptr^ do
         if namekind in [varname, fieldname, param, varparam] then
           modified := true;
@@ -7832,8 +7735,7 @@ procedure statement(follow: tokenset {legal following symbols} );
       if not (forstack[forsp].containedgoto and
          (switchcounters[standard] > 0)) and (nest = 1) then
         begin
-        if bigcompilerversion then forvarptr := ref(bigtable[forvar])
-        else awriteaccess(forvar, forvarptr);
+        if bigcompilerversion then forvarptr := @(bigtable[forvar]);
         if forvarptr^.namekind = varname then forvarptr^.modified := false;
         end;
       forsp := forsp - 1;
@@ -7878,8 +7780,7 @@ procedure statement(follow: tokenset {legal following symbols} );
         if token = ident then
           begin
           search(i);
-          if bigcompilerversion then p := ref(bigtable[i])
-          else areadaccess(i, p);
+          if bigcompilerversion then p := @(bigtable[i]);
           if p^.namekind in [varname, fieldname, param, varparam] then
             off := p^.offset
           else off := 0;
@@ -7995,8 +7896,7 @@ procedure statement(follow: tokenset {legal following symbols} );
       if varindex = 0 then illegalassign
       else
         begin
-        if bigcompilerversion then varptr := ref(bigtable[varindex])
-        else areadaccess(varindex, varptr);
+        if bigcompilerversion then varptr := @(bigtable[varindex]);
         case varptr^.namekind of
           standardproc: standardprocedures(varptr^.procid);
           varname, fieldname, param, varparam, confparam, varconfparam:
@@ -8073,25 +7973,6 @@ procedure body;
     jumpoutnest := maxint;
     nolabelsofar := true;
 
-    {empty stmt for ODB support, for consistency with C++ and Modula-2}
-    if newdebugger and nowdebugging then
-with thistoken do
-begin
-
-{ ***DAVE: The following stf_stmt call is responsible for the first map entry
-  per block.
-}
-
-display[level].firststmt := stf_stmt(line, filepos);
-
-{ ***DAVE: Put these two statements back in to get the extra blank stmt for ODB}
-
-{      debugstmt(simple, line, filepos, fileindex);
-        genop(endexpr);
-}
-
-end;
-
     if token in [ifsym..gotosym, ident] then warn(nobeginerr)
     else verifytoken(beginsym, nobeginerr);
     statement(neverskipset);
@@ -8102,11 +7983,6 @@ end;
       statement(neverskipset);
       end;
 
-    {empty stmt for ODB support, for consistency with C++ and Modula-2}
-    if newdebugger and nowdebugging then
-begin
-      with thistoken do debugstmt(simple, line, filepos, fileindex);
-        genop(endexpr);
-end;
-
   end {body} ;
+
+end.

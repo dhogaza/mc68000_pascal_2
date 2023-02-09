@@ -168,6 +168,7 @@ begin {main}
   if scanalys then scan.scan1;
   analys.analys;
   if scanalys then scan.scan2;
+writeln('after analys ', lasterror, ' errors detected');
 {DRB
   if switcheverplus[timing] and switcheverplus[details] then
     printtime('analys');

@@ -13,4 +13,5 @@ fpc -gl mda
 fpc -gl commona
 fpc -gl foldcom
 fpc -gl analys
+fpc -gl body
 fpc -gl main

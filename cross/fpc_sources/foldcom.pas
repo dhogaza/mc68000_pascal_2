@@ -27,7 +27,21 @@ unit foldcom;
 
 interface
 
-uses config, hdr, at;
+uses config, hdr, a_t;
+
+type
+
+  binaryfold = procedure (left, right: integer; {left and right operands}
+                         var result: integer; {result}
+                         var overflow: boolean {set if overflow occurred} );
+
+  unaryfold = procedure (operand: integer; {operand to negate}
+                                var result: integer; {result}
+                                var overflow: boolean {set if overflow results} );
+
+procedure add(left, right: integer; {left and right operands}
+              var result: integer; {result}
+              var overflow: boolean {set if overflow occurred} );
 
 procedure usadd(left, right: integer; {left and right operands}
                 var result: integer; {result}

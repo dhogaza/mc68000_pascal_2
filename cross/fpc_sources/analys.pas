@@ -37,7 +37,7 @@ unit analys;
 
 interface
 
-uses config, hdr, utils, scan, a_t, hdra, commona, mda;
+uses config, hdr, utils, scan, a_t, hdra, commona, mda, body;
 
 procedure analys;
 
@@ -3154,9 +3154,7 @@ procedure block;
         if (switchcounters[mainbody] <= 0) and (token <> eofsym) then
           warn(extrastmterr);
         end;
-	{DRB
-      if hostopsys = msdos then body else ovrlay(xbody);
-      }
+      body.body;
       verifytoken(endsym, noenderr);
       end;
     verify1(neverskipset + [dot], blockenderr);
