@@ -1776,7 +1776,7 @@ procedure scantoken;
       maxinbuf = linelen; {buffer up to entire line length of digits}
 
     type
-      digitindex = 0..maxinbuf;
+      digitindex = -1..maxinbuf;
       byte = 0..maxbytevalue;
 
       realstatus = (noerror, syntaxerror, underflowerr, overflowerr);
@@ -1886,6 +1886,8 @@ procedure scantoken;
       begin {convertinteger}
         head := 1;
 
+	{DRB loops 1 through maxinbuf if digitindex declared 0..maxinbuf and
+	 length = 0 as FPC does an unsigned comparison which seems rude.}
         for i := 1 to length - 1 do
           begin
           carry := digits[i + 1];
