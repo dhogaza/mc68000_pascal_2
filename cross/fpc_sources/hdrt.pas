@@ -24,6 +24,12 @@ Update release version for PC-VV0-GS0 at 2.3.0.1
 
 }
 
+unit hdrt;
+
+interface
+
+uses config, hdr, a_t, t_c;
+
 const
 
   pts = proctablespan; {shorter local name}
@@ -34,13 +40,6 @@ const
   maxblockslow = lowtravrsblocks;           
                      {min blocks for node file buffers, allocated statically
                       to use some otherwise unused space in the global area}
-            
-
-  %include 'athdr'; {analys-travrs interface declarations}
-
-  %include 'tchdr'; {travrs-code interface declarations}
-
-  %include 'hdrtown';
 
 type
 
@@ -102,7 +101,7 @@ type
            hoistedby: basicblockptr; { this node is hoisted by this block }
            case action: actions of
              visit, revisit:
-               (op: operator; { Operator from Analys }
+               (op: operatortype; { Operator from Analys }
                 form: types; {type of operands}
                 hasvalue: boolean; { true if we know the value of expression }
                 invariant: boolean; { true if expression is invariant }
@@ -252,7 +251,7 @@ type
 
   workingnode =
     record {Holds data on node being built}
-      op: operator; {operator for node}
+      op: operatortype; {operator for node}
       form: types; {operator type}
       ownvar: boolean; {true sez own variable}
       len: addressrange; {length of operands}
@@ -297,20 +296,6 @@ type
       varlife: region; { lifetime region }
       worth: shortint; { value of this var }
     end;
-
-  {used to dump the tree if necessary}
-  dumpfile = file of
-    record
-      case bblock: boolean of
-        true:
-          (id: integer; { integer should be same size as pointer!}
-           basic: basicblock; { copy of the block }
-          );
-        false:
-          (nodelab: nodeindex; {used to label the record}
-           nodeent: node {a node copy} ; );
-    end;
-
 
 var
 
@@ -393,12 +378,11 @@ var
 
   fewestblocks, mostblocks: 0..tmaxblocksin; {monitor virtual buffers}
 
-  map: packed array [operator, types] of pseudoop; {maps analys operators onto
-                                                    pseudoops}
+  map: packed array [operatortype, types] of pseudoop; {maps analys operators onto
+                                                        pseudoops}
 
   castmap: packed array [types, types] of pseudoop; {casts from form to form}
 
-  dump: dumpfile; {used to dump the tree, if needed}
   walkdepth: shortint; {depth of progress into tree}
 
   visitstate: boolean; { state of "visited" blocks on current search }
@@ -444,3 +428,6 @@ var
   dbgnodeptr1: nodeptr;
   dbglinkptr: linkptr;
   dbglinkptr1: linkptr;
+
+implementation
+end.
