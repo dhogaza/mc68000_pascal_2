@@ -45,7 +45,10 @@ interface
 }
 
 type
-  integer = longint; {DRB fpc defaults to 16 bit}
+
+  shortint = integer; {DRB fpc defaults to 8 bits}
+  integer = longint; {DRB fpc defaults to 16 bits}
+
   languages = (pascal, c, modula2, fortran77);
   architectures = (pdp11, vax, iapx86, mc68000, ns32k, i80386);
   opsystems = (vms, rsx, rsts, rt, unix, msdos, vdos, cpp, apollo);

@@ -13,7 +13,7 @@
 
 program pascal2;
 
-uses config, hdr, utils, csi, scan, sd, analys;
+uses config, hdr, utils, csi, scan, sd, analys, travrs;
 
 label
   99; { Target for fatal errors }
@@ -163,7 +163,6 @@ begin {main}
     end
   else lastlist := 0;
 
-{DRB  opena;}
 {DRB  settime;}
   if scanalys then scan.scan1;
   analys.analys;
@@ -173,34 +172,24 @@ writeln('after analys ', lasterror, ' errors detected');
   if switcheverplus[timing] and switcheverplus[details] then
     printtime('analys');
 }
-{DRB
   if (lasterror = 0) and (switcheverplus[outputmacro] or
      switcheverplus[outputobj]) then
     begin
     resetswitches;
-    opent;
-    settime;
+    {DRB settime;}
+    {DRB
     if travcode then
       begin
       openc;
       initcode;
       end;
-    travrs;
-    if travcode then exitcode
-    else
-      begin
-      if switcheverplus[timing] and switcheverplus[details] then
-        printtime('travrs');
-      resetswitches;
-      settime;
-      openc;
-      code;
-      if switcheverplus[timing] and switcheverplus[details] then
-        printtime('code  ');
-      end;
+      }
+    travrs.travrs;
+    {DRB if travcode then exitcode}
 
-    closec;
+    {DRB closec;}
 
+    {DRB
     if switcheverplus[symboltable] then closed;
     if switcheverplus[timing] then
       begin
@@ -210,13 +199,12 @@ writeln('after analys ', lasterror, ' errors detected');
                     (endhour - starthour)), 1);
       writeln('Total  ', endsec: 1, ' sec., ', lastline: 1, ' lines, ',
               (lastline * 60) div endsec: 1, ' lines/min.');
-      end;
+      end;}
     end;
 
     if switcheverplus[test] and switcheverplus[details] then
       writeln(insertions:1, ' identifiers, ', proctabletop:1,
               ' procedures/functions declared');
-}
 99:
 
 {DRB
@@ -246,11 +234,11 @@ writeln('after analys ', lasterror, ' errors detected');
     if lasterror > 0 then
       begin
       writeln('?Errors detected: ', lasterror: 1);
-      exitst(exitstatus); {value is opsys dependent}
+      exitst(exitstatus); 
       end;
     end;
 
-  close_str; { now close stringfile }
+  close_str;
 }
 
 end {main} .

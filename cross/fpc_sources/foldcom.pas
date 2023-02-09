@@ -31,11 +31,11 @@ uses config, hdr, a_t;
 
 type
 
-  binaryfold = procedure (left, right: integer; {left and right operands}
-                         var result: integer; {result}
-                         var overflow: boolean {set if overflow occurred} );
+  binaryfoldop = procedure (left, right: integer; {left and right operands}
+                              var result: integer; {result}
+                              var overflow: boolean {set if overflow occurred} );
 
-  unaryfold = procedure (operand: integer; {operand to negate}
+  unaryfoldop = procedure (operand: integer; {operand to negate}
                                 var result: integer; {result}
                                 var overflow: boolean {set if overflow results} );
 

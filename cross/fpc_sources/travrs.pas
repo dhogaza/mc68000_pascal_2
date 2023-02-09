@@ -20,7 +20,6 @@
  Update release version for PC-VV0-GS0 at 2.3.0.1
 
 }
-{$nomain,nopointercheck}
 
 { Tree building, improving and walking.
 
@@ -34,11 +33,13 @@
   references to such variables are replaced by references to constants.
   This also allows more folding of expresssions to be detected and
   computed.
+
   During the building process, once a loop is entered, special operations
   are performed for the duration of the loop.  Each entry point to a
   loop (a basic block) maintains a linked list of the var's read and
   written in the loop.  This allows the improve phase to determine
   which expressions are invariant and may be hoisted.
+
   Also during the building process references to local variables are
   monitored to determine their suitability for register allocation.  Doing
   this in travrs instead of analys has several advantages.  First, references
@@ -66,8 +67,15 @@
   Statements and expressions are implemented in the virtual store.
 }
 
-
+unit travrs;
 
+interface
+
+uses config, hdr, utils, error, a_t, t_c, hdrt, commont, fpcalc, foldcom;
+
+procedure travrs;
+
+implementation
 
 procedure inittravrs;
 
@@ -77,7 +85,7 @@ procedure inittravrs;
   var
     i: integer; {induction var for initializing virtual memory}
     j: 0..nodesperblock; { induction var so building ptrs }
-    o: operator; {induction var for initializing map}
+    o: operatortype; {induction var for initializing map}
     t, t1: types; {induction vars for initializing maps}
     p: proctableindex; {induction for initializing referenced field}
 
@@ -412,57 +420,6 @@ procedure inittravrs;
 
   begin {inittravrs}
 
-    { This code checks certain configuration parameters and reports any
-      potential problems. }
-
-    { Complain if caching and the nodes per block value is wrong or if not
-      caching and the entire nodetable can not fit in the array maxblocksin.
-      These conditions are not fatal to give CODE a chance to complain too.
-    }
-    if needcaching then
-      begin
-      if travrsmaxnodeinblock + 1 >
-         (doublediskbuflimit + 1) div rdup(size(node)) then
-        writeln('TRAVRS (caching) TRAVRSMAXNODEINBLOCK should be ',
-                (doublediskbuflimit + 1) div rdup(size(node)) - 1: 1);
-      end
-    else if not bigcompilerversion then
-      if tmaxblocksin * (travrsmaxnodeinblock + 1) < tnodetablesize then
-        writeln('TRAVRS (non-caching) TMAXBLOCKSIN should be ',
-                (tnodetablesize + travrsmaxnodeinblock) div
-                (travrsmaxnodeinblock + 1): 1,
-                ' or TRAVRSMAXNODEINBLOCK should be ',
-                (tnodetablesize + tmaxblocksin - 1) div tmaxblocksin: 1);
-
-    { End of special configuration checks}
-
-    if not bigcompilerversion then
-      begin
-      for i := 1 to maxblockslow do
-        with blocksin[i] do
-          begin
-          blkno := i - 1;
-          buffer := ref(blockslow[i]);
-          written := true;
-          lowblock := true;
-          end;
-
-      i := maxblockslow + 1;
-      for i := maxblockslow + 1 to tmaxblocksin do
-        with blocksin[i] do
-          begin
-          lowblock := false;
-          blkno := i - 1;
-          written := true;
-          buffer := nil;
-          end;
-      lastblocksin := maxblockslow;
-
-      mostblocks := lastblocksin;
-      fewestblocks := lastblocksin;
-      thrashing := false;
-      end;
-
     lasttravrslabel := 1;
 
     for o := endexpr to xorop do
@@ -478,6 +435,8 @@ procedure inittravrs;
     cmap;
 
     reset(locals);
+    reset(tempfiletwo);
+
     nextpseudofile := 0;
     nextintcode := 0;
     laststmt := 1;
@@ -494,88 +453,6 @@ procedure inittravrs;
   end {inittravrs} ;
 
 
-{ Debugging procedures used to dump the tree to a file.
-
-  To make them work, the constant "debugtree" in "hdrt" must be set to
-  true.
-}
-
-
-procedure dumptree;
-
-{ dump the entire tree structure for a block to the dump file
-}
-
-  var
-    i: nodeindex; {induction var for writing nodes}
-    ptr: nodeptr; {access to nodes}
-    lnk: linkptr;
-    count: shortint;
-    blockp: basicblockptr; { for walking block nodes }
-
-
-  function conditionsmatch: boolean;
-
-
-    begin
-      if blockref = tblocknum then conditionsmatch := true
-      else conditionsmatch := false;
-      conditionsmatch := true;
-    end;
-
-
-  begin
-    if debugtree then
-      if switcheverplus[details] and conditionsmatch then
-        begin
-        { first dump from root to tail }
-        blockp := root;
-        while blockp <> nil do
-          begin
-          with dump^ do
-            begin
-            bblock := true;
-            id := loophole(integer, blockp);
-            basic := blockp^;
-            end;
-          put(dump);
-          if true then
-            begin
-            write('successors for block ', blockp^.blocklabel: 1, ' ==> ');
-            lnk := blockp^.successor;
-            count := 0;
-            while lnk <> nil do
-              begin
-              if count > 10 then
-                begin
-                writeln;
-                count := 0;
-                end;
-              count := count + 1;
-              write(lnk^.suc^.blocklabel: 1, ' ');
-              lnk := lnk^.snext;
-              end;
-            writeln;
-            end; {true}
-          blockp := blockp^.dfolist;
-          end;
-
-        for i := 1 to lastnode do
-          begin
-          if bigcompilerversion then ptr := ref(bignodetable[i])
-          else treadaccess(i, ptr);
-          with dump^ do
-            begin
-            bblock := false;
-            nodelab := i;
-            nodeent := ptr^;
-            end;
-          put(dump);
-          end;
-        break(dump);
-        end;
-  end; {dumptree}
-
 
 { Intermediate File Handling -
 
@@ -596,46 +473,15 @@ procedure dumptree;
   group all switches at the start of the procedure in which they
   occur, as the pseudocode is not generated until the entire procedure
   has been read in.
+
+  DRB: for free pascal (and later the real thing perhaps) the file from
+  analys is just passed a stream of records rather than packed into
+  bytes.
 }
 
+function getintfileint: unsignedint;
 
-procedure getintfile;
-
-{ Do the equivalent of a "get" on the intermediate file from analys.
-  If the last element of the buffer was just read, a new buffer is
-  read.  Otherwise the global index "nextintcode" is incremented.
-  The next element is referenced as intfile^[nextintcode].
-
-  This routine is also responsible for setting switchcounters to
-  reflect the effect of embedded switches.  It also updates the element
-  counts (mlow and mhi) to those for the output file.  This effectively
-  groups all switches changed in a procedure to the front of that
-  procedure.
-}
-
-
-  begin
-    while (currentswitch <= lastswitch) and
-          (switches[currentswitch].mlow <= getlow) do
-      with switches[currentswitch] do
-        begin
-        switchcounters[s] := switchcounters[s] + v;
-        mlow := putlow;
-        currentswitch := currentswitch + 1;
-        end;
-    getlow := getlow + 1;
-    if nextintcode = diskbufsize then
-      begin
-      nextintcode := 0;
-      if not eof(tempfiletwo) then get(tempfiletwo);
-      end
-    else nextintcode := nextintcode + 1;
-  end {getintfile} ;
-
-
-function getintfileint: integer;
-
-{ Returns an integer passed in the intermediate file as a sequence of bytes.
+{ Returns an integer passed in the intermediate file as a pair of bytes.
 }
 
   var
@@ -644,23 +490,22 @@ function getintfileint: integer;
     fudge:
       record
         case boolean of
-          true: (int: integer);
+          true: (int: unsignedint);
           false: (byte: packed array [1..32] of hostfilebyte);
       end;
+
     j: 1..32; {induction var}
 
-
-  begin
-    fudge.int := tempfiletwo^[nextintcode].b;
+  begin {getintfileint}
+    fudge.int := tempfilebuf.b;
     if fudge.int = hostfilelim then
       for j := 1 to hostintsize * hostfileunits do
         begin
-        getintfile;
-        fudge.byte[j] := tempfiletwo^[nextintcode].b;
+        read(tempfiletwo, tempfilebuf);
+        fudge.byte[j] := tempfilebuf.b;
         end;
     getintfileint := fudge.int;
-  end;
-
+  end {getintfileint} ;
 
 procedure getintreal(var val: realarray);
 
@@ -681,16 +526,15 @@ procedure getintreal(var val: realarray);
   begin
     s := 0;
     i := 1;
-    while s < size(realarray) do
+    while s < maxrealwords do
       begin
-      getintfile;
+      read(tempfiletwo, tempfilebuf);
       kludge.i[i] := getintfileint;
       i := i + 1;
-      s := s + size(integer);
+      s := s + sizeof(integer);
       end;
     val := kludge.r;
   end;
-
 
 
 procedure buildrdfo(current, previous: basicblockptr);
@@ -879,8 +723,7 @@ procedure exitloop;
       { now hook inner loops writes to this loop }
       if (loopdepth > 0) and (bptr^.lastwrite <> 0) then
         begin
-        if bigcompilerversion then ptr := ref(bignodetable[bptr^.lastwrite])
-        else twriteaccess(bptr^.lastwrite, ptr);
+        if bigcompilerversion then ptr := @(bignodetable[bptr^.lastwrite]);
         with loopstack[loopdepth] do
           begin
           ptr^.looplink := writes;
@@ -906,16 +749,16 @@ procedure take_data_op;
 }
 
   var
-    this_op: operator; {current operator}
+    this_op: operatortype; {current operator}
     len, op1, op2: integer; {operands}
     realval: realarray; {a value if it's a real}
 
 
   begin
-    this_op := tempfiletwo^[nextintcode].o;
+    this_op := tempfilebuf.o;
     if this_op = drealop then
       begin
-      getintfile;
+      read(tempfiletwo, tempfilebuf);
       len := getintfileint;
       getintreal(realval);
       genrealop(map[drealop, none], len, 0, 0, 0, realval);
@@ -929,30 +772,30 @@ procedure take_data_op;
         daddop, dsubop, dstoreop, dendop: {nothing} ;
         daddrop:
           begin
-          getintfile;
+          read(tempfiletwo, tempfilebuf);
           len := getintfileint;
-          getintfile;
+          read(tempfiletwo, tempfilebuf);
           op1 := getintfileint;
-          getintfile;
+          read(tempfiletwo, tempfilebuf);
           op2 := getintfileint;
           end;
         dfaddrop, dintop, dstructop:
           begin
-          getintfile;
+          read(tempfiletwo, tempfilebuf);
           len := getintfileint;
-          getintfile;
+          read(tempfiletwo, tempfilebuf);
           op1 := getintfileint;
           end;
         dstartop, dfieldop:
           begin
-          getintfile;
+          read(tempfiletwo, tempfilebuf);
           op1 := getintfileint;
-          getintfile;
+          read(tempfiletwo, tempfilebuf);
           op2 := getintfileint;
           end;
         dfillop:
           begin
-          getintfile;
+          read(tempfiletwo, tempfilebuf);
           len := getintfileint;
           end;
         end;
@@ -976,13 +819,13 @@ procedure passdata;
 
 
   begin
-    getintfile;
-    while tempfiletwo^[nextintcode].o <> endexpr do
+    read(tempfiletwo, tempfilebuf);
+    while tempfilebuf.o <> endexpr do
       begin
       take_data_op;
-      getintfile;
+      read(tempfiletwo, tempfilebuf);
       end;
-    getintfile; {skip the endexpr}
+    read(tempfiletwo, tempfilebuf); {skip the endexpr}
   end; {passdata}
 
 
@@ -1083,7 +926,6 @@ procedure build;
     currentblock: basicblockptr; { current basic block }
     retblock: basicblockptr; {return block for C programs}
     currentlaststmt: nodeindex; { index of last statement in this block}
-    block_exit_block: basicblockptr; {exit from the routine}
     this_loop: loop_descriptor; {Current innermost loop}
     this_case: case_descriptor; {descriptor of current case statement}
     call_depth: integer;
@@ -1149,7 +991,6 @@ procedure build;
     begin
       if not deadcode and (deadcount > 0) then
         begin
-        if needcaching then tdecreasebuffers;
         new(d);
         d^.next := dead_level;
         d^.level := deadcount;
@@ -1180,7 +1021,6 @@ procedure build;
           d := dead_level;
           dead_level := d^.next;
           dispose(d);
-          if needcaching then tincreasebuffers;
           end;
         end
       else if deadcount = 0 then deadcode := false;
@@ -1291,16 +1131,13 @@ procedure build;
 
 
     begin {dodefine}
-      if bigcompilerversion then ptr := ref(bignodetable[varp])
-      else twriteaccess(varp, ptr);
+      if bigcompilerversion then ptr := @(bignodetable[varp]);
       varlev := ptr^.oprnds[1];
       varoffset := ptr^.oprnds[2];
-      if bigcompilerversion then ptr1 := ref(bignodetable[ptr^.oprnds[3]])
-      else twriteaccess(ptr^.oprnds[3], ptr1);
+      if bigcompilerversion then ptr1 := @(bignodetable[ptr^.oprnds[3]]);
 
       if ptr1^.action = copy then
-        if bigcompilerversion then ptr1 := ref(bignodetable[ptr1^.directlink])
-        else twriteaccess(ptr1^.directlink, ptr1);
+        if bigcompilerversion then ptr1 := @(bignodetable[ptr1^.directlink]);
 
       varisparam := (ptr1^.oprnds[1] = localparamnode);
 
@@ -1331,8 +1168,7 @@ procedure build;
             now := reads;
             while (now <> 0) do
               begin
-              if bigcompilerversion then ptr := ref(bignodetable[now])
-              else treadaccess(now, ptr);
+              if bigcompilerversion then ptr := @(bignodetable[now]);
               if varoffset = ptr^.oprnds[2] then
                 found := (varlev = ptr^.oprnds[1])
               else found := false;
@@ -1342,8 +1178,7 @@ procedure build;
                 ptr^.invariant := false;
                 if prev <> 0 then
                   begin
-                  if bigcompilerversion then ptr1 := ref(bignodetable[prev])
-                  else twriteaccess(prev, ptr1);
+                  if bigcompilerversion then ptr1 := @(bignodetable[prev]);
                   ptr1^.looplink := ptr^.looplink;
                   end
                 else reads := ptr^.looplink;
@@ -1402,16 +1237,13 @@ procedure build;
 
     begin {doreference}
 
-      if bigcompilerversion then ptr := ref(bignodetable[varp])
-      else twriteaccess(varp, ptr);
+      if bigcompilerversion then ptr := @(bignodetable[varp]);
       varlev := ptr^.oprnds[1];
       varoffset := ptr^.oprnds[2];
 
-      if bigcompilerversion then ptr1 := ref(bignodetable[ptr^.oprnds[3]])
-      else twriteaccess(ptr^.oprnds[3], ptr1);
+      if bigcompilerversion then ptr1 := @(bignodetable[ptr^.oprnds[3]]);
       if ptr1^.action = copy then
-        if bigcompilerversion then ptr1 := ref(bignodetable[ptr1^.directlink])
-        else twriteaccess(ptr1^.directlink, ptr1);
+        if bigcompilerversion then ptr1 := @(bignodetable[ptr1^.directlink]);
 
       varisparam := (ptr1^.oprnds[1] = localparamnode);
 
@@ -1445,8 +1277,7 @@ procedure build;
           found := false;
           while (j <> 0) and (not found) do
             begin
-            if bigcompilerversion then ptr := ref(bignodetable[j])
-            else treadaccess(j, ptr);
+            if bigcompilerversion then ptr := @(bignodetable[j]);
             if varoffset = ptr^.oprnds[2] then
               found := (varlev = ptr^.oprnds[1])
             else found := false;
@@ -1461,8 +1292,7 @@ procedure build;
               is already linked in.
             }
 
-            if bigcompilerversion then ptr := ref(bignodetable[varp])
-            else twriteaccess(varp, ptr);
+            if bigcompilerversion then ptr := @(bignodetable[varp]);
             if not ptr^.invariant then
               begin
               ptr^.invariant := true;
@@ -1523,8 +1353,7 @@ procedure build;
           now := reads;
           while now <> 0 do
             begin
-            if bigcompilerversion then ptr := ref(bignodetable[now])
-            else treadaccess(now, ptr);
+            if bigcompilerversion then ptr := @(bignodetable[now]);
             varlev := ptr^.oprnds[1];
 
             if (varlev <= upper) and (varlev >= lower) then
@@ -1533,8 +1362,7 @@ procedure build;
               ptr^.invariant := false;
               if prev <> 0 then
                 begin
-                if bigcompilerversion then ptr1 := ref(bignodetable[prev])
-                else twriteaccess(prev, ptr1);
+                if bigcompilerversion then ptr1 := @(bignodetable[prev]);
                 ptr1^.looplink := ptr^.looplink;
                 end
               else reads := ptr^.looplink;
@@ -1585,13 +1413,11 @@ procedure build;
 
     begin {killasreg}
 
-      if bigcompilerversion then ptr := ref(bignodetable[varp])
-      else treadaccess(varp, ptr);
+      if bigcompilerversion then ptr := @(bignodetable[varp]);
       while ptr^.op = commaop do
         begin
         varp := ptr^.oprnds[2];
-        if bigcompilerversion then ptr := ref(bignodetable[varp])
-        else treadaccess(varp, ptr);
+        if bigcompilerversion then ptr := @(bignodetable[varp]);
         end;
 
         { Verify that operand is a variable.  Pushaddr also takes
@@ -1604,13 +1430,11 @@ procedure build;
         begin
         blocksin[1].written := true;
         varoffset := ptr^.oprnds[2];
-        if bigcompilerversion then ptr1 := ref(bignodetable[ptr^.oprnds[3]])
-        else twriteaccess(ptr^.oprnds[3], ptr1);
+        if bigcompilerversion then ptr1 := @(bignodetable[ptr^.oprnds[3]]);
 
         if ptr1^.action = copy then
           if bigcompilerversion then
-            ptr1 := ref(bignodetable[ptr1^.directlink])
-          else twriteaccess(ptr1^.directlink, ptr1);
+            ptr1 := @(bignodetable[ptr1^.directlink]);
 
         varisparam := (ptr1^.oprnds[1] = localparamnode);
 
@@ -1647,7 +1471,6 @@ procedure build;
     begin
       if (predblock <> nil) and (succblock <> nil) then
         begin
-        if needcaching then tdecreasebuffers;
         new(newlink);
         newlink^.snext := predblock^.successor;
         predblock^.successor := newlink;
@@ -1676,9 +1499,7 @@ procedure build;
 
 
     begin
-      if needcaching then tdecreasebuffers;
-      if largeblock then new(b, true)
-      else new(b, false);
+      new(b);
       { default is that code will dominate if context dominates }
       b^.dominates := context[contextsp].dominates;
       blockblocks := blockblocks + 1;
@@ -1688,7 +1509,6 @@ procedure build;
 
       with b^ do
         begin
-        bigblock := largeblock;
         isdead := deadcode and (removedeadcode in genset);
         visited := visitstate;
         precode := 0;
@@ -1752,13 +1572,11 @@ procedure build;
           end
         else
           begin
-          if bigcompilerversion then ptr := ref(bignodetable[currentlaststmt])
-          else twriteaccess(currentlaststmt, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[currentlaststmt]);
           ptr^.nextstmt := lastnode;
           currentlaststmt := lastnode;
           end;
-        if bigcompilerversion then ptr := ref(bignodetable[p])
-        else twriteaccess(p, ptr);
+        if bigcompilerversion then ptr := @(bignodetable[p]);
         with ptr^ do
           begin
           nodeform := stmtnode;
@@ -1774,17 +1592,17 @@ procedure build;
             if language = c then
               begin
               srcfileindx := 0;
-              getintfile;
+              read(tempfiletwo, tempfilebuf);
               stmtno := getintfileint;
               end
             else
               begin
-              getintfile;
+              read(tempfiletwo, tempfilebuf);
               srcfileindx := getintfileint;
 
             if newdebugger then
               begin
-              getintfile;
+              read(tempfiletwo, tempfilebuf);
               stmtno := getintfileint;
               end
             else
@@ -1818,8 +1636,7 @@ procedure build;
               }
               if s <> simplehdr then
                 begin
-                if bigcompilerversion then ptr1 := ref(bignodetable[p - 1])
-                else twriteaccess(p - 1, ptr1);
+                if bigcompilerversion then ptr1 := @(bignodetable[p - 1]);
                 if (ptr1^.nodeform = stmtnode) and (ptr1^.stmtkind = blkhdr)
                 then
                   begin
@@ -1830,7 +1647,7 @@ procedure build;
                 end;
               end;
 
-            getintfile;
+            read(tempfiletwo, tempfilebuf);
             textline := getintfileint;
             end;
 
@@ -1845,16 +1662,16 @@ procedure build;
                 end;
 
               textline := getintfileint;
-              getintfile;
+              read(tempfiletwo, tempfilebuf);
               procref := getintfileint;
               blockref := procref;
-              getintfile;
+              read(tempfiletwo, tempfilebuf);
               ps := getintfileint;
-              getintfile;
+              read(tempfiletwo, tempfilebuf);
               bs := getintfileint;
-              getintfile;
+              read(tempfiletwo, tempfilebuf);
               fileline := getintfileint;
-              getintfile;
+              read(tempfiletwo, tempfilebuf);
               if newtravrsinterface then
                 begin
                 level := new_proctable[procref div (pts + 1)]^[procref mod
@@ -1925,8 +1742,7 @@ procedure build;
         lastnode := lastnode + 1;
         if lastnode > maxnodes then maxnodes := lastnode;
         n := lastnode;
-        if bigcompilerversion then p := ref(bignodetable[lastnode])
-        else twriteaccess(lastnode, p);
+        if bigcompilerversion then p := @(bignodetable[lastnode]);
         with p^ do
           begin
           {nice to use structured constant here }
@@ -1963,7 +1779,7 @@ procedure build;
     end {newexprnode} ;
 
 
-  function hash(op: operator; {operator of this node}
+  function hash(op: operatortype; {operator of this node}
                 i1, i2: integer {operand nodes} ): maphashindex;
 
 { Generate a hash function to speed search for identical nodes.
@@ -2007,18 +1823,9 @@ procedure build;
 
       blockblocks := 0;
       thrashing := false;
-      if not bigcompilerversion then
-        for i := 1 to lastblocksin do
-          with blocksin[i] do
-            begin
-            written := true;
-            blkno := i - 1;
-            end;
-
       lastnode := - 1;
       laststmtnode := - 1;
       currentblock := nil;
-      block_exit_block := nil;
       deadcount := 0;
       gotodead := 0;
       deadcode := false;
@@ -2187,7 +1994,7 @@ procedure build;
 
 
   procedure addopmap(n: nodeindex; {node to add}
-                     op: operator; {operator of that node}
+                     op: operatortype; {operator of that node}
                      hashvalue: maphashindex; {hash for node}
                      contextlevel: contextindex {context to add to} );
 
@@ -2208,8 +2015,7 @@ procedure build;
       if (op >= intop) then
         with context[contextlevel] do
           begin
-          if bigcompilerversion then p := ref(bignodetable[n])
-          else twriteaccess(n, p);
+          if bigcompilerversion then p := @(bignodetable[n]);
           p^.slink := opmap[hashvalue];
           { operators at contextlevel 1 are hoisted for free }
           if contextlevel = 1 then
@@ -2261,8 +2067,7 @@ procedure build;
             n := context[i].opmap[0];
             while n <> 0 do
               begin
-              if bigcompilerversion then p := ref(bignodetable[n])
-              else treadaccess(n, p);
+              if bigcompilerversion then p := @(bignodetable[n]);
               with p^ do
                 begin
                 if valid then
@@ -2323,8 +2128,7 @@ procedure build;
             n := context[i].opmap[0];
             while n <> 0 do
               begin
-              if bigcompilerversion then p := ref(bignodetable[n])
-              else treadaccess(n, p);
+              if bigcompilerversion then p := @(bignodetable[n]);
               with p^ do
                 begin
                 if not bigcompilerversion then
@@ -2379,8 +2183,7 @@ procedure build;
             n := context[i].opmap[0];
             while n <> 0 do
               begin
-              if bigcompilerversion then p := ref(bignodetable[n])
-              else treadaccess(n, p);
+              if bigcompilerversion then p := @(bignodetable[n]);
               with p^ do
                 begin
                 if not bigcompilerversion then
@@ -2467,8 +2270,7 @@ procedure build;
             n := context[i].opmap[0];
             while n <> 0 do
               begin
-              if bigcompilerversion then p := ref(bignodetable[n])
-              else treadaccess(n, p);
+              if bigcompilerversion then p := @(bignodetable[n]);
               with p^ do
                 begin
                 if not bigcompilerversion then
@@ -2498,7 +2300,6 @@ procedure build;
 
 
     begin
-      if needcaching then tdecreasebuffers;
       new(l);
       with l^ do
         begin
@@ -2526,7 +2327,6 @@ procedure build;
       l := this_loop;
       this_loop := l^.outer;
       dispose(l);
-      if needcaching then tincreasebuffers;
     end; {poploop}
 
 
@@ -2558,8 +2358,7 @@ procedure build;
       begin
         while n <> 0 do
           begin
-          if bigcompilerversion then p := ref(bignodetable[n])
-          else treadaccess(n, p);
+          if bigcompilerversion then p := @(bignodetable[n]);
           with p^ do
             begin
             if valid and mustinvalidate then
@@ -2607,7 +2406,7 @@ procedure build;
     var
       cnt: oprndindex; {induction var for scanning operands}
       p: nodeptr; {used for access to root node}
-      newop: operator; {new operator if node is changed}
+      newop: operatortype; {new operator if node is changed}
 
 
     procedure killvars(low, high: levelindex);
@@ -2632,16 +2431,12 @@ procedure build;
             n := context[i].opmap[0];
             while n <> 0 do
               begin
-              if bigcompilerversion then p := ref(bignodetable[n])
-              else treadaccess(n, p);
+              if bigcompilerversion then p := @(bignodetable[n]);
               with p^ do
                 begin
                 if not regcandidate and (oprnds[1] >= low) and
                    (oprnds[1] <= high) then
                   begin
-                  if needcaching then
-                    blocksin[1].written := blocksin[1].written or valid or
-                                           (deepestvalid > contextsp);
                   valid := false;
                   if deepestvalid > contextsp then deepestvalid := contextsp;
                   end;
@@ -2657,8 +2452,7 @@ procedure build;
     begin
       while (newvarcount > 0) and (root <> 0) do
         begin
-        if bigcompilerversion then p := ref(bignodetable[root])
-        else treadaccess(root, p);
+        if bigcompilerversion then p := @(bignodetable[root]);
         if p^.action = visit then
           begin
           if (p^.op = newvarop) or (p^.op = newunsvarop) then
@@ -2682,8 +2476,7 @@ procedure build;
               if p^.nodeoprnd[cnt] and (newvarcount > 0) then
                 begin
                 updatenewvars(p^.oprnds[cnt]);
-                if bigcompilerversion then p := ref(bignodetable[root])
-                else treadaccess(root, p);
+                if bigcompilerversion then p := @(bignodetable[root]);
                 end;
             if p^.op < intop then root := p^.slink
             else root := 0;
@@ -2766,30 +2559,24 @@ procedure build;
 
           { top of stack is a movelit examine left hand side }
 
-          if bigcompilerversion then ptr := ref(bignodetable[movenode])
-          else treadaccess(movenode, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[movenode]);
           if ptr^.op = movelit then thevalue := ptr^.oprnds[2]
           else
             begin
-            if bigcompilerversion then ptr := ref(bignodetable[ptr^.oprnds[1]])
-            else treadaccess(ptr^.oprnds[1], ptr);
+            if bigcompilerversion then ptr := @(bignodetable[ptr^.oprnds[1]]);
             thevalue := ptr^.oprnds[1];
             end;
           thevar := ptr^.oprnds[1];
           { access the (new)varop }
-          if bigcompilerversion then ptr := ref(bignodetable[thevar])
-          else treadaccess(thevar, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[thevar]);
           { see if it is simple }
-          if bigcompilerversion then ptr := ref(bignodetable[ptr^.oprnds[3]])
-          else treadaccess(ptr^.oprnds[3], ptr);
+          if bigcompilerversion then ptr := @(bignodetable[ptr^.oprnds[3]]);
           if ptr^.op = indxop then
             begin
-            if bigcompilerversion then ptr := ref(bignodetable[ptr^.oprnds[1]])
-            else treadaccess(ptr^.oprnds[1], ptr);
+            if bigcompilerversion then ptr := @(bignodetable[ptr^.oprnds[1]]);
             if ptr^.op = levop then
               begin
-              if bigcompilerversion then ptr := ref(bignodetable[thevar])
-              else twriteaccess(thevar, ptr);
+              if bigcompilerversion then ptr := @(bignodetable[thevar]);
               ptr^.hasvalue := true;
               ptr^.value := thevalue;
               end;
@@ -2841,16 +2628,14 @@ procedure build;
                     while (n1 <> 0) and not foundcopy do
                       begin
                       n2 := n1;
-                      if bigcompilerversion then ptr := ref(bignodetable[n1])
-                      else treadaccess(n1, ptr);
+                      if bigcompilerversion then ptr := @(bignodetable[n1]);
                       foundcopy := (ptr^.oldlink = p);
                       n1 := ptr^.prelink;
                       end;
                     if not foundcopy then
                       begin
                       newexprnode(n2);
-                      if bigcompilerversion then ptr := ref(bignodetable[n2])
-                      else twriteaccess(n2, ptr);
+                      if bigcompilerversion then ptr := @(bignodetable[n2]);
                       ptr^.refcount := 0;
                       ptr^.copycount := 0;
                       ptr^.action := copy;
@@ -2860,8 +2645,7 @@ procedure build;
                       ptr^.directlink := originallink;
                       firstblock^.precode := n2;
                       end;
-                    if bigcompilerversion then ptr := ref(bignodetable[p])
-                    else twriteaccess(p, ptr);
+                    if bigcompilerversion then ptr := @(bignodetable[p]);
                     with ptr^ do
                       begin
                       refcount := refcount + 1;
@@ -2946,8 +2730,7 @@ procedure build;
                 if nodeoprnd[i] then
                   begin
                   if bigcompilerversion then
-                    ptr := ref(bignodetable[oprnds[i]])
-                  else treadaccess(oprnds[i], ptr);
+                    ptr := @(bignodetable[oprnds[i]]);
                   if ptr^.action = copy then getclass := ptr^.directlink;
                   end;
                 end;
@@ -2955,8 +2738,7 @@ procedure build;
 
 
           begin {Compare}
-            if bigcompilerversion then p := ref(bignodetable[nindex])
-            else treadaccess(nindex, p);
+            if bigcompilerversion then p := @(bignodetable[nindex]);
             equal := p^.valid and (n.op = p^.op) and (n.form = p^.form) and
                      (n.len = p^.len);
             if equal then
@@ -3004,8 +2786,7 @@ procedure build;
                   end;
             newexprnode(newptr);
             addopmap(newptr, n.op, hashvalue, contextlevel);
-            if bigcompilerversion then ptr := ref(bignodetable[newptr])
-            else twriteaccess(newptr, ptr);
+            if bigcompilerversion then ptr := @(bignodetable[newptr]);
             with ptr^ do
               begin
               refcount := 0;
@@ -3067,8 +2848,7 @@ procedure build;
                 begin
                 compare(n1, found);
                 nindex := n1;
-                if bigcompilerversion then ptr := ref(bignodetable[n1])
-                else treadaccess(n1, ptr);
+                if bigcompilerversion then ptr := @(bignodetable[n1]);
                 n1 := ptr^.slink;
                 end;
               if not found then nindex := 0;
@@ -3146,10 +2926,10 @@ procedure build;
           changes: boolean; { true if any important changes happen in a pass }
           intvalue: integer; { saved value of an integer operand }
           opnum: oprndindex; { operand we want to change }
-          newop: operator; { new operator }
+          newop: operatortype; { new operator }
           newnode: workingnode; { basic intop node }
           result: boolean; { result of compare fold }
-          op: operator; { save copy of node's op field }
+          op: operatortype; { save copy of node's op field }
           newoperands: operandarray; { copy of node's new oprnd field }
           oldoperands: operandarray; { saved copy of node's original oprnd field
                                       }
@@ -3158,15 +2938,9 @@ procedure build;
           i: oprndindex; { induction var }
 
 
-        procedure binaryfold(procedure signedop
-                                  (left, right: integer;
-                                   var result: integer;
-                                   var overflow: boolean);
-                             procedure unsignedop
-                                  (left, right: integer;
-                                   var result: integer;
-                                   var overflow: boolean);
-                             associate: operator);
+        procedure binaryfold(signedop: binaryfoldop;
+		             unsignedop: binaryfoldop;
+                             associate: operatortype);
 
 {
     Purpose:
@@ -3206,11 +2980,9 @@ procedure build;
 
           begin {binaryfold}
             if bigcompilerversion then
-              leftp := ref(bignodetable[oldoperands[1]])
-            else treadaccess(oldoperands[1], leftp);
+              leftp := @(bignodetable[oldoperands[1]]);
             if bigcompilerversion then
-              rightp := ref(bignodetable[oldoperands[2]])
-            else treadaccess(oldoperands[2], rightp);
+              rightp := @(bignodetable[oldoperands[2]]);
             if (leftp^.op = intop) and (leftp^.action = visit) then
               begin
               if (rightp^.op = intop) and (rightp^.action = visit) then
@@ -3281,8 +3053,7 @@ procedure build;
             while current <> 0 do
               begin
               nextroot := 0;
-              if bigcompilerversion then ptr := ref(bignodetable[current])
-              else treadaccess(current, ptr);
+              if bigcompilerversion then ptr := @(bignodetable[current]);
               if (ptr^.action = visit) then
                 begin
                 if (ptr^.op < intop) then nextroot := ptr^.slink;
@@ -3304,20 +3075,17 @@ procedure build;
                       if simplify(newoperands[i]) then
                         begin
                         if bigcompilerversion then
-                          ptr := ref(bignodetable[oldoperands[i]])
-                        else treadaccess(oldoperands[i], ptr);
+                          ptr := @(bignodetable[oldoperands[i]]);
                         if ptr^.action = visit then
                           if (ptr^.op < intop) and (ptr^.op > newunsvarop) then
                             while ptr^.slink <> 0 do
                               begin
                               oldoperands[i] := ptr^.slink;
                               if bigcompilerversion then
-                                ptr := ref(bignodetable[oldoperands[i]])
-                              else treadaccess(oldoperands[i], ptr);
+                                ptr := @(bignodetable[oldoperands[i]]);
                               end;
                         if bigcompilerversion then
-                          ptr := ref(bignodetable[oldoperands[i]])
-                        else twriteaccess(oldoperands[i], ptr);
+                          ptr := @(bignodetable[oldoperands[i]]);
                         ptr^.refcount := ptr^.refcount - 1;
                         ptr^.valid := ptr^.refcount > 0;
                         changes := true;
@@ -3328,8 +3096,7 @@ procedure build;
                   if changes then
                     begin
                     if bigcompilerversion then
-                      ptr := ref(bignodetable[current])
-                    else twriteaccess(current, ptr);
+                      ptr := @(bignodetable[current]);
                     ptr^.oprnds := newoperands;
                     end;
                   { now can we simplify this node }
@@ -3363,8 +3130,7 @@ procedure build;
                         otherwise
                         end;
                       if bigcompilerversion then
-                        ptr := ref(bignodetable[newoperands[opnum]])
-                      else treadaccess(newoperands[opnum], ptr);
+                        ptr := @(bignodetable[newoperands[opnum]]);
                       if (ptr^.op = intop) and (ptr^.action = visit) then
                         begin
                         { remove ref count from the intop }
@@ -3373,8 +3139,7 @@ procedure build;
                         intvalue := ptr^.oprnds[1];
                         ptr^.refcount := ptr^.refcount - 1;
                         if bigcompilerversion then
-                          ptr := ref(bignodetable[current])
-                        else twriteaccess(current, ptr);
+                          ptr := @(bignodetable[current]);
                         ptr^.op := newop;
                         ptr^.oprnds[opnum] := intvalue;
                         ptr^.nodeoprnd[opnum] := false;
@@ -3386,15 +3151,13 @@ procedure build;
                       begin
                       { if foldable do it, or if convertable to lit type do it }
                       if bigcompilerversion then
-                        ptr := ref(bignodetable[newoperands[2]])
-                      else treadaccess(newoperands[2], ptr);
+                        ptr := @(bignodetable[newoperands[2]]);
                       if (ptr^.op = intop) and (ptr^.action = visit) then
                         begin
                         { at least convert to lit form }
                         intvalue := ptr^.oprnds[1];
                         if bigcompilerversion then
-                          ptr := ref(bignodetable[newoperands[1]])
-                        else treadaccess(newoperands[1], ptr);
+                          ptr := @(bignodetable[newoperands[1]]);
                         if (ptr^.op = intop) and (ptr^.action = visit) then
                           case op of
                             lsslit: result := intvalue < ptr^.oprnds[1];
@@ -3407,8 +3170,7 @@ procedure build;
                         else
                           begin
                           if bigcompilerversion then
-                            ptr := ref(bignodetable[current])
-                          else twriteaccess(current, ptr);
+                            ptr := @(bignodetable[current]);
                           ptr^.nodeoprnd[2] := false;
                           ptr^.oprnds[2] := intvalue;
                           case op of
@@ -3426,8 +3188,7 @@ procedure build;
                       begin
                       intvalue := ptr^.oprnds[2]; {???}
                       if bigcompilerversion then
-                        ptr := ref(bignodetable[newoperands[1]])
-                      else treadaccess(newoperands[1], ptr);
+                        ptr := @(bignodetable[newoperands[1]]);
                       if false and (ptr^.op = intop) and
                          (ptr^.action = visit) then
                         begin
@@ -3449,12 +3210,12 @@ procedure build;
                     andop, orop:
                       begin
                       end;
-                    plusop: binaryfold(add, usadd, plusop);
-                    minusop: binaryfold(subtract, ussubtract, endexpr);
-                    mulop: binaryfold(multiply, usmultiply, mulop);
-                    kwoop: binaryfold(divide, usdivide, endexpr);
+                    plusop: binaryfold(@add, @usadd, plusop);
+                    minusop: binaryfold(@subtract, @ussubtract, endexpr);
+                    mulop: binaryfold(@multiply, @usmultiply, mulop);
+                    kwoop: binaryfold(@divide, @usdivide, endexpr);
                     modop, stdmodop:
-                      binaryfold(remainder, usremainder, endexpr);
+                      binaryfold(@remainder, @usremainder, endexpr);
                     divop, stddivop, quoop, remop:
                       begin
                       end;
@@ -3537,8 +3298,7 @@ procedure build;
           begin
             if expr > mark then
               begin
-              if bigcompilerversion then p := ref(bignodetable[expr])
-              else twriteaccess(expr, p);
+              if bigcompilerversion then p := @(bignodetable[expr]);
               p^.valid := false;
               if p^.action in [visit, revisit] then
                 begin
@@ -3574,7 +3334,7 @@ procedure build;
 }
 
             var
-              op: operator; {local copy of operator}
+              op: operatortype; {local copy of operator}
               oprnds: operandarray; {local copy of operands}
               nodeoprnd: nodeoperandarray; {says if oprnds are nodes}
               p: nodeptr; {for access to node}
@@ -3584,14 +3344,12 @@ procedure build;
             begin {define_target}
               if n <> 0 then
                 begin
-                if bigcompilerversion then p := ref(bignodetable[n])
-                else treadaccess(n, p);
+                if bigcompilerversion then p := @(bignodetable[n]);
 
                 if p^.action = copy then
                   begin
                   n := p^.directlink;
-                  if bigcompilerversion then p := ref(bignodetable[n])
-                  else treadaccess(n, p);
+                  if bigcompilerversion then p := @(bignodetable[n]);
                   end;
 
                 op := p^.op;
@@ -3604,14 +3362,12 @@ procedure build;
                   begin
                   if (targlev = oprnds[1]) and (targoff = oprnds[2]) then
                     begin
-                    if not bigcompilerversion then twriteaccess(n, p);
                     p^.target := true;
                     p^.mustinvalidate := true;
                     end;
                   end
                 else if (op = newvarop) or (op = newunsvarop) then
                   begin
-                  if not bigcompilerversion then twriteaccess(n, p);
                   targfound := true;
                   targlev := oprnds[1];
                   targoff := oprnds[2];
@@ -3716,14 +3472,12 @@ procedure build;
               insertnormal;
               newexprnode := stack[sp].p;
               if bigcompilerversion then
-                newptr := ref(bignodetable[newexprnode])
-              else twriteaccess(newexprnode, newptr);
+                newptr := @(bignodetable[newexprnode]);
               if newptr^.oprnds[1] <> 0 then
                 begin
                 prevnode := newptr^.oprnds[1];
                 if bigcompilerversion then
-                  prevptr := ref(bignodetable[prevnode])
-                else treadaccess(prevnode, prevptr);
+                  prevptr := @(bignodetable[prevnode]);
                 if prevptr^.action = visit then
                   if (prevptr^.op > newunsvarop) and (prevptr^.op < intop) then
                     begin
@@ -3734,12 +3488,10 @@ procedure build;
                       begin
                       prevnode := prevptr^.slink;
                       if bigcompilerversion then
-                        prevptr := ref(bignodetable[prevnode])
-                      else treadaccess(prevnode, prevptr);
+                        prevptr := @(bignodetable[prevnode]);
                       end;
                     if bigcompilerversion then
-                      prevptr := ref(bignodetable[prevnode])
-                    else twriteaccess(prevnode, prevptr);
+                      prevptr := @(bignodetable[prevnode]);
                     prevptr^.slink := newexprnode;
                     end;
                 end;
@@ -3762,7 +3514,7 @@ procedure build;
               for t := 1 to count do
                 with n.oprndlist[t] do
                   begin
-                  getintfile;
+                  read(tempfiletwo, tempfilebuf);
                   litflag := true;
                   relation := false;
                   i := getintfileint;
@@ -3778,12 +3530,12 @@ procedure build;
 
 
             begin
-              getintfile;
+              read(tempfiletwo, tempfilebuf);
               n.len := getintfileint;
-              getintfile;
+              read(tempfiletwo, tempfilebuf);
               n.cost := min(getintfileint, maxcost);
-              getintfile;
-              n.form := tempfiletwo^[nextintcode].f;
+              read(tempfiletwo, tempfilebuf);
+              n.form := tempfilebuf.f;
             end {collectopdata} ;
 
 
@@ -3880,8 +3632,7 @@ procedure build;
               begin
                 while nindex <> 0 do
                   begin
-                  if bigcompilerversion then ptr := ref(bignodetable[nindex])
-                  else treadaccess(nindex, ptr);
+                  if bigcompilerversion then ptr := @(bignodetable[nindex]);
                   with ptr^ do
                     begin
                     if (oprnds[1] >= l) and (oprnds[1] <= u) and
@@ -4003,8 +3754,7 @@ procedure build;
 
 
               begin {reverse}
-                if bigcompilerversion then ptr := ref(bignodetable[current])
-                else treadaccess(current, ptr);
+                if bigcompilerversion then ptr := @(bignodetable[current]);
                 if ptr^.slink = 0 then
                   begin
                   reverse := current;
@@ -4014,7 +3764,6 @@ procedure build;
                 else
                   begin
                   reverse := reverse(ptr^.slink, current);
-                  if not bigcompilerversion then twriteaccess(current, ptr);
                   ptr^.slink := previous;
                   end;
               end {reverse} ;
@@ -4065,16 +3814,9 @@ procedure build;
                 { first on list is the reserve }
                 if bigcompilerversion then
                   begin
-                  ptr := ref(bignodetable[reserve]);
+                  ptr := @(bignodetable[reserve]);
                   ptr^.slink := reverse(ptr^.slink, 0);
                   end
-                else
-                  begin
-                  treadaccess(reserve, ptr);
-                  final := reverse(ptr^.slink, 0);
-                  twriteaccess(reserve, ptr);
-                  ptr^.slink := final;
-                  end;
                 end;
 
             end {callnode} ;
@@ -4110,18 +3852,17 @@ procedure build;
 
 
             begin {buildvar}
-              getintfile;
+              read(tempfiletwo, tempfilebuf);
               n.len := getintfileint;
               buildintoprnds(2);
               n.oprndlist[3] := stack[sp];
-              getintfile;
+              read(tempfiletwo, tempfilebuf);
               unique := (language = c) and (n.oprndlist[2].i >= ptr_loc_off);
-              n.ownvar := loophole(boolean, getintfileint);
+              n.ownvar := boolean(getintfileint);
               sp := sp - 1;
               insertnormal;
               if bigcompilerversion then
-                stackp := ref(bignodetable[stack[sp].p])
-              else treadaccess(stack[sp].p, stackp);
+                stackp := @(bignodetable[stack[sp].p]);
               { if the var has a value assigned use that instead }
               {travrs does not yet handle extended range variables...}
               if stackp^.hasvalue and ((n.op = varop) or
@@ -4189,8 +3930,7 @@ procedure build;
               begin
                 while n1 <> 0 do
                   begin
-                  if bigcompilerversion then ptr := ref(bignodetable[n1])
-                  else treadaccess(n1, ptr);
+                  if bigcompilerversion then ptr := @(bignodetable[n1]);
                   with ptr^ do
                     begin
                     if valid and (oprnds[1] = n.oprndlist[1].i) and
@@ -4215,13 +3955,13 @@ procedure build;
                 end
               else
                 begin
-                getintfile;
+                read(tempfiletwo, tempfilebuf);
                 n.len := getintfileint;
                 buildintoprnds(2);
                 n.oprndlist[3] := stack[sp];
-                getintfile;
+                read(tempfiletwo, tempfilebuf);
                 unique := (language = c) and (n.oprndlist[2].i >= ptr_loc_off);
-                n.ownvar := loophole(boolean, getintfileint);
+                n.ownvar := boolean(getintfileint);
                 sp := sp - 1;
                 insertnormal;
                 dodefine(stack[sp].p);
@@ -4246,7 +3986,7 @@ procedure build;
 
             begin {builddeffor}
               { must defer the define until after from and to done }
-              getintfile;
+              read(tempfiletwo, tempfilebuf);
               n.len := getintfileint;
               buildintoprnds(1);
               n.oprndlist[3] := stack[sp];
@@ -4255,8 +3995,7 @@ procedure build;
               sp := sp - 1;
               insertnormal;
               if bigcompilerversion then
-                p := ref(bignodetable[n.oprndlist[2].p])
-              else twriteaccess(n.oprndlist[2].p, p);
+                p := @(bignodetable[n.oprndlist[2].p]);
 
               { If we're within a loop, unhook for-loop control variable
                 from the list of writes, as it really belongs within the
@@ -4274,8 +4013,7 @@ procedure build;
                  not loopstack[loopdepth].deadlevels[level] then
                 begin
                 if bigcompilerversion then
-                  p := ref(bignodetable[n.oprndlist[2].p])
-                else twriteaccess(n.oprndlist[2].p, p);
+                  p := @(bignodetable[n.oprndlist[2].p]);
                 loopstack[loopdepth].writes := p^.looplink;
                 if loopstack[loopdepth].writes = 0 then
                   loopstack[loopdepth].lastwrite := 0;
@@ -4305,7 +4043,7 @@ procedure build;
                 relation := false;
                 litflag := true;
                 uniqueoprnd := false;
-                getintfile;
+                read(tempfiletwo, tempfilebuf);
                 i := getintfileint;
                 end;
             end;
@@ -4358,7 +4096,7 @@ procedure build;
               case language of
                 c:
                   begin
-                  getintfile;
+                  read(tempfiletwo, tempfilebuf);
                   n.len := getintfileint;
                   getintreal(n.rval);
                   insertnode(1);
@@ -4370,7 +4108,7 @@ procedure build;
                   case targetmachine of
                     iapx86: intpieces := 2; {MUST BE IMPROVED}
                     otherwise
-                      intpieces := size(realarray) div (hostfileunits *
+                      intpieces := maxrealwords div (hostfileunits *
                                    hostintsize);
                     end;
 
@@ -4406,7 +4144,7 @@ procedure build;
             n.len := targetintsize;
             n.cost := 0;
             n.ownvar := false;
-            n.op := tempfiletwo^[nextintcode].o;
+            n.op := tempfilebuf.o;
             n.form := none;
             for i := 1 to 3 do
               with n.oprndlist[i] do
@@ -4461,8 +4199,7 @@ procedure build;
                 begin
                 collectargs(1);
                 if bigcompilerversion then
-                  ptr := ref(bignodetable[n.oprndlist[1].p])
-                else treadaccess(n.oprndlist[1].p, ptr);
+                  ptr := @(bignodetable[n.oprndlist[1].p]);
                 if (ptr^.action = visit) and (ptr^.op = intop) then
                   begin
                   { just return the integer }
@@ -4597,7 +4334,7 @@ procedure build;
               sysfn:
                 begin
                 collectopdata;
-                cnvts := loophole(standardids, stack[sp - 1].i);
+                cnvts := standardids(stack[sp - 1].i);
                 if (n.form = bools) and not (cnvts in [predid, succid]) then
                   relationbuilt := true;
                 unique := cnvts in
@@ -4625,7 +4362,7 @@ procedure build;
                 builddeffor;
               forindexop:
                 begin {Use for stack to locate var}
-                getintfile;
+                read(tempfiletwo, tempfilebuf);
                 begin
                 with forstack[getintfileint] do
                   begin
@@ -4757,7 +4494,7 @@ procedure build;
                 begin
                 if sp = maxexprstack then abort(manytemps);
                 sp := sp + 1;
-                getintfile;
+                read(tempfiletwo, tempfilebuf);
                 with stack[sp] do
                   begin
                   context_mark := 0;
@@ -4799,7 +4536,7 @@ procedure build;
                 abort(builderror);
                 end;
               end;
-            getintfile;
+            read(tempfiletwo, tempfilebuf);
           end {buildnode} ;
 
 
@@ -4808,7 +4545,7 @@ procedure build;
           sp := 0;
           cond_depth := 0;
           call_depth := 0;
-          while tempfiletwo^[nextintcode].o <> endexpr do buildnode;
+          while tempfilebuf.o <> endexpr do buildnode;
           if sp > 0 then
             begin
             updatenewvars(stack[sp].p);
@@ -4826,7 +4563,7 @@ procedure build;
             increfcount(stack[sp].p, deadcode, 1);
             end
           else buildexpr := 0;
-          getintfile;
+          read(tempfiletwo, tempfilebuf);
         end {buildexpr} ;
 
 
@@ -4852,10 +4589,9 @@ procedure build;
 
         begin
           newstmt(thisstmt, stmtkind);
-          getintfile;
+          read(tempfiletwo, tempfilebuf);
           exprroot := buildexpr;
-          if bigcompilerversion then ptr := ref(bignodetable[thisstmt])
-          else twriteaccess(thisstmt, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[thisstmt]);
           ptr^.expr1 := exprroot;
         end {setupstmt} ;
 
@@ -4892,8 +4628,7 @@ procedure build;
           setupstmt(ifhdr);
           ifstmthdr := thisstmt;
           start_deadcount := deadcount;
-          if bigcompilerversion then ptr := ref(bignodetable[ifstmthdr])
-          else treadaccess(ifstmthdr, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[ifstmthdr]);
           checkconst(ptr^.expr1, removing, constvalue);
           shorteval := false;
           startblock := currentblock;
@@ -4920,9 +4655,9 @@ procedure build;
           if deadthen then decr_deadcount;
           dead_exit(start_deadcount);
           endthenblock := currentblock;
-          if tempfiletwo^[nextintcode].s = begelse then
+          if tempfilebuf.s = begelse then
             begin
-            getintfile;
+            read(tempfiletwo, tempfilebuf);
             { starting a new basic block }
             if deadelse then incr_deadcount;
             newblock(elseblock, startblock, false);
@@ -4954,8 +4689,7 @@ procedure build;
             currentblock^.joinop := true;
             end;
 
-          if bigcompilerversion then ptr := ref(bignodetable[ifstmthdr])
-          else twriteaccess(ifstmthdr, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[ifstmthdr]);
           if deadthen or deadelse then ptr^.stmtkind := nohdr
           else
             begin
@@ -5009,7 +4743,6 @@ procedure build;
 
 
         begin
-          tdecreasebuffers;
           new(this_descr);
           with this_descr^ do
             begin
@@ -5023,12 +4756,11 @@ procedure build;
             splitcount := 0;
             casetopblock := currentblock;
             newstmt(casetopstmt, casehdr);
-            getintfile;
+            read(tempfiletwo, tempfilebuf);
             caseexpr := buildexpr;
             checkconst(caseexpr, removing, constvalue);
             removing := removing and (removedeadcode in genset);
-            if bigcompilerversion then ptr := ref(bignodetable[casetopstmt])
-            else twriteaccess(casetopstmt, ptr);
+            if bigcompilerversion then ptr := @(bignodetable[casetopstmt]);
             ptr^.selector := caseexpr;
             newblock(tailblock, nil, false);
             currentblock := casetopblock;
@@ -5187,8 +4919,7 @@ procedure build;
             if lastnode = tnodetablesize then abort(manynodes)
             else lastnode := lastnode + 1;
             if lastnode > maxnodes then maxnodes := lastnode;
-            if bigcompilerversion then ptr := ref(bignodetable[lastnode])
-            else twriteaccess(lastnode, ptr);
+            if bigcompilerversion then ptr := @(bignodetable[lastnode]);
             with ptr^ do
               begin
               { link all the labels in text order }
@@ -5222,16 +4953,14 @@ procedure build;
               end
             else if lowlabel >= currentlow then
               begin
-              if bigcompilerversion then ptr := ref(bignodetable[lastnode])
-              else twriteaccess(lastnode, ptr);
+              if bigcompilerversion then ptr := @(bignodetable[lastnode]);
               ptr^.orderedlink := firstorder;
               firstorder := lastnode;
               lowlabel := currentlow;
               end
             else if highlabel < currenthigh then
               begin
-              if bigcompilerversion then ptr := ref(bignodetable[lastorder])
-              else twriteaccess(lastorder, ptr);
+              if bigcompilerversion then ptr := @(bignodetable[lastorder]);
               ptr^.orderedlink := lastnode;
               lastorder := lastnode;
               highlabel := currenthigh;
@@ -5239,23 +4968,18 @@ procedure build;
             else
               begin
               p1 := firstorder;
-              if bigcompilerversion then ptr := ref(bignodetable[firstorder])
-              else treadaccess(firstorder, ptr);
+              if bigcompilerversion then ptr := @(bignodetable[firstorder]);
               p2 := ptr^.orderedlink;
-              if bigcompilerversion then ptr2 := ref(bignodetable[p2])
-              else treadaccess(p2, ptr2);
+              if bigcompilerversion then ptr2 := @(bignodetable[p2]);
               while ptr2^.caselabelhigh < currentlow do
                 begin
                 p1 := p2;
                 p2 := ptr2^.orderedlink;
-                if bigcompilerversion then ptr2 := ref(bignodetable[p2])
-                else treadaccess(p2, ptr2);
+                if bigcompilerversion then ptr2 := @(bignodetable[p2]);
                 end;
-              if bigcompilerversion then ptr := ref(bignodetable[lastnode])
-              else twriteaccess(lastnode, ptr);
+              if bigcompilerversion then ptr := @(bignodetable[lastnode]);
               ptr^.orderedlink := p2;
-              if bigcompilerversion then ptr2 := ref(bignodetable[p1])
-              else twriteaccess(p1, ptr2);
+              if bigcompilerversion then ptr2 := @(bignodetable[p1]);
               ptr2^.orderedlink := lastnode;
               end;
             end;
@@ -5274,8 +4998,7 @@ procedure build;
         begin
           with this_case^ do
             begin
-            if bigcompilerversion then p := ref(bignodetable[casetopstmt])
-            else twriteaccess(casetopstmt, p);
+            if bigcompilerversion then p := @(bignodetable[casetopstmt]);
             p^.casedefptr := currentblock;
             casedef_found := true;
             end;
@@ -5320,8 +5043,7 @@ procedure build;
           with this_case^ do
             begin
             newstmt(s, shdr);
-            if bigcompilerversion then p := ref(bignodetable[s])
-            else twriteaccess(s, p);
+            if bigcompilerversion then p := @(bignodetable[s]);
             p^.targblock := tailblock;
             addpredsuccs(currentblock, tailblock);
             if not swbreak_found then
@@ -5387,8 +5109,7 @@ procedure build;
 
           begin
             first := true;
-            if bigcompilerversion then p := ref(bignodetable[n])
-            else twriteaccess(n, p);
+            if bigcompilerversion then p := @(bignodetable[n]);
             while p^.action = copy do
               with p^ do
                 begin
@@ -5396,8 +5117,7 @@ procedure build;
                 if not first then copycount := copycount + inc;
                 first := false;
                 n := p^.oldlink;
-                if bigcompilerversion then p := ref(bignodetable[n])
-                else twriteaccess(n, p);
+                if bigcompilerversion then p := @(bignodetable[n]);
                 end;
 
             { We now have a "visit" node with an operation}
@@ -5405,12 +5125,10 @@ procedure build;
               while p^.slink <> 0 do
                 begin
                 n := p^.slink;
-                if bigcompilerversion then p := ref(bignodetable[n])
-                else treadaccess(n, p);
+                if bigcompilerversion then p := @(bignodetable[n]);
                 end;
 
-            if bigcompilerversion then p := ref(bignodetable[n])
-            else twriteaccess(n, p);
+            if bigcompilerversion then p := @(bignodetable[n]);
             p^.refcount := p^.refcount + inc;
             if not first then p^.copycount := p^.copycount + inc;
             if p^.op = commaop then incref(p^.oprnds[2], inc);
@@ -5430,20 +5148,16 @@ procedure build;
 
 
           begin
-            if bigcompilerversion then tp := ref(bignodetable[first])
-            else treadaccess(first, tp);
-            if bigcompilerversion then op := ref(bignodetable[tp^.orderedlink])
-            else treadaccess(tp^.orderedlink, op);
+            if bigcompilerversion then tp := @(bignodetable[first]);
+            if bigcompilerversion then op := @(bignodetable[tp^.orderedlink]);
 
             stillordered := (first <> last) and (op^.orderedlink <> last);
             thislab := first;
             while stillordered and (thislab <> last) do
               begin
-              if bigcompilerversion then tp := ref(bignodetable[thislab])
-              else treadaccess(thislab, tp);
+              if bigcompilerversion then tp := @(bignodetable[thislab]);
               if bigcompilerversion then
-                op := ref(bignodetable[tp^.orderedlink])
-              else treadaccess(tp^.orderedlink, op);
+                op := @(bignodetable[tp^.orderedlink]);
               stillordered := (tp^.caselabelhigh = op^.caselabellow - 1) and
                               (tp^.stmtlabel = op^.stmtlabel);
               thislab := tp^.orderedlink;
@@ -5467,10 +5181,8 @@ procedure build;
           begin
             if this_case^.casedef_found then defaultcost := casedefaultcost
             else defaultcost := errdefaultcost;
-            if bigcompilerversion then fp := ref(bignodetable[first])
-            else treadaccess(first, fp);
-            if bigcompilerversion then lp := ref(bignodetable[last])
-            else treadaccess(last, lp);
+            if bigcompilerversion then fp := @(bignodetable[first]);
+            if bigcompilerversion then lp := @(bignodetable[last]);
             if fp^.caselabellow = lp^.caselabelhigh then
               cost := splitcost + defaultcost
             else
@@ -5500,14 +5212,12 @@ procedure build;
             this := first;
             basecost := cost(first, last);
             thisisordered := false;
-            if bigcompilerversion then p := ref(bignodetable[caseexpr])
-            else treadaccess(caseexpr, p);
+            if bigcompilerversion then p := @(bignodetable[caseexpr]);
             if not p^.relation then
               begin
               while this <> last do
                 begin
-                if bigcompilerversion then p := ref(bignodetable[this])
-                else treadaccess(this, p);
+                if bigcompilerversion then p := @(bignodetable[this]);
                 next := p^.orderedlink;
                 if (basecost = maxint) {humungous case statement} or
                    (cost(start, this) + cost(p^.orderedlink,
@@ -5520,22 +5230,19 @@ procedure build;
                   end;
                 repeat
                   this := next;
-                  if bigcompilerversion then p := ref(bignodetable[this])
-                  else treadaccess(this, p);
+                  if bigcompilerversion then p := @(bignodetable[this]);
                   next := p^.orderedlink;
                   if this = last then skipdone := true
                   else
                     begin
-                    if bigcompilerversion then op := ref(bignodetable[next])
-                    else treadaccess(next, op);
+                    if bigcompilerversion then op := @(bignodetable[next]);
                     skipdone := (p^.stmtlabel <> op^.stmtlabel) or
                                 (p^.caselabelhigh <> op^.caselabellow - 1);
                     end;
                 until skipdone;
                 end; {while}
 
-              if bigcompilerversion then p := ref(bignodetable[start])
-              else treadaccess(start, p);
+              if bigcompilerversion then p := @(bignodetable[start]);
 
               { Now define the final split found.  Note that treatment of
                 label ranges is imperfect, but shouldn't be far off.
@@ -5545,8 +5252,7 @@ procedure build;
                                (basecost > splitcost + casedefaultcost);
 
               if bigcompilerversion then
-                op := ref(bignodetable[p^.orderedlink])
-              else treadaccess(p^.orderedlink, op);
+                op := @(bignodetable[p^.orderedlink]);
 
               if (p^.orderedlink = last) and
                  (p^.caselabellow = p^.caselabelhigh) and
@@ -5559,8 +5265,7 @@ procedure build;
               begin
               lastnode := lastnode + 1;
               if lastnode > maxnodes then maxnodes := lastnode;
-              if bigcompilerversion then p := ref(bignodetable[lastnode])
-              else twriteaccess(lastnode, p);
+              if bigcompilerversion then p := @(bignodetable[lastnode]);
               with p^ do
                 begin
                 stmtkind := casegroup;
@@ -5608,8 +5313,7 @@ procedure build;
               restorecontext;
               joincontext;
               end;
-            if bigcompilerversion then p := ref(bignodetable[casetopstmt])
-            else twriteaccess(casetopstmt, p);
+            if bigcompilerversion then p := @(bignodetable[casetopstmt]);
             if removing then
               if (switchcounters[rangecheck] <= 0) or casedef_found or
                  ever_found then
@@ -5622,8 +5326,7 @@ procedure build;
               if firstorder = 0 then increfcount(p^.selector, deadcode,
                                                  - ord(language <> C))
               else split(firstorder, lastorder);
-              if bigcompilerversion then p := ref(bignodetable[casetopstmt])
-              else twriteaccess(casetopstmt, p);
+              if bigcompilerversion then p := @(bignodetable[casetopstmt]);
               p^.firstgroup := firstsplit;
               p^.groupcount := splitcount;
               end;
@@ -5646,7 +5349,6 @@ procedure build;
           tc := this_case;
           this_case := tc^.outer;
           dispose(tc);
-          if needcaching then tincreasebuffers;
         end; {finish_case}
 
 
@@ -5683,23 +5385,23 @@ procedure build;
         begin
           start_case;
 
-          while tempfiletwo^[nextintcode].s in [caselab, caselabrange] do
+          while tempfilebuf.s in [caselab, caselabrange] do
             begin {read each case element}
             caseblock := nil;
             start_label_group(caseblock);
 
-            while tempfiletwo^[nextintcode].s in [caselab, caselabrange] do
+            while tempfilebuf.s in [caselab, caselabrange] do
               begin {Read all labels for this element}
-              simplecaselab := tempfiletwo^[nextintcode].s = caselab;
-              getintfile;
+              simplecaselab := tempfilebuf.s = caselab;
+              read(tempfiletwo, tempfilebuf);
               lowlabel := getintfileint;
               if simplecaselab then insert_caselab(lowlabel, lowlabel)
               else
                 begin
-                getintfile;
+                read(tempfiletwo, tempfilebuf);
                 insert_caselab(lowlabel, getintfileint);
                 end;
-              getintfile;
+              read(tempfiletwo, tempfilebuf);
               end;
 
             end_label_group(false);
@@ -5707,9 +5409,9 @@ procedure build;
             case_break(swbrkhdr);
             end;
 
-          if tempfiletwo^[nextintcode].s = casedef then
+          if tempfilebuf.s = casedef then
             begin
-            getintfile;
+            read(tempfiletwo, tempfilebuf);
             caseblock := nil;
             start_label_group(caseblock);
             insert_casedef;
@@ -5720,7 +5422,7 @@ procedure build;
           else
             begin
             this_case^.tailblock^.blocklabel := newlabel;
-            getintfile;
+            read(tempfiletwo, tempfilebuf);
             end;
 
           finish_case;
@@ -5773,8 +5475,7 @@ procedure build;
           shorteval := true;
           setupstmt(cforhdr);
           cforhdrstmt := thisstmt;
-          if bigcompilerversion then ptr := ref(bignodetable[cforhdrstmt])
-          else treadaccess(cforhdrstmt, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[cforhdrstmt]);
           checkconst(ptr^.expr1, removing, constvalue);
           removing := removing and (removedeadcode in genset);
           shorteval := false;
@@ -5784,8 +5485,7 @@ procedure build;
           if removing and (constvalue = 0) then incr_deadcount;
 
           context[contextsp].dominates := true;
-          if bigcompilerversion then ptr := ref(bignodetable[cforhdrstmt])
-          else twriteaccess(cforhdrstmt, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[cforhdrstmt]);
           ptr^.trueblock := controlled;
           ptr^.falseblock := exit_block;
           hdrblock^.loophdr := true;
@@ -5802,8 +5502,7 @@ procedure build;
           temp := buildexpr;
           increfcount(temp, deadcode, - 1);
 
-          if bigcompilerversion then ptr := ref(bignodetable[p])
-          else twriteaccess(p, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[p]);
           ptr^.expr1 := temp;
           ptr^.trueblock := hdrblock;
           ptr^.falseblock := exit_block;
@@ -5824,8 +5523,7 @@ procedure build;
           addpredsuccs(hdrblock, currentblock);
           currentblock^.dominates := context[contextsp].dominates;
 
-          if bigcompilerversion then ptr := ref(bignodetable[cforhdrstmt])
-          else twriteaccess(cforhdrstmt, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[cforhdrstmt]);
 
           if removing then
             begin
@@ -5875,40 +5573,36 @@ procedure build;
           setupstmt(foruphdr);
 
           { point hdr to for..indxop}
-          if bigcompilerversion then ptr := ref(bignodetable[thisstmt])
-          else twriteaccess(thisstmt, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[thisstmt]);
           forhdrstmt := thisstmt;
           ptr^.expr2 := stack[sp - 1].p;
           saveexpr1 := ptr^.expr1;
           saveexpr2 := ptr^.expr2;
           increfcount(ptr^.expr2, deadcode, 1);
-          if tempfiletwo^[nextintcode].s = fordn then
+          if tempfilebuf.s = fordn then
             begin
-            if bigcompilerversion then ptr := ref(bignodetable[forhdrstmt])
-            else twriteaccess(forhdrstmt, ptr);
+            if bigcompilerversion then ptr := @(bignodetable[forhdrstmt]);
             ptr^.stmtkind := fordnhdr;
             end;
-          getintfile;
+          read(tempfiletwo, tempfilebuf);
 
           ptr^.forstepsize := getintfileint;
-          getintfile;
+          read(tempfiletwo, tempfilebuf);
 
-          if bigcompilerversion then ptr := ref(bignodetable[saveexpr2])
-          else treadaccess(saveexpr2, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[saveexpr2]);
           controlledvar := ptr^.oprnds[2];
 
           estimateloop(forhdrstmt, fixed, overflow, runcount);
 
           if fixed and (runcount = 0) and (removedeadcode in genset) then
             begin
-            if bigcompilerversion then ptr := ref(bignodetable[forhdrstmt])
-            else twriteaccess(forhdrstmt, ptr);
+            if bigcompilerversion then ptr := @(bignodetable[forhdrstmt]);
             ptr^.stmtkind := nohdr; { kill it!}
             incr_deadcount;
             { need a dead block to hang these stmts on }
             newblock(forstmts, currentblock, false);
             buildstmtlist(endfor, nil);
-            getintfile; { who cares about jump out}
+            read(tempfiletwo, tempfilebuf); { who cares about jump out}
             decr_deadcount;
             newblock(currentblock, forstmts, false);
             end
@@ -5935,11 +5629,10 @@ procedure build;
             buildstmtlist(endfor, forbotblock);
             if getintfileint <> 0 then {there's a goto out of the loop}
               begin {clear the "local access only" flag}
-              if bigcompilerversion then ptr := ref(bignodetable[saveexpr2])
-              else twriteaccess(saveexpr2, ptr);
+              if bigcompilerversion then ptr := @(bignodetable[saveexpr2]);
               ptr^.oprnds[1] := 0;
               end;
-            getintfile;
+            read(tempfiletwo, tempfilebuf);
             clearcontext;
             if (currentblock = forstmts) and false then
               begin
@@ -5961,12 +5654,10 @@ procedure build;
 
             { the bottom of the loop needs to know where the top is }
 
-            if bigcompilerversion then ptr := ref(bignodetable[p])
-            else twriteaccess(p, ptr);
+            if bigcompilerversion then ptr := @(bignodetable[p]);
             ptr^.looptop := fortopblock;
 
-            if bigcompilerversion then ptr := ref(bignodetable[forhdrstmt])
-            else twriteaccess(forhdrstmt, ptr);
+            if bigcompilerversion then ptr := @(bignodetable[forhdrstmt]);
 
             ptr^.falseblock := currentblock;
             ptr^.trueblock := forstmts;
@@ -6026,8 +5717,7 @@ procedure build;
           shorteval := true;
           setupstmt(whilehdr);
           whilehdrstmt := thisstmt;
-          if bigcompilerversion then ptr := ref(bignodetable[whilehdrstmt])
-          else treadaccess(whilehdrstmt, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[whilehdrstmt]);
           checkconst(ptr^.expr1, removing, constvalue);
           removing := removing and (removedeadcode in genset);
           shorteval := false;
@@ -6040,8 +5730,7 @@ procedure build;
           if start_dead then controlled^.blocklabel := newlabel;
           hdrblock^.loophdr := true;
 
-          if bigcompilerversion then ptr := ref(bignodetable[whilehdrstmt])
-          else twriteaccess(whilehdrstmt, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[whilehdrstmt]);
           ptr^.trueblock := controlled;
           ptr^.falseblock := exit_block;
 
@@ -6056,8 +5745,7 @@ procedure build;
 
           newstmt(p, whilebothdr);
           { tell bottom of loop where top is ( minus precode ) }
-          if bigcompilerversion then ptr := ref(bignodetable[p])
-          else twriteaccess(p, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[p]);
           ptr^.looptop := hdrblock;
 
           addpredsuccs(currentblock, hdrblock);
@@ -6076,8 +5764,7 @@ procedure build;
           addpredsuccs(hdrblock, exit_block);
           currentblock^.dominates := context[contextsp].dominates;
 
-          if bigcompilerversion then ptr := ref(bignodetable[whilehdrstmt])
-          else twriteaccess(whilehdrstmt, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[whilehdrstmt]);
           if removing then
             begin
             ptr^.stmtkind := nohdr;
@@ -6125,7 +5812,7 @@ procedure build;
           currentblock := loopbody;
 
           newstmt(thisstmt, loophdr);
-          getintfile;
+          read(tempfiletwo, tempfilebuf);
 
           enterloop(loopbody);
           pushloop(loopbody, exitblock);
@@ -6140,8 +5827,7 @@ procedure build;
           clearcontext;
           newstmt(p, loopbothdr);
           { tell bottom of loop where top is ( minus precode ) }
-          if bigcompilerversion then ptr := ref(bignodetable[p])
-          else twriteaccess(p, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[p]);
           ptr^.looptop := loopbody;
 
           exitloop;
@@ -6206,7 +5892,7 @@ procedure build;
           currentblock := loopbody;
 
           newstmt(thisstmt, rpthdr);
-          getintfile;
+          read(tempfiletwo, tempfilebuf);
 
           enterloop(loopbody);
           pushloop(control, exit_block);
@@ -6254,8 +5940,7 @@ procedure build;
 
           if this_loop^.break_found then clearcontext;
 
-          if bigcompilerversion then ptr := ref(bignodetable[untilstmt])
-          else twriteaccess(untilstmt, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[untilstmt]);
           if removing and (constvalue = 1) then ptr^.stmtkind := nohdr
           else
             begin
@@ -6302,8 +5987,7 @@ procedure build;
             withfonmin := foncount;
             setupstmt(withhdr);
             withfoncount := foncount;
-            if bigcompilerversion then ptr := ref(bignodetable[thisstmt])
-            else treadaccess(thisstmt, ptr);
+            if bigcompilerversion then ptr := @(bignodetable[thisstmt]);
             withref := ptr^.expr1;
             increfcount(withref, deadcode, - 1);
             { must remove as register candidate}
@@ -6313,8 +5997,7 @@ procedure build;
                   with is like with p^ then p is ok as register
                   var ( on machines with ptrreg ).
                 }
-              if bigcompilerversion then ptr := ref(bignodetable[withref])
-              else treadaccess(withref, ptr);
+              if bigcompilerversion then ptr := @(bignodetable[withref]);
               { now have the indxop, get the varop }
               if ptr^.op <> indxop then
                 begin
@@ -6322,8 +6005,7 @@ procedure build;
                 abort(inconsistent);
                 end;
               withvar := ptr^.oprnds[1];
-              if bigcompilerversion then ptr := ref(bignodetable[withvar])
-              else treadaccess(withvar, ptr);
+              if bigcompilerversion then ptr := @(bignodetable[withvar]);
               if not (ptr^.op in [varop, newvarop, unsvarop, newunsvarop]) then
                 begin
                 writeln('in buildwith, var not a varop is ', ord(ptr^.op): 1);
@@ -6401,7 +6083,7 @@ procedure build;
           if (gotodead = deadcount) or (language = c) then deadcode := false;{could
             be from outside}
           clearcontext;
-          getintfile;
+          read(tempfiletwo, tempfilebuf);
           mylabel := getintfileint;
           { define the label and allocate a new block, unless already defined }
           lptr := locallabels;
@@ -6417,7 +6099,6 @@ procedure build;
             end
           else
             begin
-            if not bigcompilerversion then tdecreasebuffers;
             new(lptr);
             lptr^.link := locallabels;
             lptr^.labelno := mylabel;
@@ -6432,12 +6113,11 @@ procedure build;
           if lblock^.blocklabel = 0 then lblock^.blocklabel := newlabel;
 
           newstmt(thisstmt, labelhdr);
-          if bigcompilerversion then ptr := ref(bignodetable[thisstmt])
-          else twriteaccess(thisstmt, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[thisstmt]);
           ptr^.labelno := mylabel;
-          getintfile;
+          read(tempfiletwo, tempfilebuf);
           ptr^.labellevel := getintfileint;
-          getintfile;
+          read(tempfiletwo, tempfilebuf);
           ptr^.nonlocalref := (getintfileint = 1);
           { using simple minded approach, lifetime analysis is invalid,
             defeat multiple vars to single register assignment
@@ -6466,7 +6146,7 @@ procedure build;
               end;
             end;
 
-          getintfile;
+          read(tempfiletwo, tempfilebuf);
 
         end {builddeflabel} ;
 
@@ -6494,26 +6174,25 @@ procedure build;
             begin
             { ignore this stmt}
             newstmt(thisstmt, gotohdr);
-            getintfile;
+            read(tempfiletwo, tempfilebuf);
             mylabel := getintfileint;
-            getintfile;
+            read(tempfiletwo, tempfilebuf);
             mylevel := getintfileint;
-            getintfile;
+            read(tempfiletwo, tempfilebuf);
             end
           else
             begin
             { no longer can calculate dominators }
             for i := 2 to contextsp do context[i].dominates := false;
             newstmt(thisstmt, gotohdr);
-            getintfile;
-            if bigcompilerversion then ptr := ref(bignodetable[thisstmt])
-            else twriteaccess(thisstmt, ptr);
+            read(tempfiletwo, tempfilebuf);
+            if bigcompilerversion then ptr := @(bignodetable[thisstmt]);
             mylabel := getintfileint;
             ptr^.labelno := mylabel;
-            getintfile;
+            read(tempfiletwo, tempfilebuf);
             mylevel := getintfileint;
             ptr^.labellevel := mylevel;
-            getintfile;
+            read(tempfiletwo, tempfilebuf);
             gotoblock := currentblock;
             {this used to be below, not here:}
             newblock(unreach, gotoblock, false);
@@ -6542,7 +6221,6 @@ procedure build;
                   if (language <> c) then addpredsuccs(gotoblock, block)
                   else
                     begin
-                    if not needcaching then tdecreasebuffers;
                     new(lptr);
                     lptr^.link := locallabels;
                     lptr^.labelno := mylabel;
@@ -6582,8 +6260,7 @@ procedure build;
 
         begin {buildsimplestmt}
           setupstmt(s);
-          if bigcompilerversion then ptr := ref(bignodetable[thisstmt])
-          else treadaccess(thisstmt, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[thisstmt]);
           if ptr^.expr1 <> 0 then increfcount(ptr^.expr1, deadcode, - 1);
         end {buildsimplestmt} ;
 
@@ -6602,8 +6279,7 @@ procedure build;
 
         begin
           setupstmt(returnhdr);
-          if bigcompilerversion then ptr := ref(bignodetable[thisstmt])
-          else treadaccess(thisstmt, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[thisstmt]);
           if ptr^.expr1 <> 0 then increfcount(ptr^.expr1, deadcode, - 1);
           ptr^.trueblock := retblock;
           addpredsuccs(currentblock, retblock);
@@ -6626,7 +6302,7 @@ procedure build;
 
         begin
           finish_case;
-          getintfile;
+          read(tempfiletwo, tempfilebuf);
         end;
 
 
@@ -6653,7 +6329,7 @@ procedure build;
 
         begin
           label_block := nil; {none to begin with}
-          s := tempfiletwo^[nextintcode].s;
+          s := tempfilebuf.s;
           swlab := false;
           full_lab := false;
           while s in [deflab, caselab, casedef] do
@@ -6662,12 +6338,12 @@ procedure build;
               begin
               if not swlab then start_label_group(label_block);
               swlab := true;
-              getintfile;
+              read(tempfiletwo, tempfilebuf);
               if s = caselab then
                 begin
                 lab := getintfileint;
                 insert_caselab(lab, lab);
-                getintfile;
+                read(tempfiletwo, tempfilebuf);
                 end
               else insert_casedef;
               end
@@ -6676,7 +6352,7 @@ procedure build;
               full_lab := true;
               builddeflabel(label_block);
               end;
-            s := tempfiletwo^[nextintcode].s;
+            s := tempfilebuf.s;
             end;
           if swlab then end_label_group(full_lab);
         end; {buildlabel}
@@ -6712,8 +6388,7 @@ procedure build;
               nindex := context[i].opmap[0];
               while nindex <> 0 do
                 begin
-                if bigcompilerversion then ptr := ref(bignodetable[nindex])
-                else treadaccess(nindex, ptr);
+                if bigcompilerversion then ptr := @(bignodetable[nindex]);
                 with ptr^ do
                   begin
                   if (oprnds[1] = 1) and (oprnds[2] = inputoffset) and
@@ -6737,9 +6412,8 @@ procedure build;
 
         begin {buildsyscallstmt}
           newstmt(thisstmt, syscallhdr);
-          getintfile;
-          if bigcompilerversion then ptr := ref(bignodetable[thisstmt])
-          else twriteaccess(thisstmt, ptr);
+          read(tempfiletwo, tempfilebuf);
+          if bigcompilerversion then ptr := @(bignodetable[thisstmt]);
           ptr^.expr2 := getintfileint;
 {
             We must produce the effect of doing a newvar on input if read
@@ -6747,10 +6421,9 @@ procedure build;
 }
           killinput := (ptr^.expr2 = ord(readid)) or
                        (ptr^.expr2 = ord(readlnid));
-          getintfile;
+          read(tempfiletwo, tempfilebuf);
           temp := buildexpr;
-          if bigcompilerversion then ptr := ref(bignodetable[thisstmt])
-          else twriteaccess(thisstmt, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[thisstmt]);
           ptr^.expr1 := temp;
           if killinput then clobberinput;
         end {buildsyscallstmt} ;
@@ -6777,9 +6450,8 @@ procedure build;
 
         begin
           newstmt(thisstmt, loopbrkhdr);
-          getintfile;
-          if bigcompilerversion then p := ref(bignodetable[thisstmt])
-          else twriteaccess(thisstmt, p);
+          read(tempfiletwo, tempfilebuf);
+          if bigcompilerversion then p := @(bignodetable[thisstmt]);
           breakloop := this_loop;
           while onlyloop and not breakloop^.looploop do
             breakloop := breakloop^.outer;
@@ -6810,9 +6482,8 @@ procedure build;
 
         begin
           newstmt(thisstmt, loopconthdr);
-          getintfile;
-          if bigcompilerversion then p := ref(bignodetable[thisstmt])
-          else twriteaccess(thisstmt, p);
+          read(tempfiletwo, tempfilebuf);
+          if bigcompilerversion then p := @(bignodetable[thisstmt]);
           p^.targblock := this_loop^.cont_block;
           with this_loop^.cont_block^ do
             if blocklabel = 0 then blocklabel := newlabel;
@@ -6831,12 +6502,12 @@ procedure build;
 
         begin
           case_break(cswbrkhdr);
-          getintfile;
+          read(tempfiletwo, tempfilebuf);
         end;
 
 
       begin {buildstmt}
-        case tempfiletwo^[nextintcode].s of
+        case tempfilebuf.s of
           begif: buildifstmt;
           begcase: buildcasestmt;
           begcfor: buildcforstmt;
@@ -6863,14 +6534,14 @@ procedure build;
           blksize:
             begin
             while deadcode do decr_deadcount;
-            getintfile;
+            read(tempfiletwo, tempfilebuf);
             final_block_size := getintfileint;
-            getintfile;
+            read(tempfiletwo, tempfilebuf);
             end;
           otherwise
             begin
             writeln('travrs: unhandled stmt operator #',
-                    ord(tempfiletwo^[nextintcode].s): 0);
+                    ord(tempfilebuf.s): 0);
             abort(builderror);
             end;
           end;
@@ -6881,15 +6552,15 @@ procedure build;
     begin {buildstmtlist}
       if not (deadcode and (removedeadcode in genset)) then
         foncount := foncount + 1;
-      while tempfiletwo^[nextintcode].s <> lasts do buildstmt;
+      while tempfilebuf.s <> lasts do buildstmt;
       addpredsuccs(currentblock, successorblock);
-      getintfile;
+      read(tempfiletwo, tempfilebuf);
     end {buildstmtlist} ;
 
 
   begin {build}
 
-    getintfile;
+    read(tempfiletwo, tempfilebuf);
 
     initbuild;
 
@@ -6923,7 +6594,7 @@ procedure build;
       end;
 
     symbolrecord := getintfileint;
-    getintfile;
+    read(tempfiletwo, tempfilebuf);
     lastblock := nil;
 
     { reverse the state of visited blocks }
@@ -6960,47 +6631,32 @@ procedure travrs;
 
   begin {travrs}
 
-    if debugtree then if switcheverplus[test] then ovrlay(xopentree);
-
     inittravrs;
 
-    while tempfiletwo^[nextintcode].s <> endall do
+    read(tempfiletwo, tempfilebuf);
+    while tempfilebuf.s <> endall do
       begin
 
-      while tempfiletwo^[nextintcode].s = begdata do passdata;
+      while tempfilebuf.s = begdata do passdata;
 
-      if tempfiletwo^[nextintcode].s <> endall then
+      if tempfilebuf.s <> endall then
         begin
         build;
-        if debugtree then if switcheverplus[test] then dumptree;
+	{DRB
         improve;
-        if debugtree then if switcheverplus[test] then dumptree;
         walk;
+	}
         end;
       end;
 
-    if not travcode or switcheverplus[test] then
-      begin
-      tempfileone^[nextpseudofile].op := endpseudocode;
-      putpseudofile;
-      if nextpseudofile <> 0 then
-        begin
-        put(tempfileone);
-        end;
-      end;
-
-    if debugtree and switcheverplus[test] then ovrlay(xclosetree);
-
-    if not bigcompilerversion then flushbuffers;
     if switcheverplus[test] and switcheverplus[details] then
       begin
       if hoistone <> 0 then writeln(hoistone: 1, ' invariants hoisted');
       if hoisttwo <> 0 then writeln(hoisttwo: 1, ' second level hoists');
-      if not bigcompilerversion then
-        writeln('travrs fewest/most blocks: ', fewestblocks: 1, mostblocks);
-      writeln((maxnodes * size(node)): 1, ' bytes of node storage used.');
+      writeln((maxnodes * sizeof(node)): 1, ' bytes of node storage used.');
       end
     else if switchcounters[tswitch0] > 0 then
       writeln('travrs, last node was ', maxnodes: 1);
     close(locals);
   end {travrs} ;
+end.

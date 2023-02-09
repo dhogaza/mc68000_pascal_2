@@ -199,23 +199,13 @@ type
       dominates: boolean; { true if block dominates loop exit }
       loophdr: boolean; { true if 1st block of a loop }
       forcelabel: boolean; { true if forced to use this label even if empty }
-          { NOTE: bigblock is true if at the time of block allocation
-            we thought that this block would be a loophdr. Since we may
-            later decide that construct is not a loop loophdr can be
-            false while bigblock is true we use bigblock to remember
-            what size block we must dispose.}
-      case bigblock: boolean of
-        true:
-          (looplabel: labelrange; { label of code below any hoisted }
-           reads: nodeindex; { chain of invariant for this loop }
-           writes: nodeindex; { chain of non-invariant for this loop }
-           lastwrite: nodeindex; { tail of chain of non-invariant for this loop
-                                  }
-           deadlevels: levelarray; { the dead levels }
-           deadloop: boolean; {true if loop so deeply nested that we gave up}
-           willexecute: boolean; { true if loop will execute if flow reaches}
-          );
-        false: ();
+      looplabel: labelrange; { label of code below any hoisted }
+      reads: nodeindex; { chain of invariant for this loop }
+      writes: nodeindex; { chain of non-invariant for this loop }
+      lastwrite: nodeindex; { tail of chain of non-invariant for this loop }
+      deadlevels: levelarray; { the dead levels }
+      deadloop: boolean; {true if loop so deeply nested that we gave up}
+      willexecute: boolean; { true if loop will execute if flow reaches}
     end;
 
   nodeblock =

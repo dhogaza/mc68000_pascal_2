@@ -34,7 +34,7 @@ implementation
 
 type dorangeproc = procedure (left, right: range;
                               var result: range;
-			      op: binaryfold;
+			      op: binaryfoldop;
                               var mayoverflow: boolean);
 
 { Machine dependent routines for Body.
@@ -210,8 +210,8 @@ procedure setvarrange(len: addressrange; {range of variable}
 
 procedure binaryrange(var left, right: operand_range; {arguments}
                       extended: boolean; {an extended range}
-		      signedop: binaryfold;
-		      unsignedop: binaryfold;
+		      signedop: binaryfoldop;
+		      unsignedop: binaryfoldop;
 		      dorange: dorangeproc;
                       var result: operand_range;
                       var mayoverflow: boolean);
@@ -246,7 +246,7 @@ procedure binaryrange(var left, right: operand_range; {arguments}
 
 procedure modrange(left, right: range; {operands}
                    var result: range; {result}
-		   op: binaryfold;
+		   op: binaryfoldop;
                    var mayoverflow: boolean);
 
   { Compute the resulting range for a "mod" operator.  In most cases, the
@@ -278,7 +278,7 @@ procedure modrange(left, right: range; {operands}
 
 procedure divrange(left, right: range; {operands}
                    var result: range; {result}
-		   op: binaryfold;
+		   op: binaryfoldop;
                    var mayoverflow: boolean);
 
 { Compute the resulting range for a divide operation.  This is
@@ -378,7 +378,7 @@ procedure divrange(left, right: range; {operands}
 
 procedure addrange(left, right: range; {operands}
                    var result: range; {result}
-		   op: binaryfold;
+		   op: binaryfoldop;
                    var mayoverflow: boolean);
 
 { Adjust the range of an operand as a result of an addition.
@@ -403,7 +403,7 @@ procedure addrange(left, right: range; {operands}
 
 procedure subrange(left, right: range; {operands}
                    var result: range; {result}
-		   op: binaryfold;
+		   op: binaryfoldop;
                    var mayoverflow: boolean);
 
 { Adjust the range of an operand as a result of a subtracton.
@@ -428,7 +428,7 @@ procedure subrange(left, right: range; {operands}
 
 procedure mulrange(left, right: range; {operands}
                    var result: range; {result}
-		   op: binaryfold;
+		   op: binaryfoldop;
                    var mayoverflow: boolean);
 
 { Compute the resulting range for an integer multiply.  This is
@@ -4856,7 +4856,7 @@ procedure statement(follow: tokenset {legal following symbols} );
 
 
         procedure sqrrange(operand: range; {operand being squared}
-		           op: binaryfold;
+		           op: binaryfoldop;
                            var result: range {resulting range} );
 
 { Compute resulting range for the "sqr" function

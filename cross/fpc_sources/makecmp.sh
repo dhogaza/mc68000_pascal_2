@@ -18,4 +18,5 @@ fpc -gl t_c
 fpc -gl hdrt
 fpc -gl commont
 fpc -gl fpcalc
+fpc -gl travrs
 fpc -gl main
