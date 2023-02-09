@@ -16,4 +16,5 @@ fpc -gl analys
 fpc -gl body
 fpc -gl t_c
 fpc -gl hdrt
+fpc -gl commont
 fpc -gl main
