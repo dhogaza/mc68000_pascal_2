@@ -436,6 +436,8 @@ procedure opens;
   assumes that "prefix" contains a directory string, and creates
   a full pathname in prefix if addprefix is true.
   The function returns "true" if the file exists in the directory.
+
+  DRB: free pascal version
 }
 
     const
@@ -443,25 +445,21 @@ procedure opens;
       DefLen = 4;
 
     var
-      status: integer; {value returned by reset}
-      i, j: FilenameIndex; {induction in strings}
-
+      fpc_filename: string;
 
     begin {FileExists}
-      if addprefix then i := prefixlen
-      else i := 0; {just start at the beginning}
-      for j := 1 to DefLen do
+      if addprefix then fpc_filename := trimset(prefix, [' ']) + trimset(filename, [' '])
+      else fpc_filename := trimset(filename, [' ']);
+      {$I-}
+      assign(source[sourcelevel], fpc_filename);
+      reset(source[sourcelevel]);
+      if (ioresult <> 0) then
         begin
-        if i < filenamelen then
-          begin
-          i := i + 1;
-          prefix[i] := DefExt[j];
-          end;
+        assign(source[sourcelevel], fpc_filename + DefExt);
+        reset(source[sourcelevel]);
         end;
-      for j := i + 1 to filenamelen do prefix[j] := ' ';
-{DRB      reset(Source[SourceLevel], filename, prefix, status);}
-status := 0; {DRB}
-      FileExists := (status >= 0);
+      {$I}
+      FileExists := (ioresult = 0);
     end {FileExists} ;
 
 
@@ -477,22 +475,24 @@ status := 0; {DRB}
       until found or not exists;
       if not found then
         begin
-        write('Can''t open include file ''');
-        writeln(filename: length(filename), '''');
-{DRB        exitst(exitstatus);}
-        end;
-      end;
+        writeln('Can''t open include file ''',trimset(filename, [' ']), '''');
+        halt;
+        end
+      end
   end {opens} ;
 
 procedure opennext;
 
 { Open the next source file at the current level.  If this is not the
   first input file, the old one is closed.
+
+  DRB: free pascal version
 }
 
   var
     i: integer; {counts file names}
     p: FilenameListPtr; {used to find the next filename}
+    fpc_filename: string;
 
 
   begin {opennext}
@@ -508,9 +508,24 @@ procedure opennext;
       begin
       if curfile > 1 then close(source[sourcelevel]);
       getfilename(p, false, false, filename, filename_length);
-      assign(source[sourcelevel], trimset(filename, [' ']));
+      fpc_filename := trimset(filename, [' ']);
+      assign(source[sourcelevel], fpc_filename);
+      {$I-}
       reset(source[sourcelevel]);
+      if ioresult <> 0 then
+        begin
+	fpc_filename := fpc_filename + '.pas';
+        assign(source[sourcelevel], fpc_filename);
+        reset(source[sourcelevel]);
+        end;
+      {$I}
+      if ioresult <> 0 then
+      begin
+        write('Can''t open source file ''');
+        writeln(filename: length(filename), '''');
+        halt();
       end;
+    end;
   end {opennext} ;
 
 
