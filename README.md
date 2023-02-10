@@ -3,7 +3,7 @@
 Once upon a time a company called Oregon Software sold a suite of optimizing compiler
 products based on compiler techology that I began developing around 1977.
 
-These eventually grew to include compilers for Pascal, Modula-2, and C/C++
+These eventually grew to include compilers for Pascal, Modula-2, and C/C++.
 
 We targeted the PDP-11 for our first version, and eventually also targeted the VAX,
 X86, MC68000, SPARC, and NS32000 architectures.
@@ -14,9 +14,9 @@ VersaDOS, and a wide variety of BSD- and Bell-based Unix OSes (there was no linu
 We also provided cross compilers for some environments.
 
 Binaries for the RSX PDP-11 version of Pascal-2 
-can be found, but there are no sources. Why Pascal-2?  We originally had written
-a PDP-11 Pascal compiler in assembly code which was then used to bootstrap the
-new technology.
+can be found, but there are no sources. Why was it named Pascal-2?  We originally had written
+a PDP-11 Pascal compiler in assembly code (OMSI Pascal) which was then used to bootstrap the
+new technology (OMSI, then later Oregon Software, Pascal-2).
 
 The code found here is for our VAX/VMS-hosted MC68000 cross-compiler.  VAX/VMS binaries
 exist for the compiler, assembler, and library.  Programs can be run under VersaDOS or
