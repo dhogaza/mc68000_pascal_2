@@ -1,6 +1,6 @@
 fpc -gl config
 fpc -gl hdr
-fpc -gl compiler
+fpc -gl product
 fpc -gl utils
 fpc -gl error
 fpc -gl p2rdreal

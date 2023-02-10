@@ -895,7 +895,7 @@ procedure setmodeonly;
 
   procedure pic_gen;
 
-      { For $pic only.
+      { For pic_enabled only.
 
         This procedure will generate a pcrelative mode for an external
         symbol.  First the relocated external symbol is added to the
@@ -1233,7 +1233,7 @@ procedure setmodeonly;
               sharedalloc:
                 begin
                 temp := 0;
-                if $pic then
+                if pic_enabled then
                   begin
 
                   { Generate "#<global>-P_OWN" for a PIC reference to a
@@ -1324,7 +1324,7 @@ procedure setmodeonly;
               displacement in pic mode on the 68000 causes an error.
             }
 
-          if $pic and (n^.operandcost >= long) then
+          if pic_enabled and (n^.operandcost >= long) then
             begin
             if mc68020 then
               begin
@@ -1443,7 +1443,7 @@ procedure setmodeonly;
           newESD.suppno := loophole(libroutines, offset);
           findESDid;
 
-          if $pic then pic_gen
+          if pic_enabled then pic_gen
           else
             begin
             if switcheverplus[longlib] then
@@ -1459,12 +1459,12 @@ procedure setmodeonly;
               end;
             relocn[objctr] := true; { tag the word relocatable }
             objtype[objctr] := objsup;
-            end; {not $pic}
+            end; {not pic_enabled}
           end; {supportcall}
 
         usercall:
           begin
-          if $pic then
+          if pic_enabled then
             begin
             if proctable[offset].externallinkage and
                not proctable[offset].bodydefined then
@@ -1576,7 +1576,7 @@ procedure setmodeonly;
                 insertobj(procmap[offset].addr + offset1 - currentpc);
                 end;
               end;
-            end {if $pic}
+            end {if pic_enabled}
           else
           if proctable[offset].externallinkage and
              not proctable[offset].bodydefined then
@@ -3425,7 +3425,7 @@ procedure writelastopnd;
                 begin
 {                n^.oprnd.offset := n^.oprnd.offset + offset;}
                   { Add in psect offset for Versados define'd var }
-                if $pic and (extvaralloc = sharedalloc) then
+                if pic_enabled and (extvaralloc = sharedalloc) then
                   begin
                   writech('#');
                   WriteSymbolName(get_from_sfile(charindex, charlen, true));
@@ -3450,7 +3450,7 @@ procedure writelastopnd;
             writech('L');
             if offset >= 0 then writech('+');
             writeint(offset);
-            if (n^.operandcost < long) or $pic then writestr('(PC)');
+            if (n^.operandcost < long) or pic_enabled then writestr('(PC)');
             end; {pcrelative}
 
           pcindexed:
@@ -3486,7 +3486,7 @@ procedure writelastopnd;
 
             supname(loophole(libroutines, offset), s);
 
-            if $pic then
+            if pic_enabled then
               if mc68020 then
                 begin { must use 68020 32 bit form }
                 writech('(');
@@ -3503,7 +3503,7 @@ procedure writelastopnd;
 
           usercall:
             begin
-            if $pic then
+            if pic_enabled then
               if mc68020 and ((proctable[offset].externallinkage and
                  not proctable[offset].bodydefined) or
                  (procmap[offset].addr = undefinedaddr) or

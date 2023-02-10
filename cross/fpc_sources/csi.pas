@@ -27,7 +27,7 @@ unit csi;
 
 interface
 
-uses config, compiler, utils, hdr;
+uses config, product, utils, hdr;
 
 procedure csi;
 

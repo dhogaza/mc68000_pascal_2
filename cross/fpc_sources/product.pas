@@ -1,4 +1,4 @@
-unit compiler;
+unit product;
 
 interface
 

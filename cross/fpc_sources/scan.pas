@@ -41,7 +41,7 @@ unit scan;
 
 interface
 
-uses config, hdr, error, compiler, utils, strutils;
+uses config, hdr, error, product, utils, strutils;
 
 { Pascal tokens -- identified by scanner }
 
