@@ -35,8 +35,8 @@ There are scary copyright statements in the source.  As the majority owner of Or
 while it existed, and primary author of the technology, I'm not too worried about suing myself
 for putting them up here for public viewing.  I may switch sources over to the GPL.
 
-Compiler sources are in cross/sources and are self-hosting (i.e. written in Pascal-2), as were
-all of our compilers though the C/C++ front end was eventually machine-translated to C.
+Compiler sources are in cross/sources and are self-hosting (i.e. written in Pascal-2, as were
+all of our compilers though the C/C++ front end was eventually machine-translated to C).
 
 In cross/fpc_sources there's ongoing work to rehost the code in Free Pascal.  The primary reason
 for doing this is because I'm interested in comparing the quality of code our compiler generated
@@ -44,7 +44,7 @@ vs modern technology like LLVM.
 
 Some notes on the structure:
 
-The compiler originally ran computers as small as a PDP-11 running RT-11 with a maximum of 56KB
+The compiler originally ran on computers as small as a PDP-11 running RT-11 with a maximum of 56KB
 RAM available.  Yes, KB, not MB much less GB.  And it could compile itself in that environment
 with only two 8" floppy disks for mass storage.   This compiler was the basis of DEC's MicroPower
 Pascal and their RSX-11 Pascal.  Our contract called for the compiler to compile itself in the
@@ -57,10 +57,11 @@ Architecturally it is a two-pass compiler.   First pass consists of a lexical sc
 syntactic/sematic parser.  The second pass consisted of an optimizer and code generator
 working on one procedure at a time.
 
-However on a small computer it was configured to run in four passes.  When running as two
+However on a small computer it was configured to run in four passes, and each pass consisted
+of overlays that were swapped in from disk.  When running as two
 passes, it could cache necessary data structures on the disk using an LRU approach.  If the
 environment included enough RAM, the compiler could be statically configured to keep all
-necessary data in RAM.
+necessary data in RAM and the executable code without overlays.
 
 So if you do dare to dig in, you'll see a lot of code conditionalized by "if bigcompiler"
 (all data stored in memory), "if needcaching", "if scanalys" and "if travcode" (number
