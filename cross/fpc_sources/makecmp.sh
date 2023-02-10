@@ -19,4 +19,7 @@ fpc -gl hdrt
 fpc -gl commont
 fpc -gl fpcalc
 fpc -gl travrs
+fpc -gl improve
+fpc -gl walk
+fpc -gl hdrc
 fpc -gl main

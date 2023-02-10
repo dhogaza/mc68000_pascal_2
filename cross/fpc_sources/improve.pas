@@ -1,4 +1,3 @@
-{$nomain,nopointercheck}
 {[b+,o=80]}
 { NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
 
@@ -35,6 +34,15 @@ Update release version for PC-VV0-GS0 at 2.3.0.1
 
 }
 
+unit improve;
+
+interface
+
+uses config, hdr, hdrt, a_t, utils, foldcom, commont;
+
+procedure improve;
+
+implementation
 
 procedure assignregs;
 {
@@ -224,7 +232,7 @@ procedure assignregs;
                   genreg, bytereg: varalloc := genregister;
                   realreg: varalloc := realregister;
                   end;
-                dbg_alloc(debugrecord, varalloc, regid)
+		  {DRB  dbg_alloc(debugrecord, varalloc, regid)}
                 end;
             end;
         until bestworth = 0;
@@ -612,8 +620,7 @@ procedure loops;
 
         begin {flood}
 
-          if bigcompilerversion then ptr := ref(bignodetable[expr])
-          else twriteaccess(expr, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[expr]);
           if (ptr^.hoistedby = nil) or forceflood then
             begin
             ptr^.hoistedby := loopblk;
@@ -662,19 +669,13 @@ procedure loops;
           copylink: nodeindex; { running index to copy node's target }
           exprptr: nodeptr; { for access to original node }
           ptr: nodeptr; { for walking copy links }
-          mustwrite: boolean; { true if expr changed and must be written }
           operands: operandarray; { local copy of oprnd field }
           nodeoperands: nodeoperandarray; { local copy of nodeoprnd field }
 
 
         begin {removecopies}
 
-          if bigcompilerversion then exprptr := ref(bignodetable[expr])
-          else
-            begin
-            treadaccess(expr, exprptr);
-            mustwrite := false;
-            end;
+          if bigcompilerversion then exprptr := @(bignodetable[expr]);
 
           { should always be a visit node }
 
@@ -687,22 +688,18 @@ procedure loops;
               if nodeoperands[i] then
                 begin
                 if bigcompilerversion then
-                  ptr := ref(bignodetable[operands[i]])
-                else treadaccess(operands[i], ptr);
+                  ptr := @(bignodetable[operands[i]]);
                 if ptr^.action = copy then
                   begin
-                  mustwrite := true;
                   blocksin[1].written := true;
                   d := depth;
                   repeat
                     d := d - 1;
                     copylink := ptr^.oldlink;
-                    if bigcompilerversion then exprptr^.oprnds[i] := copylink
-                    else operands[i] := copylink;
+                    if bigcompilerversion then exprptr^.oprnds[i] := copylink;
                     ptr^.refcount := ptr^.refcount - 1;
                     if bigcompilerversion then
-                      ptr := ref(bignodetable[copylink])
-                    else twriteaccess(copylink, ptr);
+                      ptr := @(bignodetable[copylink]);
                     ptr^.copycount := ptr^.copycount - 1;
                   until (d = 0) or (ptr^.action = visit);
                   if d > 0 then removecopies(d, copylink);
@@ -710,11 +707,6 @@ procedure loops;
                 else removecopies(depth, operands[i]);
                 end;
               end; {for}
-            if not bigcompilerversion and mustwrite then
-              begin
-              twriteaccess(expr, ptr);
-              ptr^.oprnds := operands;
-              end;
             end
           else
             begin
@@ -734,8 +726,7 @@ procedure loops;
 
         begin {onecopy}
 
-          if bigcompilerversion then ptr := ref(bignodetable[c])
-          else twriteaccess(c, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[c]);
           copied^.copycount := refc;
 
           with ptr^ do
@@ -755,8 +746,7 @@ procedure loops;
 
 
       begin {hoistit}
-        if bigcompilerversion then ptr := ref(bignodetable[expr])
-        else treadaccess(expr, ptr);
+        if bigcompilerversion then ptr := @(bignodetable[expr]);
 
         { first see if it's been hoisted already or not a true invariant }
 
@@ -792,12 +782,7 @@ procedure loops;
             lastnode := lastnode + 1;
             newexpr := lastnode;
 
-            if bigcompilerversion then copied := ref(bignodetable[newexpr])
-            else
-              begin
-              twriteaccess(newexpr, copied);
-              treadaccess(expr, ptr);
-              end;
+            if bigcompilerversion then copied := @(bignodetable[newexpr]);
 
             copied^ := ptr^;
             copied^.prelink := 0;
@@ -817,8 +802,7 @@ procedure loops;
           if lasthoist = 0 then loopblk^.precode := expr
           else
             begin
-            if bigcompilerversion then ptr := ref(bignodetable[lasthoist])
-            else twriteaccess(lasthoist, ptr);
+            if bigcompilerversion then ptr := @(bignodetable[lasthoist]);
             ptr^.prelink := expr;
             end;
           lasthoist := expr;
@@ -827,8 +811,7 @@ procedure loops;
 
           if switcheverplus[test] then
             begin
-            if bigcompilerversion then ptr := ref(bignodetable[expr])
-            else twriteaccess(expr, ptr);
+            if bigcompilerversion then ptr := @(bignodetable[expr]);
             if not anyinvars then
               begin
               anyinvars := true;
@@ -876,14 +859,12 @@ procedure loops;
 
       begin {simpleinvar}
         simpleinvar := false;
-        if bigcompilerversion then ptr := ref(bignodetable[oprnd])
-        else treadaccess(oprnd, ptr);
+        if bigcompilerversion then ptr := @(bignodetable[oprnd]);
         if ptr^.action = copy then
           begin
           { Point to the real operand }
           oprnd := ptr^.directlink;
-          if bigcompilerversion then ptr := ref(bignodetable[oprnd])
-          else treadaccess(oprnd, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[oprnd]);
           end {copy} ;
         if ((ptr^.op = varop) or (ptr^.op = unsvarop)) and
            not loopblk^.deadlevels[ptr^.oprnds[1]] then
@@ -892,19 +873,16 @@ procedure loops;
           off := ptr^.oprnds[2];
             { A simple variable points to an indxop, which points
               to a levop}
-          if bigcompilerversion then ptr := ref(bignodetable[ptr^.oprnds[3]])
-          else treadaccess(ptr^.oprnds[3], ptr);
+          if bigcompilerversion then ptr := @(bignodetable[ptr^.oprnds[3]]);
           if ptr^.op in [indxop, vindxop] then
             begin
-            if bigcompilerversion then ptr := ref(bignodetable[ptr^.oprnds[1]])
-            else treadaccess(ptr^.oprnds[1], ptr);
+            if bigcompilerversion then ptr := @(bignodetable[ptr^.oprnds[1]]);
               { Globalop's and localop's are converted to levop's
                 by buildexpr }
             if (ptr^.op = levop) then
               begin
               { First, check to see if this is the loop variable }
-              if bigcompilerversion then ptr := ref(bignodetable[other])
-              else treadaccess(other, ptr);
+              if bigcompilerversion then ptr := @(bignodetable[other]);
               if (level <> varlev) or (ptr^.oprnds[2] <> off) then
                 begin
                   { It isn't the loop variable, so now check to see
@@ -913,8 +891,7 @@ procedure loops;
                 written := false;
                 while not written and (p <> 0) and (p <> finalwrite) do
                   begin
-                  if bigcompilerversion then ptr := ref(bignodetable[p])
-                  else treadaccess(p, ptr);
+                  if bigcompilerversion then ptr := @(bignodetable[p]);
                   if (ptr^.oprnds[1] = varlev) and (ptr^.oprnds[2] = off) then
                     written := true;
                   p := ptr^.looplink;
@@ -1040,8 +1017,7 @@ procedure loops;
           if loopblk^.deadlevels[operands[1]] then
             begin
             varisinvar := false;
-            if bigcompilerversion then ptr := ref(bignodetable[oprnd])
-            else twriteaccess(oprnd, ptr);
+            if bigcompilerversion then ptr := @(bignodetable[oprnd]);
             ptr^.invariant := false; { warn others early }
             end
           else
@@ -1053,8 +1029,7 @@ procedure loops;
             found := false;
             while (currentvar <> finalwrite) and not found do
               begin
-              if bigcompilerversion then ptr := ref(bignodetable[currentvar])
-              else treadaccess(currentvar, ptr);
+              if bigcompilerversion then ptr := @(bignodetable[currentvar]);
               if (operands[1] = ptr^.oprnds[1]) and
                  (operands[2] = ptr^.oprnds[2]) then
                 found := true;
@@ -1063,8 +1038,7 @@ procedure loops;
             if found then
               begin
               varisinvar := false;
-              if bigcompilerversion then ptr := ref(bignodetable[oprnd])
-              else twriteaccess(oprnd, ptr);
+              if bigcompilerversion then ptr := @(bignodetable[oprnd]);
               ptr^.invariant := false;
               end
             else varisinvar := true;
@@ -1074,8 +1048,7 @@ procedure loops;
 
       begin {invariantoprnd}
 
-        if bigcompilerversion then ptr := ref(bignodetable[oprnd])
-        else treadaccess(oprnd, ptr);
+        if bigcompilerversion then ptr := @(bignodetable[oprnd]);
 
         worthit := false;
         aindxkludge := false;
@@ -1086,8 +1059,7 @@ procedure loops;
           begin
           copyfound := true; {a few redundant assignments here won't hurt}
           oprnd := ptr^.oldlink;
-          if bigcompilerversion then ptr := ref(bignodetable[oprnd])
-          else treadaccess(oprnd, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[oprnd]);
           i := i - 1;
           end;
 
@@ -1128,7 +1100,7 @@ procedure loops;
            bldset, setelt, setpair, bldnil, bldfmt, inop, pushaddr, pushvalue,
            pushcvalue, pushfinal, pushlitvalue, call, unscall, callparam,
            copystackop, unscallparam, reserve, pushproc, rd, wr, switchstack,
-           closerangeop, definelazyop, filebufindrop, setbinfileop,
+           closerangeop, definelazyop, filebufindrop,
            setbinfileop, sysfn, dummyargop]) or
            (ptr^.op in [rangechkop, indxchkop]) and (nowwalking or
            nowdebugging) or not dominating and
@@ -1148,8 +1120,7 @@ procedure loops;
                 begin
                 { must determine if we are in this for loop or deeper }
                 if bigcompilerversion then
-                  ptr := ref(bignodetable[loopblk^.beginstmt])
-                else treadaccess(loopblk^.beginstmt, ptr);
+                  ptr := @(bignodetable[loopblk^.beginstmt]);
                 invar := ptr^.expr2 <> oprnd;
                 end
               else {ordinary operator}
@@ -1163,8 +1134,7 @@ procedure loops;
                   else
                     begin
                     if bigcompilerversion then
-                      ptr := ref(bignodetable[ptr^.oprnds[1]])
-                    else treadaccess(ptr^.oprnds[1], ptr);
+                      ptr := @(bignodetable[ptr^.oprnds[1]]);
                     invar := (ptr^.action = visit) and (ptr^.op <> unsvarop);
                     end
                   end
@@ -1207,7 +1177,8 @@ procedure loops;
       end {invariantoprnd} ;
 
 
-    procedure examineexpression {expression: nodeindex} ;
+    procedure examineexpression(expression: nodeindex;
+                                hoistsubtrees: boolean);
 
       var
         i: 1..3; {induction var }
@@ -1219,8 +1190,7 @@ procedure loops;
 
       begin {examineexpression}
         repeat
-          if bigcompilerversion then ptr := ref(bignodetable[expression])
-          else treadaccess(expression, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[expression]);
 
           if ptr^.action = visit then
             begin
@@ -1286,8 +1256,7 @@ procedure loops;
 
       begin {examineinvariantoprnd}
 
-        if bigcompilerversion then ptr := ref(bignodetable[expression])
-        else treadaccess(expression, ptr);
+        if bigcompilerversion then ptr := @(bignodetable[expression]);
 
         secondlevel := true;
 
@@ -1300,12 +1269,10 @@ procedure loops;
             else
               begin
               if bigcompilerversion then
-                ptr := ref(bignodetable[previoushoist])
-              else twriteaccess(previoushoist, ptr);
+                ptr := @(bignodetable[previoushoist]);
               ptr^.prelink := nexthoist;
               end;
-            if bigcompilerversion then ptr := ref(bignodetable[expression])
-            else twriteaccess(expression, ptr);
+            if bigcompilerversion then ptr := @(bignodetable[expression]);
             ptr^.prelink := 0;
             hoistit(expression);
             expression := 0;
@@ -1336,8 +1303,7 @@ procedure loops;
         while p <> 0 do
           begin
           if loopblk^.looplabel = 0 then loopblk^.looplabel := newlabel;
-          if bigcompilerversion then ptr := ref(bignodetable[p])
-          else treadaccess(p, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[p]);
           lasthoist := p;
           p := ptr^.prelink;
           end;
@@ -1347,8 +1313,7 @@ procedure loops;
         if loopblk^.lastwrite <> 0 then
           begin
           if bigcompilerversion then
-            ptr := ref(bignodetable[loopblk^.lastwrite])
-          else treadaccess(loopblk^.lastwrite, ptr);
+            ptr := @(bignodetable[loopblk^.lastwrite]);
           finalwrite := ptr^.looplink;
           end
         else finalwrite := 0;
@@ -1368,8 +1333,7 @@ procedure loops;
           if not current^.isdead and (current^.beginstmt <> 0) then
             begin
             stmt := current^.beginstmt;
-            if bigcompilerversion then ptr := ref(bignodetable[stmt])
-            else treadaccess(stmt, ptr);
+            if bigcompilerversion then ptr := @(bignodetable[stmt]);
 
             { see if we just backed into a new loop }
 
@@ -1395,8 +1359,7 @@ procedure loops;
                 currenthoist := innerloop^.precode;
                 repeat
                   if bigcompilerversion then
-                    ptr := ref(bignodetable[currenthoist])
-                  else treadaccess(currenthoist, ptr);
+                    ptr := @(bignodetable[currenthoist]);
                   nexthoist := ptr^.prelink;
                   if ptr^.action = visit then
                     examineinvariant(currenthoist, previoushoist);
@@ -1420,8 +1383,7 @@ procedure loops;
               if current = loopblk then dominating := current^.dominates
               else dominating := loopblk^.willexecute and current^.dominates;
               repeat
-                if bigcompilerversion then ptr := ref(bignodetable[stmt])
-                else treadaccess(stmt, ptr);
+                if bigcompilerversion then ptr := @(bignodetable[stmt]);
                 { get next stmt while it's cheap }
                 stmt := ptr^.nextstmt;
                 secondlevel := false;
@@ -1448,33 +1410,27 @@ procedure loops;
         if loopblk^.beginstmt <> 0 then
           begin
           fixnode := loopblk^.beginstmt;
-          if bigcompilerversion then ptr := ref(bignodetable[fixnode])
-          else treadaccess(fixnode, ptr);
+          if bigcompilerversion then ptr := @(bignodetable[fixnode]);
           if (ptr^.stmtkind = foruphdr) or (ptr^.stmtkind = fordnhdr) then
             begin
             finalexpr := ptr^.expr1;
             initexpr := ptr^.expr2;
-            if bigcompilerversion then ptr := ref(bignodetable[ptr^.expr2])
-            else treadaccess(ptr^.expr2, ptr);
+            if bigcompilerversion then ptr := @(bignodetable[ptr^.expr2]);
             temp := ptr^.len; {length of index variable}
-            if bigcompilerversion then ptr := ref(bignodetable[finalexpr])
-            else treadaccess(finalexpr, ptr);
+            if bigcompilerversion then ptr := @(bignodetable[finalexpr]);
             if ptr^.op in [forupchkop, fordnchkop, forerrchkop] then
               begin
               fixnode := finalexpr;
               if bigcompilerversion then
-                ptr := ref(bignodetable[ptr^.oprnds[1]])
-              else treadaccess(ptr^.oprnds[1], ptr);
+                ptr := @(bignodetable[ptr^.oprnds[1]]);
               if ptr^.op = pushfinal then
                 begin
                 newoprnd := ptr^.oprnds[1];
-                if bigcompilerversion then ptr := ref(bignodetable[newoprnd])
-                else treadaccess(newoprnd, ptr);
+                if bigcompilerversion then ptr := @(bignodetable[newoprnd]);
                 if simpleinvar(newoprnd, initexpr) and (temp = ptr^.len) then
                   begin
                   { delete the pushfinal op }
-                  if bigcompilerversion then ptr2 := ref(bignodetable[fixnode])
-                  else twriteaccess(fixnode, ptr2);
+                  if bigcompilerversion then ptr2 := @(bignodetable[fixnode]);
                   ptr2^.oprnds[1] := newoprnd;
                   end;
                 end;
@@ -1482,13 +1438,11 @@ procedure loops;
             else if ptr^.op = pushfinal then
               begin
               newoprnd := ptr^.oprnds[1];
-              if bigcompilerversion then ptr := ref(bignodetable[newoprnd])
-              else treadaccess(newoprnd, ptr);
+              if bigcompilerversion then ptr := @(bignodetable[newoprnd]);
               if simpleinvar(newoprnd, initexpr) and (temp = ptr^.len) then
                 begin
                 { delete the pushfinal op }
-                if bigcompilerversion then ptr2 := ref(bignodetable[fixnode])
-                else twriteaccess(fixnode, ptr2);
+                if bigcompilerversion then ptr2 := @(bignodetable[fixnode]);
                 ptr2^.expr1 := newoprnd;
                 end;
               end;
@@ -1511,8 +1465,7 @@ procedure loops;
       { this test will be unneeded when empty basic blocks are removed }
       if not blk^.isdead and (blk^.beginstmt <> 0) then
         begin
-        if bigcompilerversion then ptr := ref(bignodetable[blk^.beginstmt])
-        else twriteaccess(blk^.beginstmt, ptr);
+        if bigcompilerversion then ptr := @(bignodetable[blk^.beginstmt]);
         if (ptr^.nodeform = stmtnode) and
            (ptr^.stmtkind in
            [loopbothdr, whilebothdr, forbothdr, cforbothdr, untilhdr]) then
@@ -1626,8 +1579,7 @@ procedure smooth;
 
 
       begin {getsize}
-        if bigcompilerversion then ptr := ref(bignodetable[expr])
-        else treadaccess(expr, ptr);
+        if bigcompilerversion then ptr := @(bignodetable[expr]);
         if (ptr^.action = visit) then
           begin
           operands := ptr^.oprnds;
@@ -1727,8 +1679,7 @@ procedure smooth;
 
 
       begin {setsize}
-        if bigcompilerversion then ptr := ref(bignodetable[expr])
-        else treadaccess(expr, ptr);
+        if bigcompilerversion then ptr := @(bignodetable[expr]);
         if (ptr^.action = visit) then
           begin
           if (ptr^.op in
@@ -1790,8 +1741,7 @@ procedure smooth;
       stmt := blk^.beginstmt;
       while stmt <> 0 do
         begin
-        if bigcompilerversion then ptr := ref(bignodetable[stmt])
-        else treadaccess(stmt, ptr);
+        if bigcompilerversion then ptr := @(bignodetable[stmt]);
         { get next stmt while it's cheap }
         stmt := ptr^.nextstmt;
         if ptr^.stmtkind in
@@ -1835,8 +1785,10 @@ procedure improve;
     assignregs;
     { smooth before hoisting }
     case targetmachine of
-      iAPX86, mc68000: { Smoothing causes poor code for these machines. }
+      iAPX86, mc68000:; { Smoothing causes poor code for these machines. }
       otherwise smooth;
       end;
     if (hoisting in genset) and not irreducible then loops;
   end {improve} ;
+
+end.

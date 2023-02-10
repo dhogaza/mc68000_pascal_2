@@ -71,7 +71,8 @@ unit travrs;
 
 interface
 
-uses config, hdr, utils, error, a_t, t_c, hdrt, commont, fpcalc, foldcom;
+uses config, hdr, utils, error, a_t, t_c, hdrt, commont, fpcalc,
+     foldcom, improve, walk;
 
 procedure travrs;
 
@@ -6642,10 +6643,8 @@ procedure travrs;
       if tempfilebuf.s <> endall then
         begin
         build;
-	{DRB
-        improve;
-        walk;
-	}
+        improve.improve;
+        walk.walk;
         end;
       end;
 
