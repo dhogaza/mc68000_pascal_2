@@ -176,6 +176,7 @@ writeln('after analys ', lasterror, ' errors detected');
      switcheverplus[outputobj]) then
     begin
     resetswitches;
+    openc;
     {DRB settime;}
     if travcode then
       begin
