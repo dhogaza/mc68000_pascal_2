@@ -218,6 +218,37 @@ procedure supname(libroutine: libroutines;
       end;
 
   end {supname} ;
+
+procedure findlabelpc(labelno: integer; {label to match}
+                      var forwardlab: integer {forward reference} );
+ { Search the label table for a match on the label number parameter.
+  Return the label's address in "labelpc".  If not found the label is
+  a forward non-local goto, which must be appended to the fixup list.
+}
+
+  var
+    lscan: labelindex; { induction var for scanning label table }
+    found: boolean; { boolean to control loop escape }
+
+
+  begin
+    lscan := 1; { start with first entry in labeltable }
+    found := false;
+    forwardlab := 0;
+
+    while (lscan <= nextlabel) and not found do
+      if labeltable[lscan].labno = labelno then found := true
+      else lscan := lscan + 1;
+
+    if found then labelpc := labeltable[lscan].address
+    else
+      begin { an entry for future fixup }
+      labelpc := 0; { don't use undefinedaddr here }
+      forwardlab := 1;
+      end;
+  end; { findlabelpc }
+
+
 
 { The following procedures perform formatted output to the assembler file.
   The routines which accept strings of 4 and 8 characters will suppress
@@ -1647,44 +1678,6 @@ procedure getprevoperand(num: integer);
       end { if }
   end; { getprevoperand }
 
-procedure insertsize;
-
-{ Insert size field into bits 6..7 of the main instruction word.
-}
-
-
-  begin
-    op := (op and &177477); {make certain the field is clear}
-    if datasize = word then op := op + &100
-    else if datasize = long then op := op + &200;
-  end; {insertsize}
-
-
-procedure insertreghi;
-
-{ extract register specification from current operand node, shift left
-  9 bits, and insert into the current instruction binary in bits 9..11.
-}
-
-
-  begin
-    op := (n^.oprnd.reg and &7) * &1000 + op;
-  end; { insertreghi }
-
-
-procedure insertreglo;
-
-{ extract register specification from current operand node,
-  and insert into the current instruction binary in bits 0..2.
-}
-
-
-  begin
-    op := (n^.oprnd.reg and &7) + op;
-  end; { insertreglo }
-
-
-
 procedure writeinst(inst: insttype);
 
 { Write the 68000 mnemonic for the current instruction.
@@ -2766,7 +2759,7 @@ procedure writelastopnd;
           2:
             (w: packed array [boolean] of - 32767..32767);
       end {kluge} ;
-    s: longname;
+    s: string;
 
     { Write out the scale factor for the 68020 indexed instructions.
       A scale factor of 1 is the default and so is ignored.
@@ -3373,8 +3366,6 @@ procedure DoBlockEntryCode;
 
 
   begin
-    if (switchcounters[debugging] > 0) or (switchcounters[profiling] > 0) then
-      writemaprecord(plabrec, 0, 0, procsym);
     procmap[blockref].addr := currentpc; { update procedure address table }
 
     if  (level = 1) 
@@ -3513,35 +3504,10 @@ procedure buildfpbranches;
         writech('L');
         writeint(n^.labelno);
         end;
-
-      findlabelpc(n^.labelno, isforward); { find or compute target's addr }
-      distancetemp := labelpc - currentpc; { bump pc by 2 }
-
-      if n^.labelcost = long then { 32 bit branch }
-        begin
-
-        if isforward <> 0 then
-          begin
-          objtype[objctr - 1] := objlong;
-          allocfixup; { generate a new fixupnode }
-          fixups[objctr - 1] := fixuptail;
-          with fixuptail^ do
-            begin
-            fixupkind := fixuplabel;
-            fixuplen := long;
-            fixuplabno := n^.labelno;
-            fixupobjpc := fixupobjpc - 4;
-            end;
-          end;
-        end
-      else { 16 bit branch } insertobj(distancetemp);
       end {labelnode}
     else if n^.kind = relnode then
       begin { relnodes are short, unlabeled branches. }
       distancetemp := computedistance;
-
-      insertobj(distancetemp);
-
       if switcheverplus[outputmacro] then
         begin
         writech('*');
@@ -3575,15 +3541,10 @@ procedure builddbxx;
         writech('L');
         writeint(n^.labelno);
         end;
-
-      findlabelpc(n^.labelno, isforward); { find or compute target's addr }
-      insertobj(labelpc - currentpc); { this bumps pc by 2 }
-      if isforward <> 0 then abort(inconsistent);
       end
     else if n^.kind = relnode then
       begin
       distancetemp := computedistance;
-      insertobj(labelpc - currentpc);
 
       if switcheverplus[outputmacro] then
         begin
@@ -3610,8 +3571,6 @@ procedure buildmovem(gen_fmovem: boolean);
     if n^.oprnd.m = immediate then
       begin { save registers }
       datasize := word; {mask is only 16 bits long}
-
-      if not gen_fmovem then setmodeonly; { process the register mask }
 
       if switcheverplus[outputmacro] then
       begin
@@ -3658,22 +3617,13 @@ procedure buildmovem(gen_fmovem: boolean);
         end;
       writech(',');
       end;
-      if gen_fmovem then
-        begin { mode 00 is static list, -(An) }
-        op2 := op2 + 20000B { indicate direction mem-to-reg }
-               + n^.oprnd.offset; { glue in list }
-        insertobj(op2);
-        end;
 
       getoperand;
-      if not (n^.oprnd.m in [relative, autod]) then puterror(baddestination);
-      seteffective; { autodec mode and register }
       writelastopnd;
       end
     else if n^.oprnd.m = autoi then
       begin { restore registers }
       writeopnd;
-      seteffective;
       getoperand;
 
       datasize := word; { mask is only 16 bits long }
@@ -3725,9 +3675,6 @@ procedure buildmovem(gen_fmovem: boolean);
       end;
       end
     else puterror(badsource);
-
-    if not gen_fmovem then op := op + &100; { preinitialized for word; change
-                                              to long }
 
   end; {buildmovem}
 
@@ -3812,13 +3759,10 @@ procedure BuildInstruction;
             end;
 
           writelastopnd;
-          insertobj(op2 + ord(memory) * 40000B + register * 2000B +
-                    n^.oprnd.reg * 200B);
 
           if memory then
             begin
             getprevoperand(1);
-            seteffective;
             end;
           end;
 
@@ -3838,12 +3782,9 @@ procedure BuildInstruction;
           writeopnd;
           getoperand;
           writelastopnd;
-          insertobj(op2 + ord(memory) * 40000B + register * 2000B +
-                    n^.oprnd.indxr * 200B + n^.oprnd.reg);
           if memory then
             begin
             getprevoperand(1);
-            seteffective;
             end;
           end;
 
@@ -3861,8 +3802,6 @@ procedure BuildInstruction;
             end;
 
           writelastopnd;
-          insertobj(op2 + ord(memory) * 40000B + register * 2000B);
-          if memory then seteffective;
           end;
 
         fcmp, fsub, fdiv, fsgldiv:
@@ -3885,13 +3824,6 @@ procedure BuildInstruction;
             writeopnd;
             getoperand;
             writelastopnd;
-            insertobj(op2 + ord(memory) * 40000B + register * 2000B +
-                      n^.oprnd.reg * 200B);
-            if memory then
-              begin
-              getprevoperand(1);
-              seteffective;
-              end;
             end;
           end;
 
@@ -3902,28 +3834,10 @@ procedure BuildInstruction;
           register := n^.oprnd.reg;
           getoperand;
           writelastopnd;
-
-          if n^.oprnd.m = fpreg then { memory-to-register form (includes
-                                      register-to-register) }
-            if memory then
-              begin
-              insertobj(ord(memory) * 40000B + fp_src_spec * 2000B +
-                        n^.oprnd.reg * 200B);
-              getprevoperand(1);
-              seteffective;
-              end
-            else { fpreg-to-fpreg }
-              insertobj(register * 2000B + n^.oprnd.reg * 200B)
-          else { register-to-memory form }
-            begin
-            insertobj(60000B + fp_src_spec * 2000B + register * 200B);
-            seteffective;
-            end;
           end;
 
         fnop:
           begin
-          insertobj(op2);
           end;
 
         fmove_from_fpcr:
@@ -3936,8 +3850,6 @@ procedure BuildInstruction;
           if switcheverplus[outputmacro] then writech(',');
           getoperand;
           writelastopnd;
-          insertobj(op2 + 20000B + offset1 * 2000B);
-          seteffective;
           end;
 
         fmove_to_fpcr:
@@ -3948,9 +3860,6 @@ procedure BuildInstruction;
           writeopnd;
           getoperand;
           output_fp_creg;
-          insertobj(op2 + n^.oprnd.offset * 2000B);
-          getprevoperand(1);
-          seteffective;
           end;
 
         fmovecr:
@@ -3962,7 +3871,6 @@ procedure BuildInstruction;
           writeopnd;
           getoperand;
           writelastopnd;
-          insertobj(op2 + n^.oprnd.reg * 200B + offset1);
           end;
 
         fmovem: buildmovem(true);
@@ -3973,20 +3881,16 @@ procedure BuildInstruction;
         movea, move:
           begin
           writeopnd;
-          seteffective;
           getoperand;
           writelastopnd;
-          setmodeonly;
           if currinst = movea then
             if datasize = byte then puterror(badsize)
             else if n^.oprnd.m <> areg then puterror(missingAreg);
-          op := ((((mode and 7B) * &100 + mode) * 10B) and 7700B) + op;
           end;
 
         move_to_ccr:
           begin
           writeopnd;
-          seteffective;
           if switcheverplus[outputmacro] then writestr('CCR');
           end;
 
@@ -3997,17 +3901,13 @@ procedure BuildInstruction;
             puterror(badoperand);
           datasize := byte; { just in case }
           writeopnd;
-          op := (n^.oprnd.offset and 377B) + op;
           getoperand;
           writelastopnd;
           if n^.oprnd.m <> dreg then puterror(badoperand);
-          op := n^.oprnd.reg * &10001000 + op;
           end;
 
         add, cmp, sub, andinst, orinst:
           begin
-          if datasize = word then op := op + &100
-          else if datasize = long then op := op + 200B;
 
             begin
             writeopnd;
@@ -4016,18 +3916,13 @@ procedure BuildInstruction;
                            emit "<Dn> op <EA> --> <Dn>" form only }
             if (n^.oprnd.m = dreg) and (p^.oprnd.m <> dreg) then
               begin
-              op := op + 400B; { indicate direction }
               if currinst = cmp then puterror(badsource); {cmp is one-way}
-              insertreghi;
               getoperand;
-              seteffective;
               end
             else
               begin { must be "<EA> to Dn" form }
-              seteffective;
               getoperand;
               if n^.oprnd.m <> dreg then puterror(missingDreg);
-              insertreghi;
               end;
             writelastopnd;
             end;
@@ -4038,28 +3933,19 @@ procedure BuildInstruction;
           if (n^.oprnd.m <> immediate) or (n^.oprnd.offset < 1) or
              (n^.oprnd.offset > 8) then
             puterror(badoperand);
-          if n^.oprnd.offset < 8 then { value 8 == bit pattern 0 }
-            op := n^.oprnd.offset * &10001000 + op;
-          insertsize;
           datasize := byte;
           writeopnd;
           getoperand;
           writelastopnd;
-          seteffective;
           end;
 
         adda, cmpa, suba: { address register destination }
           begin
             begin
-            seteffective;
             writeopnd;
             getoperand;
             writelastopnd;
             if n^.oprnd.m <> areg then puterror(missingAreg);
-            insertreghi;
-            if datasize = word then op := op + 300B
-            else if datasize = long then op := op + 700B
-            else puterror(badoperand); { no byte mode }
             end;
           end;
 
@@ -4068,29 +3954,19 @@ procedure BuildInstruction;
           if (n^.oprnd.m <> immediate) and (n^.oprnd.m <> immediatelong) then
             puterror(badoperand);
             begin
-            insertsize;
-            setmodeonly; { processes the immediate data }
             writeopnd;
             getoperand;
             writelastopnd;
-            seteffective;
             end;
           end;
 
         eor: { exclusive or -- differs from other logicals }
           begin
           if n^.oprnd.m <> dreg then puterror(missingDreg);
-
-          if datasize = word then op := op + &500
-          else if datasize = long then op := op + 600B
-          else op := op + 400B;
-
           writeopnd;
-          insertreghi;
           getoperand;
           writelastopnd;
           if n^.oprnd.m = areg then puterror(badoperand);
-          seteffective;
           end;
 
         asl, asr, lsl, lsr, rol, ror, roxl, roxr: { shift group }
@@ -4104,38 +3980,26 @@ procedure BuildInstruction;
 
             if p^.oprnd.m = dreg then
               begin { immediate/register }
-              if n^.oprnd.offset < 8 then { shift 8 == bit pattern 0 }
-                op := n^.oprnd.offset * &10001000 + op;
-              insertsize;
               datasize := word;
               writeopnd;
               getoperand;
-              op := n^.oprnd.reg + op;
               end { immediate/register }
 
             else
               begin { immediate/memory -- enforce shift count = 1 }
               if n^.oprnd.offset <> 1 then puterror(badsource)
               else
-                op := (op and &30) * &100 { relocate subtype }
-                      + (op and &400) { save direction bit }
-                      + &160300; { size of 3 decodes to memory shift! }
               if datasize <> word then puterror(badsize);
               getoperand; { do not write out the shift count! }
-              seteffective;
               end; { immediate/memory }
             end { immediate (or implied) shift count form }
 
           else { register/register form -- instruction needs correction }
             begin
-            op := op + &40;
             if n^.oprnd.m <> dreg then puterror(missingDreg);
-            insertreghi; { this reg has the shift count }
-            insertsize; { all sizes are permissible }
             writeopnd;
             getoperand;
             if n^.oprnd.m <> dreg then puterror(missingDreg);
-            op := n^.oprnd.reg + op;
             end;
 
           writelastopnd;
@@ -4145,20 +4009,9 @@ procedure BuildInstruction;
           begin
           if (n^.oprnd.m <> dreg) and (n^.oprnd.m <> immediate) then
             puterror(badsource);
-          if n^.oprnd.m = dreg then
-            begin { bit number dynamic mode }
-            op := op + &400;
-            insertreghi; { register containing bit number }
-            end
-          else
-            begin { bit number static mode }
-            op := op + &4000;
-            setmodeonly; { process the immediate data }
-            end;
           writeopnd;
           getoperand;
           writelastopnd;
-          seteffective;
           end;
 
         bfclr, bfset, bftst:
@@ -4170,19 +4023,14 @@ procedure BuildInstruction;
             begin
               { "Len" is the length in bits, "offset1" is the offset in bits.
               }
-            insertobj(((n^.oprnd.offset1 and &37) * &100) + (datasize and &37));
             writebitfield( - 1, n^.oprnd.offset1, datasize);
             end
           else
             begin
             if n^.oprnd.m <> dreg then puterror(missingDreg);
-            insertobj(&4000 + ((n^.oprnd.reg and &37) * &100) + (datasize and
-                      &37));
             writebitfield(n^.oprnd.reg, 0, datasize);
             end;
 
-          getprevoperand(1);
-          seteffective;
           end;
 
         bfexts, bfextu:
@@ -4198,8 +4046,6 @@ procedure BuildInstruction;
             offset1 := n^.oprnd.offset1;
             getoperand;
             if n^.oprnd.m <> dreg then puterror(missingDreg);
-            insertobj(((n^.oprnd.reg and &7) * &10000) + ((offset1 and
-                      &37) * &100) + (datasize and &37));
             writebitfield( - 1, offset1, datasize);
             end
           else
@@ -4208,22 +4054,11 @@ procedure BuildInstruction;
             register := n^.oprnd.reg;
             getoperand;
             if n^.oprnd.m <> dreg then puterror(missingDreg);
-            insertobj(((n^.oprnd.reg and &7) * &10000) + &4000 + ((register and
-                      37B) * &100) + (datasize and &37));
             writebitfield(register, 0, datasize);
             end;
 
           if switcheverplus[outputmacro] then writech(',');
           writelastopnd; { The register }
-
-            { Back up two operands and output the effective address
-              field to the object file. This is neccessary because the effective
-              address is the source field in the assembler output, but any
-              effect address descriptor words must follow the second word
-              of the instruction.
-            }
-          getprevoperand(2);
-          seteffective;
           end;
 
         bfins:
@@ -4240,35 +4075,25 @@ procedure BuildInstruction;
               { "Len" is the length in bits, "offset1" is the offset in bits,
                 "reg" is the source register.
               }
-            insertobj(((register and 7B) * 10000B) + ((n^.oprnd.offset1 and
-                      37B) * &100) + (datasize and 37B));
             writebitfield( - 1, n^.oprnd.offset1, datasize);
             end
           else
             begin
             if n^.oprnd.m <> dreg then puterror(missingDreg);
-            insertobj(((register and 7B) * 10000B) + 4000B + ((n^.oprnd.reg and
-                      37B) * &100) + (datasize and 37B));
             writebitfield(n^.oprnd.reg, 0, datasize);
             end;
-          getprevoperand(1);
-          seteffective;
           end;
 
         chk:
           begin
-          seteffective;
           writeopnd;
           getoperand;
           if n^.oprnd.m <> dreg then puterror(missingDreg);
           writelastopnd;
-          insertreghi;
           end;
 
         clr, neg, negx, notinst, tst:
           begin
-          insertsize;
-          seteffective;
           writelastopnd;
           end;
 
@@ -4276,25 +4101,20 @@ procedure BuildInstruction;
           begin
           if n^.oprnd.m <> autoi then puterror(badsource);
             begin
-            insertsize;
-            op := (n^.oprnd.reg and 7B) + op;
             writeopnd;
             getoperand;
             writelastopnd;
             if n^.oprnd.m <> autoi then puterror(badoperand);
-            insertreghi;
             end;
           end;
 
         divs, divu:
           begin
           if datasize <> word then puterror(badsize);
-          seteffective;
           writeopnd;
           getoperand;
           writelastopnd;
           if n^.oprnd.m <> dreg then puterror(missingDreg);
-          insertreghi;
           end;
 
         divsl, divul:
@@ -4303,62 +4123,21 @@ procedure BuildInstruction;
           writeopnd;
           getoperand;
           writelastopnd;
-
-            { reg is the quotient register and indxr is the remainder
-              register.  Note: If the quotient and remainder registers
-              are the same then only a 32 bit quotient will be generated.
-            }
-          if n^.oprnd.m = twodregs then
-            insertobj((((n^.oprnd.reg and
-                      7B) * 10000B) + ord(currinst =
-                      divsl) * 4000B) + n^.oprnd.indxr)
-          else
-            insertobj((((n^.oprnd.reg and
-                      7B) * 10000B) + ord(currinst =
-                      divsl) * 4000B) + n^.oprnd.reg);
-
-            { Back up one operand and output the effective address field
-              to the opject file. This is neccessary because the effective
-              address is the source field in the assembler output, but any
-              effect address descriptor words must follow the second word
-              of the instruction.
-            }
-          getprevoperand(1);
-          seteffective;
           end;
-
         exg:
           begin
 {**note: genblk fix
             if datasize <> long then puterror(badsize);
 }
           writeopnd;
-          insertreghi; { assume that this is ok }
           if n^.oprnd.m = dreg then
             begin
             getoperand;
-            if (n^.oprnd.m <> dreg) and (n^.oprnd.m <> areg) then
-              puterror(baddestination);
-            if n^.oprnd.m = dreg then op := op + &100
-            else op := op + 210B;
-            insertreglo;
             end
           else
             begin
             if n^.oprnd.m <> areg then puterror(badsource);
             getoperand;
-            if n^.oprnd.m = areg then
-              begin
-              op := op + 110B;
-              insertreglo;
-              end
-            else if n^.oprnd.m = dreg then
-              begin
-              op := ((op and 7000B) div &1000 {remove high reg}
-                    + op + 210B) and 170777B; {put it in lowend}
-              insertreghi;
-              end
-            else puterror(baddestination);
             end;
           writelastopnd;
           end;
@@ -4368,15 +4147,6 @@ procedure BuildInstruction;
           if n^.oprnd.m <> dreg then puterror(missingDreg);
           if datasize = byte then puterror(badsize);
 
-            { The mask is setup for a word to long, if the instruction is
-              an EXTB (68020 only) or if this is an extend word to long set
-              the correct bits.
-            }
-          if currinst = extb then
-            op := op + &500 { change to byte-to-long form }
-          else if datasize = long then op := op + &100; { change to
-                                                          word-to-long form }
-          insertreglo;
           writelastopnd;
           end;
 
@@ -4390,7 +4160,6 @@ procedure BuildInstruction;
               reposition(procnamecolumn);
               writeprocname(n^.oprnd.offset, 100); {write procedure name}
               end;
-            seteffective;
             end
           else {must be a labelnode}
             begin
@@ -4399,33 +4168,7 @@ procedure BuildInstruction;
               writech('L');
               writeint(n^.labelno);
               end;
-
-            mode := 71B; {absolute long}
-            op := op + mode;
-            insertobj(54B * 256 + sectionno[codesect] + 1);
-            objtype[objctr] := objforw;
-            currentpc := currentpc - 2; {this stuff's longer than code}
-            findlabelpc(n^.labelno, isforward);
-            relocn[objctr] := true;
-
-            insertobj(labelpc div $10000); {high order}
-            objtype[objctr] := objoff;
-            insertobj(labelpc mod $10000); {low order}
-
-            if isforward <> 0 then
-              begin
-              allocfixup; { generate a new fixupnode }
-              fixups[objctr - 1] := fixuptail;
-              with fixuptail^ do
-                begin
-                fixupkind := fixuplabel;
-                fixuplen := long;
-                fixuplabno := n^.labelno;
-                fixupobjpc := fixupobjpc - 4;
-                end;
-              end;
-            objtype[objctr] := objoff;
-            end;
+	    end;
           end;
 
         lea:
@@ -4433,7 +4176,6 @@ procedure BuildInstruction;
           n1 := nil;
           if n^.kind = oprndnode then
             begin
-            seteffective;
             if n^.oprnd.m = usercall then {caused by stuffregisters} n1 := n;
             if n^.oprnd.m in
                [areg, dreg, autoi, autod, immediate, immediatelong] then
@@ -4443,8 +4185,6 @@ procedure BuildInstruction;
           else
             begin {must be relnode, used only for initial call}
             distancetemp := computedistance;
-            op := op + 72B;
-            insertobj(distancetemp);
 
             if switcheverplus[outputmacro] then
               begin
@@ -4466,13 +4206,11 @@ procedure BuildInstruction;
 {**note: genblk fix
             if datasize <> long then puterror(badsize);
 }
-          insertreghi;
           end;
 
         link:
           begin
           if n^.oprnd.m <> areg then puterror(missingAreg);
-          insertreglo; { dynamic link register }
           writeopnd;
           getoperand;
 
@@ -4482,7 +4220,6 @@ procedure BuildInstruction;
           writelastopnd; { 68020 long is written here }
           if n^.oprnd.m <> immediate then puterror(baddestination)
           else if n^.oprnd.offset > 0 then puterror(badoffset);
-          setmodeonly;
           end;
 
         movem: buildmovem(false);
@@ -4494,28 +4231,13 @@ procedure BuildInstruction;
             writeopnd;
             getoperand;
             writelastopnd;
-            if n^.oprnd.m <> dreg then puterror(missingDreg);
-
-            insertobj(((n^.oprnd.reg and
-                      7B) * 10000B) + ord(currinst = muls) * 4000B);
-
-              { Back up one operand and output the effective address field
-                to the opject file. This is neccessary because the effective
-                address is the source field in the assembler output, but any
-                effect address descriptor words must follow the second word
-                of the instruction.
-              }
-            getprevoperand(1);
-            seteffective;
             end
           else if datasize = word then
             begin
-            seteffective;
             writeopnd;
             getoperand;
             writelastopnd;
             if n^.oprnd.m <> dreg then puterror(missingDreg);
-            insertreghi;
             end
           else puterror(badsize);
           end;
@@ -4525,14 +4247,12 @@ procedure BuildInstruction;
 {**note: genblk fix
             if datasize <> long then puterror(badsize);
 }
-          seteffective;
           writelastopnd;
           end;
 
         swap:
           begin
           if n^.oprnd.m <> dreg then puterror(badoperand);
-          insertreglo;
           writelastopnd;
           end;
 
@@ -4544,14 +4264,12 @@ procedure BuildInstruction;
           if (n^.oprnd.m <> immediate) or (n^.oprnd.offset < 0) or
              (n^.oprnd.offset > 15) then
             puterror(badoperand);
-          op := op + n^.oprnd.offset;
           writelastopnd;
           end;
 
         unlk:
           begin
           if n^.oprnd.m <> areg then puterror(missingAreg);
-          insertreglo;
           writelastopnd;
           end
 
@@ -4607,7 +4325,6 @@ procedure PutCode;
             findlabelpc(targetlabel, isforward); {can't be forward}
             labelpctemp := labelpc;
             findlabelpc(tablebase, isforward); {can't be forward}
-            insertobj(labelpctemp - labelpc);
 
             if switcheverplus[outputmacro] then
               begin
@@ -4620,7 +4337,6 @@ procedure PutCode;
               writeint(tablebase);
               end;
 
-            writeobjline;
             currinst := nop; { to flush nodes to next inst }
             end { labeldeltanode}
 
@@ -4638,11 +4354,6 @@ procedure PutCode;
                         ', Stmt: ', i: 1);
                 end;
 
-              if ((switchcounters[debugging] > 0) or
-		 (switchcounters[profiling] > 0)) then
-		begin
-		writemaprecord(stmntrec, flags, sourceline, i);
-		end;
               end
             else if kind = datanode then { insert constant data for 68881 }
               begin
@@ -4704,10 +4415,6 @@ procedure PutCode;
           abort(inconsistent);
           end;
 
-        {update op value: may have changed due to operand modes}
-
-        object[1] := op;
-        writeobjline;
 
         if (swbegkludgecount <> 0) and
            (unixtarget in [Nti, VMEV2, NCR, Lmi, UniPlusV2, CTIX, NEC]) and
@@ -4775,20 +4482,21 @@ procedure openc;
       case hostopsys of
         vdos:
           case targetopsys of
-            vms, rsx, rsts, rt: rewrite(macfile, filename, '.ma');
-            unix: rewrite(macfile, filename, '.s');
-            vdos: rewrite(macfile, filename, '.sa');
-            msdos, apollo: rewrite(macfile, filename, '.as');
+            vms, rsx, rsts, rt: assign(macfile, string(filename) + '.ma');
+            unix: assign(macfile, string(filename) + '.s');
+            vdos: assign(macfile, string(filename) + '.sa');
+            msdos, apollo: assign(macfile, string(filename) + '.as');
             end {case} ;
         otherwise
           case targetopsys of
-            vms: rewrite(macfile, filename, '.mar');
-            rsx, rsts, rt: rewrite(macfile, filename, '.mac');
-            unix: rewrite(macfile, filename, '.s');
-            vdos: rewrite(macfile, filename, '.sa');
-            msdos, apollo: rewrite(macfile, filename, '.asm');
+            vms: assign(macfile, string(filename) + '.mar');
+            rsx, rsts, rt: assign(macfile, string(filename) + '.mac');
+            unix: assign(macfile, string(filename) + '.s');
+            vdos: assign(macfile, string(filename) + '.sa');
+            msdos, apollo: assign(macfile, string(filename) + '.asm');
             end {case} ;
         end {case} ;
+	rewrite(macfile);
       end {/macro} ;
 
     if switcheverplus[outputobj] then
@@ -4797,72 +4505,51 @@ procedure openc;
       case hostopsys of
         vdos:
           case targetopsys of
-            vms, rsx, rsts, rt, msdos: rewrite(objfile, filename, '.ob');
-            vdos: rewrite(objfile, filename, '.ro');
-            unix: rewrite(objfile, filename, '.o');
-            apollo: rewrite(objfile, filename, '.bi');
+            vms, rsx, rsts, rt, msdos: assign(objfile, string(filename) + '.ob');
+            vdos: assign(objfile, string(filename) + '.ro');
+            unix: assign(objfile, string(filename) + '.o');
+            apollo: assign(objfile, string(filename) + '.bi');
             end {case} ;
         vms:
           case targetopsys of
-            vms: rewrite(objfile, filename, '.obj/nocr');
-            rsx, rsts, rt: rewrite(objfile, filename, '.obj');
-            unix: rewrite(objfile, filename, '.o/seek');
-            vdos: rewrite(objfile, filename, '.ro');
-            msdos: rewrite(objfile, filename, '.obj/seek');
-            apollo: rewrite(objfile, filename, '.bin/seek');
+            vms: assign(objfile, string(filename) + '.obj/nocr');
+            rsx, rsts, rt: assign(objfile, string(filename) + '.obj');
+            unix: assign(objfile, string(filename) + '.o/seek');
+            vdos: assign(objfile, string(filename) + '.ro');
+            msdos: assign(objfile, string(filename) + '.obj/seek');
+            apollo: assign(objfile, string(filename) + '.bin/seek');
             end;
         msdos:
           case targetopsys of
-            vms: rewrite(binobjfile, filename, '.obj');
-            rsx, rsts, rt: rewrite(objfile, filename, '.obj');
-            unix: rewrite(objfile, filename, '.o/seek');
-            vdos: rewrite(objfile, filename, '.ro');
-            msdos: rewrite(objfile, filename, '.obj');
-            apollo: rewrite(objfile, filename, '.bin/seek');
+            vms: assign(binobjfile, string(filename) + '.obj');
+            rsx, rsts, rt: assign(objfile, string(filename) + '.obj');
+            unix: assign(objfile, string(filename) + '.o/seek');
+            vdos: assign(objfile, string(filename) + '.ro');
+            msdos: assign(objfile, string(filename) + '.obj');
+            apollo: assign(objfile, string(filename) + '.bin/seek');
             end;
         unix, apollo:
           case targetopsys of
-            vms: rewrite(binobjfile, filename, '.obj');
-            rsx, rsts, rt: rewrite(objfile, filename, '.obj');
-            unix: rewrite(objfile, filename, '.o');
-            vdos: rewrite(objfile, filename, '.ro');
-            msdos: rewrite(objfile, filename, '.obj');
-            apollo: rewrite(objfile, filename, '.bin');
+            vms: assign(binobjfile, string(filename) + '.obj');
+            rsx, rsts, rt: assign(objfile, string(filename) + '.obj');
+            unix: assign(objfile, string(filename) + '.o');
+            vdos: assign(objfile, string(filename) + '.ro');
+            msdos: assign(objfile, string(filename) + '.obj');
+            apollo: assign(objfile, string(filename) + '.bin');
             end;
         otherwise
           case targetopsys of
-            vms: rewrite(objfile, filename, '.obj');
-            rsx, rsts, rt: rewrite(objfile, filename, '.obj');
-            unix: rewrite(objfile, filename, '.o/seek');
-            vdos: rewrite(objfile, filename, '.ro');
-            msdos: rewrite(objfile, filename, '.obj/seek');
-            apollo: rewrite(objfile, filename, '.bin/seek');
+            vms: assign(objfile, string(filename) + '.obj');
+            rsx, rsts, rt: assign(objfile, string(filename) + '.obj');
+            unix: assign(objfile, string(filename) + '.o/seek');
+            vdos: assign(objfile, string(filename) + '.ro');
+            msdos: assign(objfile, string(filename) + '.obj/seek');
+            apollo: assign(objfile, string(filename) + '.bin/seek');
             end;
         end {case} ;
+	rewrite(objfile);
       end {/object} ;
 
-    case targetopsys of
-      unix, apollo:
-        if unixtarget <> atxenix then
-          begin
-          rewrite(relfile);
-          if switcheverplus[walkback] then rewrite(diagfile);
-          end;
-      vdos:
-        if switcheverplus[test] then
-          case hostopsys of
-            vdos: rewrite(relfile, 'temp3.tm');
-            unix: rewrite(relfile, 'temp3.tmp');
-            otherwise rewrite(relfile, 'temp3.tmp/seek');
-            end {case}
-        else
-          case hostopsys of
-            vdos: rewrite(relfile);
-            unix: rewrite(relfile, 'temp3.tmp -temp');
-            otherwise rewrite(relfile, 'temp3.tmp/seek/temp');
-            end {case} ;
-      otherwise {do nothing} ;
-      end {case} ;
   end {openc} ;
 
 
@@ -4875,20 +4562,6 @@ procedure closec;
   begin {closec}
     if switcheverplus[outputmacro] then close(macfile);
     if switcheverplus[outputobj] then close(objfile);
-    if newdebugger and
-       (switcheverplus[debugging] or switcheverplus[profiling]) then
-      close(statement_file.mapfile);
-    case targetopsys of
-      unix, apollo:
-        begin
-        if unixtarget <> atxenix then
-          begin
-          close(relfile);
-          if switcheverplus[walkback] then close(diagfile);
-          end;
-        end;
-      vdos:
-        close(relfile);
-      end;
   end {closec} ;
 
+  end.

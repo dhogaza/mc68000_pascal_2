@@ -22,4 +22,5 @@ fpc -gl travrs
 fpc -gl improve
 fpc -gl walk
 fpc -gl hdrc
+fpc -gl putcode
 fpc -gl main
