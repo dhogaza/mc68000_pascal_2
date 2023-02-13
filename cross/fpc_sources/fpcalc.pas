@@ -202,7 +202,7 @@ function fpcomp(x, y: realarray): integer;
 }
 
   begin
-  abort(inconsistent);
+  compilerabort(inconsistent);
   fpcomp := 0;
   end;
 

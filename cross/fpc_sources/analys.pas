@@ -1462,7 +1462,7 @@ procedure gettyp(follow: tokenset; {legal following symbols}
                 otherwise
                   begin
                   write('Missing targetmachine selection');
-                  abort(inconsistent);
+                  compilerabort(inconsistent);
                   end;
                 end; {case targetmachine of}
               extendedrange := extended;
@@ -3332,7 +3332,7 @@ procedure initanalys;
     if tablesize < hashtablesize then
       begin
       write('Tablesize is smaller than hashtablesize');
-      abort(inconsistent);
+      compilerabort(inconsistent);
       end;
 
     { Check the sizes environment file components. }

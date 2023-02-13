@@ -206,7 +206,7 @@ procedure allocfixup;
   Additionally, we must check for table overflow (abort if so).
 }
     begin
-      if nextESD = lastESD then abort(manyexterns);
+      if nextESD = lastESD then compilerabort(manyexterns);
 
       ESDtable[nextESD] := newESD;  { that's easy enough }
       nextESD := nextESD + 1;   { may actually be beyond linker's range }
@@ -397,7 +397,7 @@ procedure seekstringfile(n: integer {byte to access});
         if stringblkptr = nil then
           begin
           write('unexpected end of stringtable ');
-          abort(inconsistent);
+          compilerabort(inconsistent);
           end;
         end;
       end;
@@ -427,7 +427,7 @@ function getstringfile: hostfilebyte;
         if stringblkptr = nil then
           begin
           write('unexpected end of stringtable ');
-          abort(inconsistent);
+          compilerabort(inconsistent);
           end;
         end;
       end;

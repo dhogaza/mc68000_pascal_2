@@ -39,7 +39,7 @@ function max(i, j: integer): integer;
 { Returns the greater of its two arguments.
 }
 
-procedure abort(msg: abortwarning {why we are aborting} );
+procedure compilerabort(msg: abortwarning {why we are compileraborting} );
 
 { 'panic' exit -- prints message, procedure name and splits. Global var
   'blockref' is assumed to contain the block reference of the
@@ -66,15 +66,15 @@ function max(i, j: integer): integer;
     else max := j
   end;
 
-procedure abort(msg: abortwarning);
+procedure compilerabort(msg: abortwarning);
 
-{ abort in a panic, printing a message and killing the compile
+{ compilerabort in a panic, printing a message and killing the compile
 }
 
   begin
     abortmsg := msg;
     panic;
-  end; {abort}
+  end; {compilerabort}
 
 procedure getfilename(which: FilenameListPtr; {file desired}
                       stripdevice: boolean; {want no device/directory field}

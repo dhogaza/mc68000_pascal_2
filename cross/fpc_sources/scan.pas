@@ -41,7 +41,7 @@ unit scan;
 
 interface
 
-uses config, hdr, error, product, utils, strutils;
+uses config, hdr, error, product, utils, sysutils;
 
 { Pascal tokens -- identified by scanner }
 
@@ -100,6 +100,10 @@ var
   }
 
   nexttoken: tokenrecord; {token being built by scanner}
+
+  procedure opens;
+  procedure closes;
+  procedure closeall;
 
   procedure scan1;
   procedure scan2;
@@ -448,8 +452,8 @@ procedure opens;
       fpc_filename: string;
 
     begin {FileExists}
-      if addprefix then fpc_filename := trimset(prefix, [' ']) + trimset(filename, [' '])
-      else fpc_filename := trimset(filename, [' ']);
+      if addprefix then fpc_filename := trim(prefix) + trim(filename)
+      else fpc_filename := trim(filename);
       {$I-}
       assign(source[sourcelevel], fpc_filename);
       reset(source[sourcelevel]);
@@ -475,7 +479,7 @@ procedure opens;
       until found or not exists;
       if not found then
         begin
-        writeln('Can''t open include file ''',trimset(filename, [' ']), '''');
+        writeln('Can''t open include file ''',trim(filename), '''');
         halt;
         end
       end
@@ -508,7 +512,7 @@ procedure opennext;
       begin
       if curfile > 1 then close(source[sourcelevel]);
       getfilename(p, false, false, filename, filename_length);
-      fpc_filename := trimset(filename, [' ']);
+      fpc_filename := trim(filename);
       assign(source[sourcelevel], fpc_filename);
       {$I-}
       reset(source[sourcelevel]);
@@ -2812,7 +2816,7 @@ type
             otherwise
               begin
               write('unknown targetmachine ');
-              abort(inconsistent);
+              compilerabort(inconsistent);
               realmode := DECformat;
               end;
             end;
@@ -3285,7 +3289,7 @@ procedure initscanner;
       if i > maxscanswitch then
         begin
         write('scan switches init error');
-        abort(inconsistent);
+        compilerabort(inconsistent);
         end;
     end {initscanswitches} ;
 
@@ -3753,6 +3757,20 @@ procedure scan2;
 
     dispose(stringtable);
   end {scan2} ;
+
+procedure closeall;
+
+{ Close all source files.
+}
+
+
+  begin {closeall}
+    while sourcelevel > 0 do
+      begin
+      close(source[sourcelevel]);
+      sourcelevel := sourcelevel - 1;
+      end;
+  end {closeall} ;
 
 
 procedure scan;

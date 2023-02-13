@@ -42,7 +42,7 @@ implementation
   Additionally, we must check for table overflow (abort if so).
 }
     begin
-      if nextesd = lastesd then abort(manyexterns);
+      if nextesd = lastesd then compilerabort(manyexterns);
 
       esdtable[nextesd] := newesd;  { that's easy enough }
       nextesd := nextesd + 1;   { may actually be beyond linker's range }

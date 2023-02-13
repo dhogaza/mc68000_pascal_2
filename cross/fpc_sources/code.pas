@@ -410,7 +410,7 @@ node.
 
   begin {newnode}
     lastnode := lastnode + 1;
-    if lastnode = cnodetablesize then abort(manynodes);
+    if lastnode = cnodetablesize then compilerabort(manynodes);
     lastptr := @(bignodetable[lastnode]);
   end {newnode} ;
 
@@ -443,7 +443,7 @@ function instlength(n: nodeindex {must refer to an instruction}) : integer;
       else
         begin
         writeln('node ', n: 1, ' is not an instruction');
-        abort(inconsistent);
+        compilerabort(inconsistent);
         end
 
     else
@@ -544,7 +544,7 @@ function instlength(n: nodeindex {must refer to an instruction}) : integer;
                 bitindexed:
                   begin
                   write('bitindexed operand at node ', n + i: 1);
-                  abort(inconsistent);
+                  compilerabort(inconsistent);
                   end; { bitindexed }
                 end; { case p^.oprnd.m }
             end; { case p^.kind }
@@ -608,7 +608,7 @@ procedure insert(m: nodeindex; {instruction to insert after}
       if p^.kind <> instnode then
         begin
         write('attempt to insert before operand:', i: 1);
-        abort(inconsistent);
+        compilerabort(inconsistent);
         end;
 
       repeat
@@ -709,7 +709,7 @@ procedure definelabel(l: integer {label number to define} );
   begin {definelabel}
     if l <> 0 then
       begin
-      if nextlabel = labeltablesize then abort(manylabels)
+      if nextlabel = labeltablesize then compilerabort(manylabels)
       else nextlabel := nextlabel + 1;
       t := nextlabel;
       labelnextnode := true;
@@ -983,7 +983,7 @@ dependent on the stack, tempcount is set appropriately.
     if o.m = bitindexed then
       begin
       write('bitindexed operand at node ', lastnode: 1);
-      abort(inconsistent);
+      compilerabort(inconsistent);
       end;
 
     with lastptr^ do
@@ -1360,7 +1360,7 @@ procedure setcommonkey;
   begin {setcommonkey}
     with keytable[key] do
       begin
-      if key >= stackcounter then abort(manykeys);
+      if key >= stackcounter then compilerabort(manykeys);
       if key > lastkey then
         begin
         access := noaccess;
@@ -1385,7 +1385,7 @@ procedure setcommonkey;
       else if (key <> 0) and (access <> valueaccess) then
         begin
         write('setcommonkey screwup:', key: 1,', ',lastkey:1);
-        abort(inconsistent);
+        compilerabort(inconsistent);
         end;
       len := pseudoinst.len;
       refcount := pseudoinst.refcount;
@@ -1413,7 +1413,7 @@ procedure settemp(lth: datarange; {length of data referenced}
 
 
   begin {settemp}
-    if tempkey = lowesttemp then abort(interntemp);
+    if tempkey = lowesttemp then compilerabort(interntemp);
     tempkey := tempkey - 1;
     with keytable[tempkey] do
       begin
@@ -1666,7 +1666,7 @@ procedure adjustoffsets(firstnode: nodeindex; {first node of scan}
             tempcount := tempcount + 1;
             if change then
               if kind = oprndnode then oprnd.offset := oprnd.offset + delta
-              else abort(badadjust);
+              else compilerabort(badadjust);
             end
           else
             begin
@@ -1675,7 +1675,7 @@ procedure adjustoffsets(firstnode: nodeindex; {first node of scan}
             if change then
               if kind = oprndnode then oprnd.offset := oprnd.offset - delta
               else if kind = labelnode then stackdepth := stackdepth - delta
-              else abort(badadjust);
+              else compilerabort(badadjust);
             end;
       end;
 
@@ -1730,7 +1730,7 @@ procedure newtemp(size: addressrange {size of temp to allocate} );
       then maxstackdepth := stackoffset + length;
 
     stackcounter := stackcounter - 1;
-    if stackcounter <= lastkey then abort(manykeys)
+    if stackcounter <= lastkey then compilerabort(manykeys)
     else
       begin
       with keytable[stackcounter] do
@@ -1842,7 +1842,7 @@ procedure delete(m: nodeindex; {first node to delete}
         if p^.kind <> stmtref then
           begin
           write('attempt to delete non-inst node:', m: 1);
-          abort(inconsistent);
+          compilerabort(inconsistent);
           end;
         p^.kind := instnode;
         p^.labelled := false;
@@ -2198,7 +2198,7 @@ procedure fixsimplestuff;
              not (inst in bitfieldinsts) then
             begin
             writeln('Fixsimplestuff: bad opct in node ', i: 1);
-            abort(inconsistent)
+            compilerabort(inconsistent)
             end;
 
           { Consistency check: quick, immediate, and address forms are
@@ -2211,7 +2211,7 @@ procedure fixsimplestuff;
              suba, cmpa, movea] then
             begin
             writeln('Fixsimplestuff: bad inst in node ', i: 1);
-            abort(inconsistent)
+            compilerabort(inconsistent)
             end;
 
           if opct = 0 then
@@ -2223,7 +2223,7 @@ procedure fixsimplestuff;
             if not (sp^.kind in [oprndnode, relnode, labelnode]) then
               begin
               writeln('Fixsimplestuff: missing src in node ', i + 1: 1);
-              abort(inconsistent)
+              compilerabort(inconsistent)
               end;
             end;
 
@@ -2236,7 +2236,7 @@ procedure fixsimplestuff;
             if not (dp^.kind in [oprndnode, relnode, labelnode]) then
               begin
               writeln('Fixsimplestuff: missing dst in node ', i + 2: 1);
-              abort(inconsistent)
+              compilerabort(inconsistent)
               end;
             end;
 
@@ -3128,7 +3128,7 @@ procedure stuffregisters;
         if (r = sl) and slused then
           begin
           write('stuffregisters screwup');
-          abort(inconsistent);
+          compilerabort(inconsistent);
           end;
         addresses[i].newreg := r;
         aregused[r] := true;
@@ -3620,7 +3620,7 @@ procedure fixaddressing;
                       begin  { MC68000 24-bit pic does not allow branches in
                                procedure longer than 32k. }
                       write('Procedure is too large for PIC');
-                      abort(inconsistent);
+                      compilerabort(inconsistent);
                       end;
                     if ni^.inst = bra then
                       begin
@@ -3631,7 +3631,7 @@ procedure fixaddressing;
                       begin
                       write('Fixaddressing: long conditional branch in node ',
                             ti: 1);
-                      abort(inconsistent);
+                      compilerabort(inconsistent);
                       end;
                     end; {not (mc68020 and pic_enabled)}
                   end {change to long}
@@ -4288,7 +4288,7 @@ procedure putblock;
     if stackcounter < keysize - (2 + ord(mc68881) +
        ord(openarray_base <> nil)) then
       begin
-      abort(undeltemps);
+      compilerabort(undeltemps);
       writeln('Excess temps: ', keysize - 2 - stackcounter: 1, ', Bytes left: ',
              stackoffset + keytable[stackcounter].oprnd.offset: 1);
       end;
@@ -4322,7 +4322,7 @@ procedure putblock;
       begin
       writeln('Phase error, pass 1 = ', last_pc:-4, ', pass 2 = ',
               currentpc:-4);
-      abort(inconsistent);
+      compilerabort(inconsistent);
       end;
       }
   end { PutBlock } ;
@@ -4393,7 +4393,7 @@ procedure dorealx;
       if oprnds[3] <> 1 then
         begin
         write('Invalid real number intermediate code');
-        abort(inconsistent);
+        compilerabort(inconsistent);
         end
       else with keytable[key].oprnd do
         begin
@@ -4796,7 +4796,7 @@ procedure blockexitx;
       if anyfound then
         begin
         write('Found registers with non-zero use counts');
-        abort(inconsistent); { Display procedure name }
+        compilerabort(inconsistent); { Display procedure name }
 
         for i := 0 to lastareg do
           if aregisters[i] <> 0 then
@@ -4868,7 +4868,7 @@ procedure seekstringfile(n: integer {byte to access});
       if stringblkptr = nil then
         begin
         write('unexpected end of stringtable ');
-        abort(inconsistent);
+        compilerabort(inconsistent);
         end;
       end;
     nextstringfile := n mod (diskbufsize + 1);
@@ -4959,7 +4959,7 @@ procedure bumptempcount(k: keyindex; {key of temp desired}
           if (delta < - refcount) then { overflow is rarely a problem }
             begin
             write('BUMPTEMPCOUNT, refcount underflow');
-            abort(inconsistent);
+            compilerabort(inconsistent);
             end;
           refcount := refcount + delta;
           end;
@@ -4970,7 +4970,7 @@ procedure bumptempcount(k: keyindex; {key of temp desired}
           if (delta < - refcount) then { overflow is rarely a problem }
             begin
             write('BUMPTEMPCOUNT, refcount underflow');
-            abort(inconsistent);
+            compilerabort(inconsistent);
             end;
           refcount := refcount + delta;
           end;
@@ -5086,7 +5086,7 @@ procedure fpgensingle(i: insttype; {instruction to generate}
     else { It's an int_float }
       begin
       write('Illegal 68881 data type in fpgensingle');
-      abort(inconsistent);
+      compilerabort(inconsistent);
       end;
 
     fixaccess(l, src, srcoprnd);
@@ -5171,7 +5171,7 @@ procedure fpgendouble(i: insttype; {instruction to generate}
       else { It's an int_float }
         begin
         write('Illegal 68881 data type in fpgendouble');
-        abort(inconsistent);
+        compilerabort(inconsistent);
         end;
       l := dstl;
       end
@@ -5189,7 +5189,7 @@ procedure fpgendouble(i: insttype; {instruction to generate}
     else { It's an int_float }
       begin
       write('Illegal 68881 data type in fpgendouble');
-      abort(inconsistent);
+      compilerabort(inconsistent);
       end;
 
     with keytable[src], oprnd do
@@ -5519,7 +5519,7 @@ function savedreg(r: regindex {register to save}) : keyindex;
 {      if dontchangevalue > 0 then
         begin
         write('Can''t save register in a parameter list');
-        abort(inconsistent);
+        compilerabort(inconsistent);
         end; }
 
       { We didn't pass an occurance of this register, even one that couldn't
@@ -5577,7 +5577,7 @@ function savefpreg(r: regindex {register to save}) : keyindex;
 {      if dontchangevalue > 0 then
         begin
         write('Can''t save register in a parameter list');
-        abort(inconsistent);
+        compilerabort(inconsistent);
         end; }
 
       aligntemps;
@@ -5616,7 +5616,7 @@ function saveareg(r: regindex): keyindex;
 {        if dontchangevalue > 0 then
           begin
           write('Can''t save register in a parameter list');
-          abort(inconsistent);
+          compilerabort(inconsistent);
           end; }
 
         aligntemps;
@@ -6215,7 +6215,7 @@ procedure allowmodify(var k: keyindex; {operand to be modified}
        (stackoffset <> - keytable[stackcounter].oprnd.offset) or
        keytable[k].high_word_dirty) then
       begin
-      if tempkey = lowesttemp then abort(interntemp);
+      if tempkey = lowesttemp then compilerabort(interntemp);
       tempkey := tempkey - 1;
       keytable[tempkey] := keytable[k];
       keytable[tempkey].refcount := 0;
@@ -6297,7 +6297,7 @@ function fix_effective_addr(k: keyindex): keyindex;
       if not regsaved then
         begin
         write('fix_effective_addr screw-up');
-        abort(inconsistent);
+        compilerabort(inconsistent);
         end;
       end
     else
@@ -7191,7 +7191,7 @@ procedure dereference(k: keyindex {operand} );
         if refcount = 0 then
           begin
           write('DEREFERENCE, refcount < 0');
-          abort(inconsistent);
+          compilerabort(inconsistent);
           end;
 
         refcount := refcount - 1;
@@ -8814,7 +8814,7 @@ Both seem to work ok so we will keep the vax stuff for now.
           masscomp:
             if language = modula2 then
               begin
-              writeln('PTRCHK VS. MASSCOMP'); abort(inconsistent);
+              writeln('PTRCHK VS. MASSCOMP'); compilerabort(inconsistent);
               end
             else
               begin
@@ -9222,7 +9222,7 @@ procedure ptrtempx;
       if proctable[blockref].intlevelrefs then
         begin
         write('Attempt to allocate too many ptrtemps');
-        abort(inconsistent);
+        compilerabort(inconsistent);
         end;
       end
     else register := gp - pseudoinst.oprnds[3];
@@ -13313,7 +13313,7 @@ procedure forbottomx(improved: boolean; { true if cmp at bottom }
       if needcompare then
         begin
         address(target);
-        if tempkey = lowesttemp then abort(interntemp);
+        if tempkey = lowesttemp then compilerabort(interntemp);
         tempkey := tempkey - 1;
         keytable[tempkey] := keytable[target];
         target := tempkey;
@@ -13395,7 +13395,7 @@ procedure forcheckx(up: boolean {we are going up} );
       if keytable[key1].oprnd.m <> dreg then
         begin
         write('for check error');
-        abort(inconsistent);
+        compilerabort(inconsistent);
         end;
 
       gendouble(cmp, key2, key1);
@@ -15414,7 +15414,7 @@ procedure sysroutinex;
         address(dummyarg_stack[2]);
         lock(dummyarg_stack[0]);
 
-        if (tempkey - 2) <= lowesttemp then abort(interntemp);
+        if (tempkey - 2) <= lowesttemp then compilerabort(interntemp);
         tempkey := tempkey - 1;
         sinekey := tempkey;
         keytable[sinekey] := keytable[dummyarg_stack[1]];
@@ -16441,7 +16441,7 @@ procedure genone;
       otherwise
         begin
         write('Not yet implemented: ', ord(pseudoinst.op): 1);
-        abort(inconsistent);
+        compilerabort(inconsistent);
         end;
       end;
     if key > lastkey then lastkey := key;

@@ -711,7 +711,7 @@ procedure loops;
           else
             begin
             writeln('removecopies bad node found');
-            abort(inconsistent);
+            compilerabort(inconsistent);
             end;
 
         end {removecopies} ;
@@ -777,7 +777,7 @@ procedure loops;
 
             { Build a duplicate of expr, this is the node we will hoist }
 
-            if lastnode + contextsp >= tnodetablesize then abort(manynodes);
+            if lastnode + contextsp >= tnodetablesize then compilerabort(manynodes);
 
             lastnode := lastnode + 1;
             newexpr := lastnode;

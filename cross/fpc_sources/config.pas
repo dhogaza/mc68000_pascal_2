@@ -468,13 +468,20 @@ type
   targetaddress = address on TARGET
 }
 
-  unsignedint = 0..maxusint; {range for unsigned values}
+  {unsignedint = 0..maxusint; {range for unsigned values}
   addressrange = 0..maxaddr; {supported addressing space (bytes)}
-  targetint = integer;
   targetaddress = addressrange;
-  unsignedword = 0..maxusword;
+  unsignedword = 0..maxusword;}
 
-  realarray = packed array [1..maxrealwords] of 0..maxusword;
+  {DRB for free pascal}
+  unsignedint = longword;
+  addressrange = longword;
+  targetaddress = longword;
+  unsignedword = word;
+
+  targetint = integer;
+
+  realarray = packed array [1..maxrealwords] of unsignedword;
 
   alignmentrange = 0..maxalign; {possible alignment values}
 

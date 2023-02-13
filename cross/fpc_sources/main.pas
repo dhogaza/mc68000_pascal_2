@@ -13,7 +13,7 @@
 
 program pascal2;
 
-uses config, hdr, utils, csi, scan, sd, analys, travrs, putcode, code;
+uses config, hdr, utils, csi, scan, sd, analys, travrs, putcode, code, list;
 
 label
   99; { Target for fatal errors }
@@ -167,7 +167,6 @@ begin {main}
   if scanalys then scan.scan1;
   analys.analys;
   if scanalys then scan.scan2;
-writeln('after analys ', lasterror, ' errors detected');
 {DRB
   if switcheverplus[timing] and switcheverplus[details] then
     printtime('analys');
@@ -185,26 +184,10 @@ writeln('after analys ', lasterror, ' errors detected');
     travrs.travrs;
     if travcode then exitcode;
     closec;
-
-    {DRB
-    if switcheverplus[symboltable] then closed;
-    if switcheverplus[timing] then
-      begin
-      timestamp(dum, dum, dum, endhour, endmin, endsec);
-      if endhour < starthour then endhour := endhour + 24;
-      endsec := max(endsec - startsec + 60 * ((endmin - startmin) + 60 *
-                    (endhour - starthour)), 1);
-      writeln('Total  ', endsec: 1, ' sec., ', lastline: 1, ' lines, ',
-              (lastline * 60) div endsec: 1, ' lines/min.');
-      end;}
     end;
 
-    if switcheverplus[test] and switcheverplus[details] then
-      writeln(insertions:1, ' identifiers, ', proctabletop:1,
-              ' procedures/functions declared');
 99:
 
-{DRB
   closeall; { List will need stringfile open, so close all files except
              stringfile. }
 
@@ -226,16 +209,12 @@ writeln('after analys ', lasterror, ' errors detected');
   if not fakelist or (lasterror > 0) then
     begin
     resetswitches;
-    list;
+    list.list;
     closel;
     if lasterror > 0 then
       begin
       writeln('?Errors detected: ', lasterror: 1);
-      exitst(exitstatus); 
+      {DRB exitst(exitstatus); }
       end;
     end;
-
-  close_str;
-}
-
 end {main} .

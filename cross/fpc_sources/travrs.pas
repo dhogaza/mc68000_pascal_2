@@ -1556,7 +1556,7 @@ procedure build;
 
 
     begin {newstmt}
-      if lastnode = tnodetablesize then abort(manynodes)
+      if lastnode = tnodetablesize then compilerabort(manynodes)
       else
         begin
         lastnode := lastnode + 1;
@@ -1737,7 +1737,7 @@ procedure build;
 
 
     begin
-      if lastnode = tnodetablesize then abort(manynodes)
+      if lastnode = tnodetablesize then compilerabort(manynodes)
       else
         begin
         lastnode := lastnode + 1;
@@ -3429,7 +3429,7 @@ procedure build;
 
 
             begin {Insertnode}
-              if sp = maxexprstack then abort(manytemps);
+              if sp = maxexprstack then compilerabort(manytemps);
               sp := sp + 1;
               with stack[sp] do
                 begin
@@ -4036,7 +4036,7 @@ procedure build;
 
 
             begin
-              if sp = maxexprstack then abort(manytemps);
+              if sp = maxexprstack then compilerabort(manytemps);
               sp := sp + 1;
               with stack[sp] do
                 begin
@@ -4367,7 +4367,7 @@ procedure build;
                 begin
                 with forstack[getintfileint] do
                   begin
-                  if sp = maxexprstack then abort(manytemps);
+                  if sp = maxexprstack then compilerabort(manytemps);
                   sp := sp + 1;
                   with stack[sp] do
                     begin
@@ -4493,7 +4493,7 @@ procedure build;
               lit: pushlitint;
               withop:
                 begin
-                if sp = maxexprstack then abort(manytemps);
+                if sp = maxexprstack then compilerabort(manytemps);
                 sp := sp + 1;
                 read(tempfiletwo, tempfilebuf);
                 with stack[sp] do
@@ -4534,7 +4534,7 @@ procedure build;
               otherwise
                 begin
                 write('travrs build error', ord(n.op));
-                abort(builderror);
+                compilerabort(builderror);
                 end;
               end;
             read(tempfiletwo, tempfilebuf);
@@ -4917,7 +4917,7 @@ procedure build;
         begin
           with this_case^ do
             begin
-            if lastnode = tnodetablesize then abort(manynodes)
+            if lastnode = tnodetablesize then compilerabort(manynodes)
             else lastnode := lastnode + 1;
             if lastnode > maxnodes then maxnodes := lastnode;
             if bigcompilerversion then ptr := @(bignodetable[lastnode]);
@@ -5261,7 +5261,7 @@ procedure build;
                 incref(caseexpr, 1);
               end;
 
-            if lastnode = tnodetablesize then abort(manynodes)
+            if lastnode = tnodetablesize then compilerabort(manynodes)
             else
               begin
               lastnode := lastnode + 1;
@@ -6003,14 +6003,14 @@ procedure build;
               if ptr^.op <> indxop then
                 begin
                 writeln('in buildwith, expr not a indxop is ', ord(ptr^.op): 1);
-                abort(inconsistent);
+                compilerabort(inconsistent);
                 end;
               withvar := ptr^.oprnds[1];
               if bigcompilerversion then ptr := @(bignodetable[withvar]);
               if not (ptr^.op in [varop, newvarop, unsvarop, newunsvarop]) then
                 begin
                 writeln('in buildwith, var not a varop is ', ord(ptr^.op): 1);
-                abort(inconsistent);
+                compilerabort(inconsistent);
                 end;
               { pointer dereference will have level of zero, which is ok }
               if ptr^.oprnds[1] = level then killasreg(withvar);
@@ -6543,7 +6543,7 @@ procedure build;
             begin
             writeln('travrs: unhandled stmt operator #',
                     ord(tempfilebuf.s): 0);
-            abort(builderror);
+            compilerabort(builderror);
             end;
           end;
 

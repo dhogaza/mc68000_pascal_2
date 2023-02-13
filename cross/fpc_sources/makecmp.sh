@@ -24,4 +24,5 @@ fpc -gl walk
 fpc -gl hdrc
 fpc -gl putcode
 fpc -gl code
+fpc -gl list
 fpc -gl main

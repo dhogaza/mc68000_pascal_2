@@ -461,7 +461,7 @@ function newkey: keyindex;
 
 
   begin
-    if context[contextsp].high = keysize then abort(manykeys)
+    if context[contextsp].high = keysize then compilerabort(manykeys)
     else newkey := context[contextsp].high + 1;
   end {newkey} ;
 
@@ -2146,7 +2146,7 @@ with target = 0.
           otherwise
             begin
             write('travrs walk error ', ord(op): 3);
-            abort(walkerror);
+            compilerabort(walkerror);
             end;
           end;
         end;

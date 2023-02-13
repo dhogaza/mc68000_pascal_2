@@ -1,4 +1,3 @@
-{$nomain}
 {[b+,o=80]}
 { NOTICE OF COPYRIGHT AND OWNERSHIP OF SOFTWARE:
 
@@ -27,22 +26,23 @@ Update release version for PC-VV0-GS0 at 2.3.0.1
 
 { Pascal-2 Lister }
 
+unit list;
+
+interface
+
+uses config, hdr, product, error, utils, scan, sysutils;
+
+procedure list;
+
+procedure openl;
+procedure closel;
+
+implementation
+
 const
   tabch = 9; {tab character}
   formfeed = 12; {formfeed character}
   tabspace = 8; {the number of spaces a tab input becomes}
-
-type
-  tempfileonetype = file of packed array [0..diskbufsize] of hostfilebyte;
-  tempfiletwotype = file of packed array [0..diskbufsize] of hostfilebyte;
-
-var
-{ The following file declarations must be included in each pass,
-  and must be the first variables declared in that pass.
-}
-
-  tempfileone: tempfileonetype; {interface file scan-analys, travrs-code}
-  tempfiletwo: tempfiletwotype; {interface file analys-travrs}
 
 var
   curfileptr: filerememberptr;  {used to step through input files}
@@ -74,7 +74,7 @@ procedure seekstringfile(n: integer {byte to access} );
         if stringblkptr = nil then
           begin
           write('unexpected end of stringtable ');
-          abort(inconsistent);
+          compilerabort(inconsistent);
           end;
         end;
       end;
@@ -93,15 +93,11 @@ procedure getstringfile;
       begin
       curstringblock := curstringblock + 1;
       nextstringfile := 0;
-      if needcaching then get(stringfile)
-      else
+      stringblkptr := stringblkptrtbl[curstringblock];
+      if stringblkptr = nil then
         begin
-        stringblkptr := stringblkptrtbl[curstringblock];
-        if stringblkptr = nil then
-          begin
-          write('unexpected end of stringtable ');
-          abort(inconsistent);
-          end;
+        write('unexpected end of stringtable ');
+        compilerabort(inconsistent);
         end;
       end
     else nextstringfile := nextstringfile + 1;
@@ -123,20 +119,12 @@ procedure changesourcename;
     if morefiles then
       begin
       seekstringfile(stringfilecount + curfileptr^.offset - 1);
-      if needcaching then
-        while stringfile^[nextstringfile] <> 0 do
-          begin
-          filename_length := filename_length + 1;
-          filename[filename_length] := chr(stringfile^[nextstringfile]);
-          getstringfile;
-          end
-      else
-        while stringblkptr^[nextstringfile] <> 0 do
-          begin
-          filename_length := filename_length + 1;
-          filename[filename_length] := chr(stringblkptr^[nextstringfile]);
-          getstringfile;
-          end;
+      while stringblkptr^[nextstringfile] <> 0 do
+        begin
+        filename_length := filename_length + 1;
+        filename[filename_length] := chr(stringblkptr^[nextstringfile]);
+        getstringfile;
+        end;
       thisfileptr := curfileptr;
       curfileptr := curfileptr^.next;
       end;
@@ -200,7 +188,7 @@ procedure printlisting(var listing: text {file on which listing is output} );
   }
 
     begin {wl_line}
-      writeln(listing, buffer: buffer_ctr);
+      writeln(listing, leftstr(buffer, buffer_ctr));
       buffer_ctr := 0;
     end; {wl_line}
 
@@ -216,7 +204,7 @@ procedure printlisting(var listing: text {file on which listing is output} );
     end; {wl_str}
 
 
-  procedure wl_str(s: packed array [low..high: integer] of char);
+  procedure wl_str(s: string);
 
   { Copy a string to the output buffer.
   }
@@ -224,7 +212,7 @@ procedure printlisting(var listing: text {file on which listing is output} );
       i: integer;
 
     begin {wl_str}
-      for i := 1 to high do
+      for i := 1 to length(s) do
         if s[i] <> chr(0) then
           begin
           buffer_ctr := buffer_ctr + 1;
@@ -233,7 +221,7 @@ procedure printlisting(var listing: text {file on which listing is output} );
     end; {wl_str}
 
 
-  procedure wl_str_l(s: packed array [low..high: integer] of char;
+  procedure wl_str_l(s: string;
                      n: integer);
 
   { Copy a string of n bytes to the output buffer.
@@ -242,13 +230,13 @@ procedure printlisting(var listing: text {file on which listing is output} );
       i: integer;
 
     begin {wl_str_l}
-      for i := 1 to n - high do
+      for i := 1 to n - length(s) do
         begin
         buffer_ctr := buffer_ctr + 1;
         buffer[buffer_ctr] := ' ';
         end;
 
-      for i := 1 to min(n, high) do
+      for i := 1 to min(n, length(s)) do
         if s[i] <> chr(0) then
           begin
           buffer_ctr := buffer_ctr + 1;
@@ -343,7 +331,7 @@ procedure printlisting(var listing: text {file on which listing is output} );
             save[sourcelevel].filename_length := filename_length;
             save[sourcelevel].filename := filename;
             save[sourcelevel].fileptr := thisfileptr;
-            ovrlay(xopens);
+            opens;
             nextch := ' ';
             endofline := true;
             sourcestate := normal;
@@ -451,7 +439,7 @@ procedure printlisting(var listing: text {file on which listing is output} );
           begin
           nextch := save[sourcelevel].ch;
           endofline := save[sourcelevel].endofline;
-          ovrlay(xcloses);
+          closes;
           sourcelevel := sourcelevel - 1;
           { Pop the old filename off stack }
           filename := save[sourcelevel].filename;
@@ -464,10 +452,6 @@ procedure printlisting(var listing: text {file on which listing is output} );
           end
         else
           begin
-{          curfile := curfile + 1;
-{          ovrlay(xopennext);
-{          if morefiles then read(source[sourcelevel], nextch)
-}
 
 { The following line replaces the file name found on the command line,
   with the file name saved by SCAN at this point in the compilation.
@@ -484,8 +468,8 @@ procedure printlisting(var listing: text {file on which listing is output} );
 
           if morefiles then
             begin
-            ovrlay(xcloses);
-            ovrlay(xopens);
+            closes;
+            opens;
             read(source[sourcelevel], nextch);
             end
           else
@@ -530,11 +514,11 @@ procedure printlisting(var listing: text {file on which listing is output} );
   procedure dateandtime;
 
     var
-      sec, day, month, year: integer; {time buffer}
+      sec, day, month, year: word; {time buffer}
 
 
     begin {dateandtime}
-      timestamp(day, month, year, hour, minute, sec);
+    {DRB timestamp(day, month, year, hour, minute, sec);
       if hour >= 12 then ampm := 'P'
       else ampm := 'A';
 
@@ -556,7 +540,7 @@ procedure printlisting(var listing: text {file on which listing is output} );
       todaystring[2] := chr(ord('0') + day mod 10);
       year := year mod 100;
       todaystring[8] := chr(ord('0') + year div 10);
-      todaystring[9] := chr(ord('0') + year mod 10);
+      todaystring[9] := chr(ord('0') + year mod 10);}
     end {dateandtime} ;
 
 
@@ -567,6 +551,7 @@ procedure printlisting(var listing: text {file on which listing is output} );
 
 
     begin {listtitle}
+      todaystring := '  today! ';
       if (targetopsys = unix) then
         case unixtarget of
           NEC:
@@ -577,20 +562,21 @@ procedure printlisting(var listing: text {file on which listing is output} );
             wl_str(versionlevel);
             wl_str('               ');
             wl_str(todaystring);
+	    {DRB
             wl_int((hour + 11) mod 12 + 1, 4);
             wl_chr(':');
             wl_int(minute div 10, 1);
             wl_int(minute mod 10, 1);
             wl_chr(' ');
             wl_chr(ampm);
-            wl_str('M ');
+            wl_str('M ');}
             wl_str(' Page ');
             wl_int(pagecount, 1);
             wl_chr('-');
             wl_int(physicalpage, 1);
             wl_line;
-            wl_str_l(headerline, headerlength);
-            wl_line;
+	    {DRB wl_str_l(headerline, headerlength);
+            wl_line;}
             wl_str_l(filename, filename_length); { Print current filename }
             lastfileptr := thisfileptr; {don't print this name again}
             wl_line;
@@ -607,7 +593,7 @@ procedure printlisting(var listing: text {file on which listing is output} );
             wl_str(versionlevel);
             wl_chr(' ');
             wl_str(todaystring);
-            wl_int((hour + 11) mod 12 + 1, 4);
+	    {DRB wl_int((hour + 11) mod 12 + 1, 4);
             wl_chr(':');
             wl_int(minute div 10, 1);
             wl_int(minute mod 10, 1);
@@ -616,14 +602,15 @@ procedure printlisting(var listing: text {file on which listing is output} );
             wl_str('M ');
             wl_str('   Site #');
             wl_int(site1, 1);
-            wl_int(-site2, 1);
+            wl_int(-site2, 1);}
             wl_str('    Page ');
             wl_int(pagecount, 1);
             wl_chr('-');
             wl_int(physicalpage, 1);
             wl_line;
+	    {DRB
             wl_str_l(headerline, headerlength);
-            wl_line;
+            wl_line;}
             wl_str_l(filename, filename_length); { Print current filename }
             lastfileptr := thisfileptr; {don't print this name again}
             wl_line;
@@ -641,6 +628,7 @@ procedure printlisting(var listing: text {file on which listing is output} );
         wl_str(versionlevel);
         wl_chr(' ');
         wl_str(todaystring);
+	{DRB
         wl_int((hour + 11) mod 12 + 1, 4);
         wl_chr(':');
         wl_int(minute div 10, 1);
@@ -650,14 +638,15 @@ procedure printlisting(var listing: text {file on which listing is output} );
         wl_str('M ');
         wl_str('   Site #');
         wl_int(site1, 1);
-        wl_int(-site2, 1);
+        wl_int(-site2, 1);}
         wl_str('    Page ');
         wl_int(pagecount, 1);
         wl_chr('-');
         wl_int(physicalpage, 1);
         wl_line;
+	{DRB
         wl_str_l(headerline, headerlength);
-        wl_line;
+        wl_line;}
         wl_str_l(filename, filename_length); { Print current filename }
         lastfileptr := thisfileptr; {don't print this name again}
         wl_line;
@@ -698,7 +687,9 @@ procedure printlisting(var listing: text {file on which listing is output} );
       if not topofpage then
         begin
         if buffer_ctr > 0 then wl_line;
-        page(listing);
+	{DRB page(listing);}
+	wl_chr(chr(12));
+	wl_line;
         end;
       pageline := 1;
       topofpage := true;
@@ -753,14 +744,6 @@ procedure printlisting(var listing: text {file on which listing is output} );
 
         if topofpage then listtitle;
 
-        if not newdebugger and
-           ((switcheverplus[debugging] or switcheverplus[profiling]) and
-           (lasterror = 0) and not switcheverplus[defineswitch]) then
-          case hostopsys of
-            vms, rsx, rsts, rt, vdos, cpp: ;
-            msdos, unix, apollo: getpos(listing, temppos1, temppos2);
-            end {case} ;
-
         if sourcelevel > 1 then wl_int(sourcelevel, 1)
         else wl_chr(' ');
         wl_int(linecount - save[sourcelevel].line, leftmargin div 2 - 1);
@@ -787,10 +770,6 @@ procedure printlisting(var listing: text {file on which listing is output} );
       first := true;
       column := 1;
       stmtno := 0;
-
-      if ((switcheverplus[debugging] or switcheverplus[profiling]) and
-         (lasterror = 0) and not switcheverplus[defineswitch]) then
-        if not newdebugger then positionstmtfile(linecount, stmtno);
 
       while not stopconditions do
         begin
@@ -840,18 +819,6 @@ procedure printlisting(var listing: text {file on which listing is output} );
         begin
         if first and not endofinput then printlineno;
         wl_line;
-
-        if not newdebugger then
-          begin
-          case hostopsys of
-            vms, rsx, rsts, rt, vdos, cpp: getpos(listing, temppos1, temppos2);
-            msdos, unix, apollo: ;
-            end {case} ;
-
-          if (switcheverplus[debugging] or switcheverplus[profiling]) and
-             (lasterror = 0) and not switcheverplus[defineswitch] then
-            updatestmtfile(linecount, temppos1, temppos2);
-          end;
 
         totallines := totallines + 1;
         if (pageline > pagelimit) then
@@ -1554,8 +1521,6 @@ procedure printlisting(var listing: text {file on which listing is output} );
     curfile := 1;
     sourcelevel := 1;
     curstringblock := - 1;
-{    ovrlay(xopennext);
-}
 
 { The following two lines replace the file name found on the command line,
   with the file name saved by SCAN at the beginning of the compilation.
@@ -1568,7 +1533,7 @@ procedure printlisting(var listing: text {file on which listing is output} );
     save[1].filename := filename;
     save[1].filename_length := filename_length;
     save[1].fileptr := thisfileptr;
-    ovrlay(xopens);
+    opens;
     if not newdebugger and
        ((switcheverplus[debugging] or switcheverplus[profiling]) and
        (lasterror = 0) and not switcheverplus[defineswitch]) then
@@ -1594,7 +1559,7 @@ procedure printlisting(var listing: text {file on which listing is output} );
     for e := firstwarning to lastwarning do uniqueerrs[e] := false;
 
     dateandtime;
-    z_b129(headerline, headerlength, site1, site2);
+    {z_b129(headerline, headerlength, site1, site2);}
     sorterrortable;
 
     i := 1;
@@ -1623,6 +1588,36 @@ procedure initlist;
     buffer_ctr := 0;
   end; {initlist}
 
+procedure openl;
+
+{ Open listing file.
+}
+
+
+  begin {openl}
+    getfilename(listname, false, false, filename, filename_length);
+    case hostopsys of
+      vdos: assign(listing, trim(string(filename)) + '.ls');
+      msdos, unix, apollo: assign(listing, trim(string(filename)) + '.lst');
+      otherwise assign(listing, trim(string(filename)) + '.lis');
+      end {case} ;
+    rewrite(listing);
+  end {openl} ;
+
+procedure closel;
+
+{ Close listing and last source file.
+}
+
+
+  begin {closel}
+    if not fakelist then close(listing);
+    close(source[sourcelevel]);
+    if not newdebugger and (lasterror = 0) and (switcheverplus[debugging] or
+       switcheverplus[profiling]) then
+      close(stmtfile);
+  end {closel} ;
+
 
 procedure list;
 
@@ -1636,7 +1631,7 @@ procedure list;
     if fakelist then printlisting(output)
     else
       begin
-      ovrlay(xopenl);
+      openl;
 
       { If the last region of the file is nolisted and the list
         command line option is used, this dummy listing line will
@@ -1650,3 +1645,5 @@ procedure list;
       printlisting(listing);
       end;
   end {list} ;
+
+end.
