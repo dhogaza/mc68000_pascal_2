@@ -556,42 +556,42 @@ procedure opent;
     reset(locals); {travrs must read local variables info from analys}
   end {opent} ;
 
-procedure getoutputname;
-
-{ Fill the globals "filename" and "outputname".
-}
-
-  var
-    i: FilenameIndex; {induction on outputname}
-    limit: 1..maxprocnamelen; {length of outputname used}
-
-
-  begin {getoutputname}
-    getfilename(nil, true, true, filename, filename_length);
-    limit := min(filename_length, maxprocnamelen);
-    case targetopsys of
-      unix,apollo:
-        for i := 1 to limit do
-          outputname[i] := filename[i];	
-      msdos:
-        for i := 1 to limit do
-          if (filename[i] >= 'A') and (filename[i] <= 'Z') then
-            outputname[i] := chr(ord(filename[i]) + (ord('a') - ord('A')))
-          else outputname[i] := filename[i];
-      otherwise
-        for i := 1 to limit do
-          if (filename[i] >= 'a') and (filename[i] <= 'z') then
-            outputname[i] := chr(ord(filename[i]) - (ord('a') - ord('A')))
-          else outputname[i] := filename[i];
-      end;
-    for i := limit + 1 to maxprocnamelen do outputname[i] := ' ';
-  end {getoutputname} ;
-
-
 procedure openc;
 
 { Open files for code generator.
 }
+
+  procedure getoutputname;
+
+  { Fill the globals "filename" and "outputname".
+  }
+
+    var
+      i: FilenameIndex; {induction on outputname}
+      limit: 1..maxprocnamelen; {length of outputname used}
+
+
+    begin {getoutputname}
+      getfilename(nil, true, true, filename, filename_length);
+      limit := min(filename_length, maxprocnamelen);
+      case targetopsys of
+        unix,apollo:
+          for i := 1 to limit do
+            outputname[i] := filename[i];	
+        msdos:
+          for i := 1 to limit do
+            if (filename[i] >= 'A') and (filename[i] <= 'Z') then
+              outputname[i] := chr(ord(filename[i]) + (ord('a') - ord('A')))
+            else outputname[i] := filename[i];
+        otherwise
+          for i := 1 to limit do
+            if (filename[i] >= 'a') and (filename[i] <= 'z') then
+              outputname[i] := chr(ord(filename[i]) - (ord('a') - ord('A')))
+            else outputname[i] := filename[i];
+        end;
+      for i := limit + 1 to maxprocnamelen do outputname[i] := ' ';
+    end {getoutputname} ;
+
 
 
   begin {openc}

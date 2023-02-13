@@ -27,7 +27,7 @@ unit code;
 
 interface
 
-uses config, hdr, hdrc, utils, t_c, commonc;
+uses config, hdr, t_c, hdrc, utils, commonc;
 
 procedure code;
 
@@ -38,24 +38,6 @@ type
 
 
 procedure copy_openarrays;
-  forward;
-
-procedure fmtx;
-  forward;
-
-procedure closerangex;
-  forward;
-
-procedure setfilex;
-  forward;
-
-procedure setbinfilex;
-  forward;
-
-procedure copystackx;
-  forward;
-
-procedure definelazyx;
   forward;
 
 procedure rdxstrx;
@@ -16837,6 +16819,7 @@ procedure codeone;
       codeselect;
       end;
   end {codeone};
+
 
 procedure code;
 

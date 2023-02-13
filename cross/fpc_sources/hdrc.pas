@@ -766,7 +766,7 @@ type
 
   bits = 0..16; {counts bits in a word}
 
-  objfileblock = packed array [0..255] of 0..255;
+  objfileblock = 0..255;
   objfiletype = file of objfileblock;
 
   tempreltype = (externrel, forwardrel, backwardrel, textrel,
@@ -783,7 +783,7 @@ type
                 trellocn: addressrange;
               end;
 
-  relfileblock = packed array [0..255] of 0..maxusword;
+  relfileblock = 0..maxusword;
   relfiletype = file of relfileblock;
 
   worddiskblock = packed array [0..worddiskbufsize] of 0..maxusword;
