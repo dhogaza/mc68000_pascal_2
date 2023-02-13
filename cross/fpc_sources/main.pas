@@ -13,7 +13,7 @@
 
 program pascal2;
 
-uses config, hdr, utils, csi, scan, sd, analys, travrs;
+uses config, hdr, utils, csi, scan, sd, analys, travrs, putcode, code;
 
 label
   99; { Target for fatal errors }
@@ -177,17 +177,12 @@ writeln('after analys ', lasterror, ' errors detected');
     begin
     resetswitches;
     {DRB settime;}
-    {DRB
     if travcode then
       begin
-      openc;
       initcode;
       end;
-      }
     travrs.travrs;
-    {DRB if travcode then exitcode}
-
-    {DRB closec;}
+    if travcode then exitcode;
 
     {DRB
     if switcheverplus[symboltable] then closed;

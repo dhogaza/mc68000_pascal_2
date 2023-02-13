@@ -31,6 +31,10 @@ uses config, hdr, t_c, hdrc, utils, commonc, putcode;
 
 procedure code;
 
+procedure initcode;
+
+procedure exitcode;
+
 implementation
 
 type
@@ -934,139 +938,6 @@ node.
     lastptr := @(bignodetable[lastnode]);
   end {newnode} ;
 
-procedure geninst(i: insttype; {instruction to generate}
-                  l: operandrange; {number of operands}
-                  olen: datarange {length of operands} );
-  external;
-
-{ Generate an instruction.
-
-Actually, this creates a new node in the "nodefile" and initializes the
-contents of the node according to data provided in the calling line.  The
-actual instruction emission is done later from the node file.
-
-If this instruction has been labeled, the "labelled" field is set.
-
-All other fields not specified are cleared to zero, and will normally be
-filled in by the calling procedure.  In particular, tempcount is set to
-zero.
-}
-
-
-procedure genoprnd(o: operand {operand to generate} );
-  external;
-
-{ Generates the given operand.  If the operand contains an offset
-dependent on the stack, tempcount is set appropriately.
-}
-
-
-procedure genlongword(data: unsigned);
-  external;
-
-{ Generates a longword of constant data.  Currently only used for mc68881
-  double and extended constants that must be must be passed by pointer because
-  there are no 64 or 96 bit immediate modes.
-}
-
-
-procedure genlabeldelta(l1, l2: integer {base and offset labels} );
-  external;
-
-{ Generates a case table entry label, the 16-bit difference between l1 and
-l2.
-}
-
-
-procedure genlabel(l: integer {label number} );
-  external;
-
-{generate a labelnode to label "l".
-}
-
-
-procedure genbr(inst: insttype; {branch to generate}
-                l: integer {label number} );
-  external;
-
-{ Generate a branch instruction to label "l".
-
-The current stack level is stored in the node for later use
-in case stack levels have to be equalized between the branch
-point and the label definition point.  If stack adjustment has
-been delayed, it is enabled again at this point.
-}
-
-
-procedure genrelbr(inst: insttype; {branch to generate}
-                   reladd: integer {branch over reladd instructions} );
-  external;
-
-{ Generate a branch relative to the current location.
-The relative argument is the number of instructions to skip over,
-not nodes, to simplify peephole optimization routines.
-}
-
-
-procedure gendb(i: insttype; {db-style inst to gen}
-                regkey: keyindex; {contains register portion of inst}
-                l: integer {label to branch to} );
-  external;
-
-{gen a "db" instruction, decrement and branch register.
-}
-
-
-Procedure gen1(i: insttype;
-               datalen: datarange;
-               dst: keyindex);
-  external;
-
-{generate a single operand instruction, using keytable[dst] as
- the destination.
-}
-
-
-procedure gen2(i: insttype; {the instruction to generate}
-               datalen: datarange; {length of operation in bytes}
-               src, dst: keyindex {keytable indices of operands} );
-  external;
-
-{generate double operand instruction, using keytable[dst/src] as
- the two operands.
-}
-
-
-procedure gen_bf_inst(i: insttype; {the instruction to generate}
-                      datalen: datarange; {length of operation in bytes}
-                      src, dst: keyindex; {keytable indices of operands}
-                      offset: keyindex {offset of bit field from base address});
-  external;
-
-{ Generate a 68020 bit field instruction which may have 1 to 3 operands.
-  If either of the fields src or offset is equal to lowesttemp-1,
-  then that field is omitted.  If either offset is omitted, then it is
-  a constants that isincluded in the instnode; if it is not omitted, then
-  it is in a D-register.  The width is always a constant.
-}
-
-
-procedure genadcon(m: modes; {what kind of thing we're referring to}
-                   what: integer; {which one, or its location}
-                   where: commonlong_reloc_type {which section, if known} );
-  external;
-
-{ Generate an address constant for the Apollo.
-}
-
-
-procedure gensymboladcon(n: string8 {symbol name} );
-  external;
-
-{ Generate an address constant for a symbol reference for the Apollo.
-}
-
-
 function instlength(n: nodeindex {must refer to an instruction}) : integer;
 
 { Return the byte length of the given instruction.  This code assumes
@@ -1587,6 +1458,355 @@ procedure refsymbol(n: string8 {symbol name} );
   end {refsymbol} ;
 
 
+procedure geninst(i: insttype; {instruction to generate}
+                  l: operandrange; {number of operands}
+                  olen: datarange {length of operands} );
+
+{ Generate an instruction.
+
+Actually, this creates a new node in the "nodefile" and initializes the
+contents of the node according to data provided in the calling line.  The
+actual instruction emission is done later from the node file.
+
+If this instruction has been labeled, the "labelled" field is set.
+
+All other fields not specified are cleared to zero, and will normally be
+filled in by the calling procedure.  In particular, tempcount is set to
+zero.
+}
+
+
+  begin {geninst}
+    newnode;
+    with lastptr^ do
+      begin
+      tempcount := 0;
+      kind := instnode;
+      inst := i;
+      labelled := labelnextnode;
+      labelnextnode := false;
+      oprndcount := l;
+      oprndlength := olen;
+      end;
+  end {geninst} ;
+
+procedure genoprnd(o: operand {operand to generate} );
+
+{ Generates the given operand.  If the operand contains an offset
+dependent on the stack, tempcount is set appropriately.
+}
+
+  var
+    tc: keyindex; {speedup for computations on tempcount field}
+    vtptr: vartablerecptr; {used to access vartable entries}
+
+
+  begin {genoprnd}
+    newnode;
+
+    if o.m = bitindexed then
+      begin
+      write('bitindexed operand at node ', lastnode: 1);
+      abort(inconsistent);
+      end;
+
+    with lastptr^ do
+      begin
+      if o.m in [relative, indexed, bitindexed] then
+        if not blockusesframe and (o.reg = fp) then
+          begin
+          tempcount := keysize - stackcounter;
+          o.reg := sp;
+          o.offset := o.offset + stackoffset + blksize;
+          end
+        else if o.reg = sp then
+          begin
+          tc := keysize;
+          while (o.offset < keytable[tc].oprnd.offset) and
+                (tc > stackcounter) do
+            tc := tc - 1;
+          tempcount := tc - stackcounter;
+          o.offset := o.offset + stackoffset;
+          end
+        else tempcount := 0
+      else tempcount := 0;
+
+      kind := oprndnode;
+      operandcost := word; {only used if m = pcrelative or usercall}
+      oprnd := o;
+
+      if oprnd.m in [dreg, areg, fpreg, indr, autoi, autod, relative,
+                     indexed, bitindexed, pcindexed, absshort,
+                     immediate, pcrelative, twodregs, twofpregs] then
+        oprnd.offset1 := 0;
+      if targetopsys = apollo then
+        with oprnd do
+          if m in [supportcall, usercall, symbol, commonlong] then
+            if m = supportcall then
+              refglobal(supportcall, offset)
+            else if m = usercall then
+              begin
+              if proctable[offset].externallinkage and
+                    not proctable[offset].bodydefined then
+                refglobal(usercall, offset);
+              end
+            else if m = symbol then
+              refsymbol(name)
+            else {must be commonlong}
+            if commonlong_reloc > 0 then
+              begin
+              vtptr := getvartableptr(commonlong_reloc);
+              if vtptr^.extvaralloc = usealloc then
+                refglobal(commonlong, commonlong_reloc);
+              end;
+      end {with lastptr^} ;
+  end {genoprnd} ;
+
+
+procedure genlongword(data: unsigned);
+
+{ Generates a longword of constant data.  Currently only used for mc68881
+  double and extended constants that must be must be passed by pointer because
+  there are no 64 or 96 bit immediate modes.
+}
+
+
+  begin {genlongword}
+    newnode;
+    lastptr^.kind := datanode;
+    lastptr^.data := data;
+  end; {genlongword}
+
+
+procedure genlabeldelta(l1, l2: integer {base and offset labels} );
+
+{ Generates a case table entry label, the 16-bit difference between l1 and
+l2.
+}
+
+
+  begin {genlabeldelta}
+    newnode;
+    with lastptr^ do
+      begin
+      tempcount := 0;
+      kind := labeldeltanode;
+      tablebase := l1;
+      targetlabel := l2;
+      end;
+  end {genlabeldelta} ;
+
+
+procedure genlabel(l: integer {label number} );
+
+{generate a labelnode to label "l".
+}
+
+
+  begin {genlabel}
+    newnode;
+    with lastptr^ do
+      begin
+      kind := labelnode;
+      labelno := l;
+      tempcount := keysize - stackcounter;
+      stackdepth := stackoffset;
+      labelcost := 0;
+      brnodelink := 0;
+      proclabel := false;
+      end;
+  end {genlabel} ;
+
+
+procedure genbr(inst: insttype; {branch to generate}
+                l: integer {label number} );
+
+{ Generate a branch instruction to label "l".
+
+The current stack level is stored in the node for later use
+in case stack levels have to be equalized between the branch
+point and the label definition point.  If stack adjustment has
+been delayed, it is enabled again at this point.
+}
+
+
+  begin {genbr}
+    if inst <> nop then
+      begin
+      geninst(inst, 1, 0);
+      genlabel(l);
+      if inst in fpbranches then lastptr^.labelcost := word;
+      end;
+    adjustdelay := false;
+  end {Genbr} ;
+
+
+procedure genrelbr(inst: insttype; {branch to generate}
+                   reladd: integer {branch over reladd instructions} );
+
+{ Generate a branch relative to the current location.
+The relative argument is the number of instructions to skip over,
+not nodes, to simplify peephole optimization routines.
+}
+
+
+  begin {genrelbr}
+    geninst(inst, 1, 0);
+    newnode;
+    with lastptr^ do
+      begin
+      tempcount := 0;
+      kind := relnode;
+      distance := reladd;
+      end;
+  end {genrelbr} ;
+
+
+procedure gendb(i: insttype; {db-style inst to gen}
+                regkey: keyindex; {contains register portion of inst}
+                l: integer {label to branch to} );
+
+{ Gen a "db" instruction, decrement and branch register.
+}
+
+
+  begin {gendb}
+    geninst(i, 2, word);
+    genoprnd(keytable[regkey].oprnd);
+    genlabel(l);
+    lastptr^.labelcost := word;
+  end {gendb} ;
+
+
+Procedure gen1(i: insttype;
+               datalen: datarange;
+               dst: keyindex);
+
+{ Generate a single operand instruction, using keytable[dst] as
+  the destination.
+}
+
+
+  begin {gen1}
+    geninst(i, 1, datalen);
+    genoprnd(keytable[dst].oprnd);
+  end {gen1} ;
+
+
+procedure gen2(i: insttype;
+               datalen: datarange;
+               src, dst: keyindex);
+
+{ Generate a double operand instruction, using keytable[src/dst] as
+  the two operands.
+}
+
+
+  begin {gen2}
+    geninst(i, 2, datalen);
+    genoprnd(keytable[src].oprnd);
+    genoprnd(keytable[dst].oprnd);
+  end {gen2} ;
+
+
+procedure gen_bf_inst(i: insttype;
+                      datalen: datarange;
+                      src, dst: keyindex;
+                      offset: keyindex);
+
+{ Generate a 68020 bit field instruction which may have 1 to 3 operands.
+  If the src field is equal to lowesttemp-1, then it is omitted.  The offset
+  field is either a bit_field_const or a dreg.  The width is always a constant.
+  The operand node containing the offset always follows the source or
+  destination node to which it applies.
+}
+
+
+  begin {gen_bf_inst}
+    geninst(i, 2 + ord(src <> (lowesttemp - 1)), datalen);
+
+    if src <> (lowesttemp - 1) then genoprnd(keytable[src].oprnd);
+
+    if (i = bfexts) or (i = bfextu) then
+      begin
+      genoprnd(keytable[offset].oprnd);
+      genoprnd(keytable[dst].oprnd);
+      end
+    else
+      begin
+      genoprnd(keytable[dst].oprnd);
+      genoprnd(keytable[offset].oprnd);
+      end;
+  end {gen_bf_inst} ;
+
+
+procedure genadcon(m: modes; {what kind of thing we're referring to}
+                   what: integer; {which one, or its location}
+                   where: commonlong_reloc_type {which section, if known} );
+
+{ Generate an address constant.  Apollo only.
+}
+
+  var
+    vtptr: vartablerecptr; {used to access vartable entries}
+
+
+  begin {genadcon}
+    if targetopsys = apollo then
+      begin
+      newnode;
+      with lastptr^ do
+        begin
+        tempcount := 0;
+        kind := adconnode;
+        mode := m;
+        sect := where;
+        offset := what;
+        if m in [supportcall, usercall, symbol, commonlong] then
+          if m = supportcall then
+            refglobal(supportcall, what)
+          else if m = usercall then
+            begin
+            if proctable[what].externallinkage and
+                  not proctable[what].bodydefined then
+              refglobal(usercall, what);
+            end
+          else if m = symbol then
+            refsymbol(name)
+          else {must be commonlong}
+          if where > 0 then
+            begin
+            vtptr := getvartableptr(where);
+            if vtptr^.extvaralloc = usealloc then
+              refglobal(commonlong, where);
+            end;
+        end {with lastptr^} ;
+      end;
+  end {genadcon} ;
+
+
+procedure gensymboladcon(n: string8 {symbol name} );
+
+{ Generate an address constant for a symbol reference.  Apollo only.
+}
+
+
+  begin {gensymboladcon}
+    if targetopsys = apollo then
+      begin
+      newnode;
+      with lastptr^ do
+        begin
+        tempcount := 0;
+        kind := adconnode;
+        mode := symbol;
+        sect := unknown;
+        name := n;
+        refsymbol(n);
+        end {with lastptr^} ;
+      end;
+  end {gensymboladcon} ;
+
 procedure defglobal(m: modes; {usercall, supportcall, etc.}
                     what: integer; {which routine or other global}
                     sect: commonlong_reloc_type; {which section}
@@ -5418,6 +5638,16 @@ procedure gendouble(i: insttype; {instruction to generate}
     keytable[dst].oprnd.flavor := int;
   end {gendouble} ;
 
+procedure gensimplemove(src, dst: keyindex {move src to dst} );
+
+{ Generate a move of a simple operand.
+}
+
+
+  begin
+    if not equivaddr(src, dst) then gendouble(move, src, dst);
+  end {gensimplemove} ;
+
 
 procedure fpgendouble(i: insttype; {instruction to generate}
                       src, dst: keyindex {operand descriptors});
@@ -5496,7 +5726,32 @@ procedure fpgendouble(i: insttype; {instruction to generate}
     genoprnd(dstoprnd);
   end {fpgendouble} ;
 
+procedure genfpmove(src, dst: keyindex {move src to dst} );
 
+{ Generate a floating-point move of a simple operand.
+}
+
+
+  begin
+    if not equivaddr(src, dst) then fpgendouble(fmove, src, dst);
+  end {genfpmove} ;
+
+procedure generror(err: integer);
+
+{ Generate an error node to pass more precise data to the postmortem analyzer
+}
+
+
+  begin
+    newnode;
+    with lastptr^ do
+      begin
+      tempcount := 0; {for node dump only}
+      kind := errornode;
+      errorno := err;
+      oprndcount := 0;
+      end;
+  end; {generror}
 
 function signedoprnds : boolean;
 
