@@ -52,12 +52,6 @@ procedure clearcontext;
 procedure sysfnintx;
   forward;
 
-procedure gensimplemove(src, dst: keyindex {move src to dst} );
-  forward;
-
-procedure gensingle(i: insttype; {instruction to generate}
-                    dst: keyindex {keytable descriptor of operand} );
-  forward;
 
 procedure gendouble(i: insttype; {instruction to generate}
                     src, dst: keyindex {operand descriptors} );
@@ -69,33 +63,7 @@ function getareg: regindex;
 function getdreg: regindex;
   forward;
 
-function is_sp(r: regindex): boolean;
-  forward;
-
-procedure loaddreg(src: keyindex; {operand to load}
-                   other: keyindex; {other operand to avoid}
-                   regneeded: boolean {set if must be in register} );
-  forward;
-
-procedure lock(k: keyindex {operand to lock} );
-  forward;
-
-procedure makeaddressable(var k: keyindex);
-  forward;
-
 procedure markareg(r: regindex {register to clobber} );
-  forward;
-
-procedure markdreg(r: regindex {register to clobber} );
-  forward;
-
-procedure markfpreg(r: regindex {register to clobber} );
-  forward;
-
-procedure movx(packedleft: boolean; {true if bits get packed from left end
-                                     of word, not right end}
-               regmode: modes; {should be "areg" or "dreg"}
-               getreg: getregtype {routine used to allocate a reg} );
   forward;
 
 function popping(k: keyindex {expression to check} ): boolean;
@@ -130,9 +98,6 @@ procedure setvalue(m: modes; {hardware operand mode}
                    offset: addressrange; {immediate operand or fixed offset}
                    offset1: addressrange {extension for 32 bit fixed operand}
                    );
-  forward;
-
-procedure unlock(k: keyindex {operand to unlock} );
   forward;
 
 procedure unpack(var k: keyindex; {operand to unpack}
