@@ -1,4 +1,6 @@
 *.o
+*.obj
+*.sa
 *.ppu
 *.res
 cross/fpc_sources/main
