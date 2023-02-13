@@ -36,6 +36,14 @@ procedure openc;
 
 procedure closec;
 
+procedure initmac;
+
+procedure initdiags;
+
+procedure fixdefines;
+
+procedure fixmac;
+
 implementation
 
 const

@@ -27,7 +27,7 @@ unit code;
 
 interface
 
-uses config, hdr, t_c, hdrc, utils, commonc;
+uses config, hdr, t_c, hdrc, utils, commonc, putcode;
 
 procedure code;
 
@@ -769,8 +769,6 @@ procedure initcode;
     totalputerr:=0;
 
     if switcheverplus[outputmacro] then initmac;
-
-    if switcheverplus[outputobj] then initobj;
 
     stackcounter := keysize - 1; {fiddle consistency check}
 
@@ -4621,7 +4619,7 @@ procedure putblock;
 
     { write output code }
     if switcheverplus[outputmacro] or
-       switcheverplus[outputobj] then putcode;
+       switcheverplus[outputobj] then putcode.putcode;
 
     if currentpc <> last_pc then
       begin
@@ -5149,18 +5147,7 @@ procedure exitcode;
     fixdefines;
     if not everdiagnosing and
       (switcheverplus[debugging] or switcheverplus[profiling]) then initdiags;
-    if everdiagnosing then fixdiags;
     if switcheverplus[outputmacro] then fixmac;
-    if switcheverplus[outputobj] then 
-      begin
-      fixobj;
-      if totalputerr > 0 then
-        begin
-        write('Consistency checks detected -- see assembler listing');
-        abort(inconsistent);
-        end;
-      end;
-
     flushbuffers;
   end; {exitcode}
 
