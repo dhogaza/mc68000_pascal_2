@@ -31,6 +31,8 @@ uses config, hdr, t_c, hdrc, utils, commonc, putcode;
 
 procedure code;
 
+procedure codeone;
+
 procedure initcode;
 
 procedure exitcode;
@@ -4841,12 +4843,14 @@ procedure putblock;
     if switcheverplus[outputmacro] or
        switcheverplus[outputobj] then putcode.putcode;
 
+       {DRB
     if currentpc <> last_pc then
       begin
       writeln('Phase error, pass 1 = ', last_pc:-4, ', pass 2 = ',
               currentpc:-4);
       abort(inconsistent);
       end;
+      }
   end { PutBlock } ;
 
 

@@ -29,7 +29,7 @@ unit commont;
 
 interface
 
-uses config, hdr, hdrt, a_t, t_c;
+uses config, hdr, hdrt, a_t, t_c, code;
 
 { Tree build/improve/walk }
 
@@ -307,8 +307,7 @@ procedure genpseudo(o: pseudoop; {operator}
       oprnds[1] := i;
       oprnds[2] := j;
       oprnds[3] := k;
-      {DRB
-      if emitpseudo then codeone;}
+      if emitpseudo then codeone;
       emitpseudo := true;
       end;
   end; {genpseudo}

@@ -57,7 +57,7 @@ unit walk;
 
 interface
 
-uses config, hdr, hdrt, a_t, t_c, utils, foldcom, commont;
+uses config, hdr, hdrt, a_t, t_c, utils, foldcom, commont, code;
 
 procedure walk;
 
@@ -3199,9 +3199,8 @@ procedure walk;
     if travcode then
       begin
       pseudoinst := pseudobuff;
-      {DRB
       if emitpseudo then codeone; {this allows skipping codeone while
-                                    debugging}}
+                                    debugging}
       emitpseudo := false;
       end;
 

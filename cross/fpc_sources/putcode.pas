@@ -28,7 +28,7 @@ unit putcode;
 
 interface
 
-uses config, product, hdr, hdrc, t_c, utils, commonc;
+uses config, product, hdr, hdrc, t_c, utils, commonc, strutils;
 
 procedure putcode;
 
@@ -1301,6 +1301,7 @@ procedure FixMac;
     writech('*');
     writeline;
 
+    {
     for suppcall := first_call to last_call do support[suppcall] := false;
 
     for i := firstESD to nextESD - 1 do
@@ -1351,6 +1352,7 @@ procedure FixMac;
         WriteSymbolName(s);
         writeline;
         end;
+	}
 
     if ownsize > 0 then
       begin
@@ -1685,6 +1687,14 @@ procedure getprevoperand(num: integer);
       currinst := nop; { to facilitate recovery }
       end { if }
   end; { getprevoperand }
+
+procedure writeobjline;
+
+{ DRB object code hacked out }
+
+begin
+  if switcheverplus[outputmacro] then writeline;
+end;
 
 procedure writeinst(inst: insttype);
 
@@ -4415,14 +4425,16 @@ procedure PutCode;
 
         mode := 0;
         BuildInstruction;
-
+	{DRB
         if computed_len <> (currentpc - instpc) then
           begin
           writeln('Instruction length mismatch, PC=', instpc: - 4, ', pass1=',
                   computed_len: 1, ', pass2=', currentpc - instpc: 1);
           abort(inconsistent);
           end;
+	  }
 
+	writeobjline;
 
         if (swbegkludgecount <> 0) and
            (unixtarget in [Nti, VMEV2, NCR, Lmi, UniPlusV2, CTIX, NEC]) and
@@ -4490,18 +4502,18 @@ procedure openc;
       case hostopsys of
         vdos:
           case targetopsys of
-            vms, rsx, rsts, rt: assign(macfile, string(filename) + '.ma');
-            unix: assign(macfile, string(filename) + '.s');
-            vdos: assign(macfile, string(filename) + '.sa');
-            msdos, apollo: assign(macfile, string(filename) + '.as');
+            vms, rsx, rsts, rt: assign(macfile, trimset(string(filename),[' ']) + '.ma');
+            unix: assign(macfile, trimset(string(filename),[' ']) + '.s');
+            vdos: assign(macfile, trimset(string(filename),[' ']) + '.sa');
+            msdos, apollo: assign(macfile, trimset(string(filename),[' ']) + '.as');
             end {case} ;
         otherwise
           case targetopsys of
-            vms: assign(macfile, string(filename) + '.mar');
-            rsx, rsts, rt: assign(macfile, string(filename) + '.mac');
-            unix: assign(macfile, string(filename) + '.s');
-            vdos: assign(macfile, string(filename) + '.sa');
-            msdos, apollo: assign(macfile, string(filename) + '.asm');
+            vms: assign(macfile, trimset(string(filename),[' ']) + '.mar');
+            rsx, rsts, rt: assign(macfile, trimset(string(filename),[' ']) + '.mac');
+            unix: assign(macfile, trimset(string(filename),[' ']) + '.s');
+            vdos: assign(macfile, trimset(string(filename),[' ']) + '.sa');
+            msdos, apollo: assign(macfile, trimset(string(filename),[' ']) + '.asm');
             end {case} ;
         end {case} ;
 	rewrite(macfile);
@@ -4513,46 +4525,46 @@ procedure openc;
       case hostopsys of
         vdos:
           case targetopsys of
-            vms, rsx, rsts, rt, msdos: assign(objfile, string(filename) + '.ob');
-            vdos: assign(objfile, string(filename) + '.ro');
-            unix: assign(objfile, string(filename) + '.o');
-            apollo: assign(objfile, string(filename) + '.bi');
+            vms, rsx, rsts, rt, msdos: assign(objfile, trimset(string(filename),[' ']) + '.ob');
+            vdos: assign(objfile, trimset(string(filename),[' ']) + '.ro');
+            unix: assign(objfile, trimset(string(filename),[' ']) + '.o');
+            apollo: assign(objfile, trimset(string(filename),[' ']) + '.bi');
             end {case} ;
         vms:
           case targetopsys of
-            vms: assign(objfile, string(filename) + '.obj/nocr');
-            rsx, rsts, rt: assign(objfile, string(filename) + '.obj');
-            unix: assign(objfile, string(filename) + '.o/seek');
-            vdos: assign(objfile, string(filename) + '.ro');
-            msdos: assign(objfile, string(filename) + '.obj/seek');
-            apollo: assign(objfile, string(filename) + '.bin/seek');
+            vms: assign(objfile, trimset(string(filename),[' ']) + '.obj/nocr');
+            rsx, rsts, rt: assign(objfile, trimset(string(filename),[' ']) + '.obj');
+            unix: assign(objfile, trimset(string(filename),[' ']) + '.o/seek');
+            vdos: assign(objfile, trimset(string(filename),[' ']) + '.ro');
+            msdos: assign(objfile, trimset(string(filename),[' ']) + '.obj/seek');
+            apollo: assign(objfile, trimset(string(filename),[' ']) + '.bin/seek');
             end;
         msdos:
           case targetopsys of
-            vms: assign(binobjfile, string(filename) + '.obj');
-            rsx, rsts, rt: assign(objfile, string(filename) + '.obj');
-            unix: assign(objfile, string(filename) + '.o/seek');
-            vdos: assign(objfile, string(filename) + '.ro');
-            msdos: assign(objfile, string(filename) + '.obj');
-            apollo: assign(objfile, string(filename) + '.bin/seek');
+            vms: assign(binobjfile, trimset(string(filename),[' ']) + '.obj');
+            rsx, rsts, rt: assign(objfile, trimset(string(filename),[' ']) + '.obj');
+            unix: assign(objfile, trimset(string(filename),[' ']) + '.o/seek');
+            vdos: assign(objfile, trimset(string(filename),[' ']) + '.ro');
+            msdos: assign(objfile, trimset(string(filename),[' ']) + '.obj');
+            apollo: assign(objfile, trimset(string(filename),[' ']) + '.bin/seek');
             end;
         unix, apollo:
           case targetopsys of
-            vms: assign(binobjfile, string(filename) + '.obj');
-            rsx, rsts, rt: assign(objfile, string(filename) + '.obj');
-            unix: assign(objfile, string(filename) + '.o');
-            vdos: assign(objfile, string(filename) + '.ro');
-            msdos: assign(objfile, string(filename) + '.obj');
-            apollo: assign(objfile, string(filename) + '.bin');
+            vms: assign(binobjfile, trimset(string(filename),[' ']) + '.obj');
+            rsx, rsts, rt: assign(objfile, trimset(string(filename),[' ']) + '.obj');
+            unix: assign(objfile, trimset(string(filename),[' ']) + '.o');
+            vdos: assign(objfile, trimset(string(filename),[' ']) + '.ro');
+            msdos: assign(objfile, trimset(string(filename),[' ']) + '.obj');
+            apollo: assign(objfile, trimset(string(filename),[' ']) + '.bin');
             end;
         otherwise
           case targetopsys of
-            vms: assign(objfile, string(filename) + '.obj');
-            rsx, rsts, rt: assign(objfile, string(filename) + '.obj');
-            unix: assign(objfile, string(filename) + '.o/seek');
-            vdos: assign(objfile, string(filename) + '.ro');
-            msdos: assign(objfile, string(filename) + '.obj/seek');
-            apollo: assign(objfile, string(filename) + '.bin/seek');
+            vms: assign(objfile, trimset(string(filename),[' ']) + '.obj');
+            rsx, rsts, rt: assign(objfile, trimset(string(filename),[' ']) + '.obj');
+            unix: assign(objfile, trimset(string(filename),[' ']) + '.o/seek');
+            vdos: assign(objfile, trimset(string(filename),[' ']) + '.ro');
+            msdos: assign(objfile, trimset(string(filename),[' ']) + '.obj/seek');
+            apollo: assign(objfile, trimset(string(filename),[' ']) + '.bin/seek');
             end;
         end {case} ;
 	rewrite(objfile);

@@ -184,6 +184,7 @@ writeln('after analys ', lasterror, ' errors detected');
       end;
     travrs.travrs;
     if travcode then exitcode;
+    closec;
 
     {DRB
     if switcheverplus[symboltable] then closed;
