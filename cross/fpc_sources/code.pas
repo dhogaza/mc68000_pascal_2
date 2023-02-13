@@ -52,39 +52,6 @@ procedure clearcontext;
 procedure sysfnintx;
   forward;
 
-procedure address(var k: keyindex);
-  forward;
-
-procedure addressboth;
-  forward;
-
-procedure adjustregcount(k: keyindex; {operand to adjust}
-                         delta: integer {amount to adjust count by} );
-  forward;
-
-function bestareg(reg: regindex {address reg to check} ): boolean;
-  forward;
-
-procedure bumptempcount(k: keyindex; {key of temp desired}
-                        delta: integer {amount to adjust ref count} );
-  forward;
-
-procedure callandpop(entry: libroutines; args: integer); 
-  forward;
-
-procedure dereference(k: keyindex {operand} );
-  forward;
-
-function fix_effective_addr(k: keyindex): keyindex;
-  forward;
-
-procedure forcerelative(var k: keyindex; {force key to be of relative mode}
-                        needareg: boolean; {true if a-reg based mode needed}
-                        indexedok: boolean; {true if indexed mode will suffice}
-                        offsetbias: integer; {amount which will bias offset}
-                        shortoffset: boolean {true if need an 8-bit offset} );
-  forward;
-
 procedure gensimplemove(src, dst: keyindex {move src to dst} );
   forward;
 
