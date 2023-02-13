@@ -671,6 +671,13 @@ procedure writeprocname(procn: proctableindex; {number of procedure to copy}
     i: integer; {induction var for copy}
 
   begin
+
+    curstringblock := (stringfilecount + proctable[procn].charindex - 1) div
+       (diskbufsize + 1) + 1;
+    stringblkptr := stringblkptrtbl[curstringblock];
+    nextstringfile := (stringfilecount + proctable[procn].charindex - 1) mod
+                        (diskbufsize + 1);
+
     for i := 1 to min(len, proctable[procn].charlen) do
       if language = pascal then writech(uppercase(chr(getstringfile)))
       else writech(chr(getstringfile));
@@ -4355,6 +4362,7 @@ procedure PutCode;
               writeint(tablebase);
               end;
 
+            writeobjline;
             currinst := nop; { to flush nodes to next inst }
             end { labeldeltanode}
 
