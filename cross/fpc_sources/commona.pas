@@ -1480,8 +1480,8 @@ procedure conststructure(form: index; {form found for this constant}
               else if elp^.extendedrange then
                 begin
                 unsvalue := intvalue;
-                if (unsvalue < lower(elp)) or
-                   (unsvalue > upper(elp)) then
+                if (unsvalue < longword(lower(elp))) or
+                   (unsvalue > longword(upper(elp))) then
                   warnbefore(badconsterr);
                 end
               else if (intvalue < lower(elp)) or
