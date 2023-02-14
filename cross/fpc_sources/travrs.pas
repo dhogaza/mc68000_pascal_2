@@ -1333,7 +1333,7 @@ procedure build;
     var
       now, prev: nodeindex; { for walking looplink of reads }
       ptr, ptr1: nodeptr; { for access to nodes }
-      i: 1..maxloopdepth; {induction var }
+      i: 0..maxloopdepth; {induction var }
       varlev: levelindex; { lex level of var }
       l: levelindex; { induction var }
 
@@ -1635,7 +1635,7 @@ procedure build;
                 the first statement of a block is a simple statement, the
                 entire body won't be removed.
               }
-              if s <> simplehdr then
+       	      if s <> simplehdr then
                 begin
                 if bigcompilerversion then ptr1 := @(bignodetable[p - 1]);
                 if (ptr1^.nodeform = stmtnode) and (ptr1^.stmtkind = blkhdr)
@@ -6643,7 +6643,7 @@ procedure travrs;
       if tempfilebuf.s <> endall then
         begin
         build;
-        improve.improve;
+	improve.improve;
         walk.walk;
         end;
       end;
