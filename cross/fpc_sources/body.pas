@@ -866,11 +866,18 @@ procedure checkrange(subject: operand; {does this fit?}
         begin
         usmin := optimistic.minlimit;
         usmax := optimistic.maxlimit;
+	{DRB
         outofbounds := (usmax < l) or (usmin > u);
         usmin := r.minlimit;
         usmax := r.maxlimit;
         lowermaybe := usmin < l;
         uppermaybe := usmax > u;
+	}
+        outofbounds := (usmax < longword(l)) or (usmin > longword(u));
+        usmin := r.minlimit;
+        usmax := r.maxlimit;
+        lowermaybe := usmin < longword(l);
+        uppermaybe := usmax > longword(u);
         end
       else
         begin
