@@ -23,6 +23,10 @@ Update release version for PC-VV0-GS0 at 2.3.0.1
 
 }
 
+{DRB total hack job to make this work for a unix-like environment
+ using free pascal.  There's a lot of brokenness in here but the
+ switches needed to compile the compiler work fine.
+
 unit csi_fpc;
 
 interface
@@ -150,14 +154,6 @@ implementation
 
     begin {error}
       printversion;
-      for i := startind to endind do
-        case hostopsys of
-          vdos:
-            if param[i] in [',', '/', '='] then write(' ')
-            else write(param[i]);
-          otherwise write(param[i]);
-          end;
-      if startind <= endind then writeln;
       case which of
         ambig: writeln('Ambiguous switch.');
         ambig_option: writeln('Ambiguous switch option.');
@@ -285,8 +281,8 @@ implementation
     end {twoof} ;
 
 
-  procedure addtofilelist(var list: filenamelistptr; {list to add to}
-                          start, finish: integer; {from where}
+  procedure addtofilelist(param: string;
+	                  var list: filenamelistptr; {list to add to}
                           isinclude: boolean {if includelist} );
 
 { Append a filename (from the command line) to the given list.
@@ -306,13 +302,12 @@ implementation
       with q^ do
         begin
         next := nil;
-        arglen := min(finish - start + 1, filenamelen);
+        arglen := min(length(param), filenamelen);
         for i := 1 to filenamelen do
           begin
-          if start <= finish then
+          if i <= length(param) then
             begin
-            arg[i] := param[start];
-            start := start + 1;
+            arg[i] := param[i];
             end
           else arg[i] := ' ';
           end;
@@ -327,7 +322,8 @@ implementation
     end {addtofilelist} ;
 
 
-  procedure takefilename(parenthesized: boolean; {it's in a parenthesized
+  procedure takefilename(param: string;
+	                 parenthesized: boolean; {it's in a parenthesized
                                                   list}
                          var list: filenamelistptr; {where to store it}
                          var next: integer; {index in command line}
@@ -343,58 +339,17 @@ implementation
       quotedstring: boolean; {flag for quote removal}
 
 
-    procedure skipbalancedstring;
-
-{ Skip a string balanced with respect to parentheses and quoted strings.
-}
-
-      var
-        endchar: char; {bracket which terminates string}
-
-
-      begin {skipbalancedstring}
-        if param[next] in ['(', '[', '<'] then
-          begin
-          if param[next] = '(' then endchar := ')'
-          else if param[next] = '<' then endchar := '>'
-          else endchar := ']';
-          next := next + 1;
-          while (param[next] <> endchar) and (next <> paramlength) do
-            skipbalancedstring;
-          end
-        else if param[next] = '"' then
-          begin
-          quotedstring := true;
-          repeat
-            next := next + 1
-          until (param[next] = '"') or (next = paramlength);
-          end;
-        if next < paramlength then next := next + 1
-        else error(badfile, startindex, paramlength);
-      end {skipbalancedstring} ;
-
-
     begin {takefilename}
       quotedstring := false;
       startindex := next;
       terminators := ['='];
-      if parenthesized then terminators := terminators + [')'];
-      while (next < paramlength) and not (param[next] in terminators) do
-      skipbalancedstring;
-      filefound := true;
-      filestart := startindex;
-      filefinish := next;
-      if quotedstring then
-        begin
-        filestart := filestart + 1;
-        if (param[next] = '"') or (filefinish <= paramlength) then
-          filefinish := filefinish - 1
-        end;
-      addtofilelist(list, filestart, filefinish, isinclude);
+      if isinclude and (pos('/', param) < length(param)) then
+        param := param + '/';
+      addtofilelist(param, list, isinclude);
     end {takefilename} ;
 
 
-  procedure takequal(qual: string);
+  procedure takequal(param: string);
 
 { Parse and look up a qualifier, updating "next" to point to the next
   character in the command line.
@@ -409,6 +364,7 @@ implementation
       thisqual: quals; {qualifier just found}
       this_target: unixflavors; {target just found}
       ambiguous: boolean; {qualifier lookup was ambiguous}
+      qual, extra: string; {qual[=extra]}
 
     procedure findqual(target: string; {candidate Qual name}
                        var result: quals; {result of lookup}
@@ -463,25 +419,24 @@ implementation
       var
         tempres: integer;
         accumulating, negate: boolean;
+        i: integer;
 
-
-      begin {getnumqual}
-        if qual[next] in [':', '='] then next := next + 1
-        else error(badparam, startingindex, next - 1);
+      begin
         accumulating := true;
         tempres := 0;
-        negate := qual[next] = '-';
-        if negate then next := next + 1;
-        while qual[next] in ['0'..'9'] do
+	i := 1;
+        negate := qual[i] = '-';
+        if negate then i := i + 1;
+        while extra[i] in ['0'..'9'] do
           begin
           if accumulating then
             if tempres <= maxint div 10 then tempres := tempres * 10
             else accumulating := false;
           if accumulating then
-            if tempres <= maxint - (ord(qual[next]) - ord('0')) then
-              tempres := tempres + (ord(qual[next]) - ord('0'))
+            if tempres <= maxint - (ord(extra[i]) - ord('0')) then
+              tempres := tempres + (ord(extra[i]) - ord('0'))
             else accumulating := false;
-          next := next + 1;
+          i := i + 1;
           end;
         if negate then tempres := - tempres;
         if accumulating and (tempres <= hi_lim) and (tempres >= low_lim) then
@@ -490,20 +445,25 @@ implementation
       end {getnumqual} ;
 
 
-    procedure getspecialfilename(q: quals; {which qualifier}
-                                 var next: integer);
+    procedure getspecialfilename(q: quals {which qualifier});
 
 { Handle the "/<qual>=<filename>" format for the macro, object, list,
   errors, include and environment qualifiers, and the 
   "/include=(<filenamelist>)" format.
 }
 
+{DRB only handles one file for unix as bash doesn't like the parenthesized
+ syntax and for the moment not worth worrying about since --include can
+ be used multiple times}
+
       var
-        start: integer; {start of a filename}
         savefilefound: boolean; {holds filefound during takefilename}
+	filename: string;
+	i: integer;
 
 
-      procedure pickalist(q: quals; {which qualifier this file goes with}
+      procedure pickalist(filename: string;
+	                  q: quals; {which qualifier this file goes with}
                           parenthesized: boolean {in a parenthesized list} );
 
 { Put the filename (just found) in the appropriate list.
@@ -512,79 +472,53 @@ implementation
 
         begin {pickalist}
           if q = defineq then
-            takefilename(parenthesized, defname, next, false)
+            takefilename(filename, parenthesized, defname, next, false)
           else if q = objectq then
-            takefilename(parenthesized, objname, next, false)
+            takefilename(filename, parenthesized, objname, next, false)
           else if q = macroq then
-            takefilename(parenthesized, macname, next, false)
+            takefilename(filename, parenthesized, macname, next, false)
           else if (q = listq) or (q = errorsq) then
-            takefilename(parenthesized, listname, next, false)
+            takefilename(filename, parenthesized, listname, next, false)
           else if q = environq then
-            takefilename(parenthesized, envname, next, false)
+            takefilename(filename, parenthesized, envname, next, false)
           else { if q = includelistq then }
-            takefilename(parenthesized, includelisthead, next, true);
+            takefilename(filename, parenthesized, includelisthead, next, true);
         end {pickalist} ;
 
 
       begin {getspecialfilename}
-        savefilefound := filefound;
-        next := next + 1;
-        if param[next] <> '(' then
-          begin
-          start := next;
-          filefound := false;
-          pickalist(q, false);
-          end
-        else
-          begin
-          repeat
-            next := next + 1;
-            start := next;
-            filefound := false;
-            pickalist(q, true);
-            if not (q in [environq, includelistq]) and (param[next] <> ')')
-            then error(missingparen, start - 1, next);
-          until (next >= paramlength) or (param[next] = ')');
-          if next < paramlength then next := next + 1
-          else error(missingparen, start - 1, paramlength);
-          filefound := savefilefound;
-          end;
+        pickalist(extra, q, false)
       end {getspecialfilename} ;
 
 
     begin {takequal}
       quali := 0;
       nofound := false;
-      param := uppercase(param);
-      if (length(param) > 2) and (pos('NO', param) > 0) then
+      s := pos('=', param);
+      if s > 0 then
+	begin
+        qual := uppercase(leftstr(param, s - 1));
+        extra := rightstr(param, length(param) - s);
+        end
+      else
+	begin
+        qual := uppercase(param);
+	extra := '';
+        end;
+      writeln('param: ', param, ' s: ', s, ' qual: ', qual, ' extra: ', extra);
+
+      if (length(qual) > 2) and (pos('NO', qual) > 0) then
 	begin
         nofound := true;
-	param := rightstr(param, length(param) - 2);
+	qual := rightstr(qual, length(param) - 2);
         end;
 
-      findqual(param, thisqual, ambiguous);
+      findqual(qual, thisqual, ambiguous);
 
       if ambiguous then error(ambig, startingindex, next - 1)
       else if thisqual = notfound then
         error(unknown, startingindex, next - 1);
-      case targetmachine of
-        pdp11:
-          if nofound and (thisqual in [eisq, fisq, fppq, simq, workspq]) then
-            error(nono, startingindex, next - 1);
-        iapx86:
-          begin
-          if thisqual = fppq then fppspecified := true;
-          if nofound and (thisqual in [cpu8086q, cpu80286q]) then
-            error(nono, startingindex, next - 1);
-          end;
-        mc68000:
-          if targetopsys = vdos then
-            begin
-            if nofound and (thisqual in [cpu68000q, cpu68020q, fpc68881q,
-                                         usebsd42libq, usesysVlibq]) then
-              error(nono, startingindex, next - 1);
-            end;
-        end {case} ;
+
       if thisqual in numquals then
         begin
         if nofound then error(nono, startingindex, next - 1);
@@ -608,16 +542,16 @@ implementation
 
       { Handle switch-specified file names }
 
-      if (thisqual in [environq, errorsq, includelistq, listq, macroq,
-                       objectq, defineq]) and
-         (next <= paramlength) and (param[next] in [':', '=']) then
-        if nofound then error(nono, startingindex, next)
-        else getspecialfilename(thisqual, next);
+      if nofound and (thisqual in [environq, errorsq, includelistq, listq, macroq,
+                      objectq, defineq]) then
+        error(nono, startingindex, next)
+        else getspecialfilename(thisqual);
+
     end {takequal} ;
 
-  procedure setdefault(s: qualset;
-                       typ: quals);
-   { Add the default element if none has been specified. }
+  procedure setdefault(s: qualset; typ: quals);
+
+  { Add the default element if none has been specified. }
 
 
     begin
@@ -852,7 +786,7 @@ procedure csi;
       else
 	begin
         paramlength := length(param);
-        takefilename(false, sourcelisthead, next, false);
+        takefilename(param, false, sourcelisthead, next, false);
 	outspeced := true;
         end;
       end;
