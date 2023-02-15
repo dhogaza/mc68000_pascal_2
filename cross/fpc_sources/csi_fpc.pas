@@ -27,7 +27,7 @@ unit csi_fpc;
 
 interface
 
-uses config, product, utils, hdr;
+uses config, product, utils, hdr, sysutils;
 
 procedure csi;
 
@@ -409,8 +409,6 @@ implementation
       thisqual: quals; {qualifier just found}
       this_target: unixflavors; {target just found}
       ambiguous: boolean; {qualifier lookup was ambiguous}
-      next: integer;
-
 
     procedure findqual(target: string; {candidate Qual name}
                        var result: quals; {result of lookup}
@@ -433,9 +431,7 @@ implementation
       begin {findqual}
         next := 1;
         partials := 0;
-        effectivelength := 0;
-        for i := 1 to qualifierlength do
-          if target[i] <> ' ' then effectivelength := i;
+        effectivelength := length(target);
         result := blanks;
         qualtable[notfound] := target; {to terminate search}
 
@@ -557,37 +553,17 @@ implementation
 
 
     begin {takequal}
-      repeat
-        next := next + 1;
-      until (next >= paramlength) or (param[next] <> ' ');
-      startingindex := next;
       quali := 0;
       nofound := false;
-      if (next < cmdlinelength - 2) then
-        if (uc(param[next]) = 'N') and (uc(param[next + 1]) = 'O') then
-          begin
-          nofound := true;
-          next := next + 2;
-          end;
-      while (next <= cmdlinelength) and
-            (param[next] in ['A'..'Z', 'a'..'z', '0'..'9']) do
-        begin
-        if quali < qualifierlength then
-          begin
-          quali := quali + 1;
-          name[quali] := uc(param[next]);
-          end;
-        next := next + 1;
+      param := uppercase(param);
+      if (length(param) > 2) and (pos(param, 'NO') > 0) then
+	begin
+        nofound := true;
+	param := rightstr(param, length(param) - 2);
         end;
 
-      if quali = 0 then error(badsyntax, 2, 1);
+      findqual(param, thisqual, ambiguous);
 
-      while quali < qualifierlength do
-        begin
-        quali := quali + 1;
-        name[quali] := ' ';
-        end;
-      findqual(name, thisqual, ambiguous);
       if ambiguous then error(ambig, startingindex, next - 1)
       else if thisqual = notfound then
         error(unknown, startingindex, next - 1);
@@ -867,11 +843,15 @@ procedure csi;
       begin
       param := paramstr(i);
       next := 1;
-      paramlength := length(param);
       if pos('--', param) <> 0 then
-        takequal(param)
+	begin
+	param := rightstr(param, length(param) - 2);
+        paramlength := length(param);
+        takequal(param);
+	end
       else
 	begin
+        paramlength := length(param);
         takefilename(false, sourcelisthead, next, false);
 	outspeced := true;
         end;
