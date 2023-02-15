@@ -505,7 +505,6 @@ implementation
         qual := uppercase(param);
 	extra := '';
         end;
-      writeln('param: ', param, ' s: ', s, ' qual: ', qual, ' extra: ', extra);
 
       if (length(qual) > 2) and (pos('NO', qual) > 0) then
 	begin
@@ -545,7 +544,8 @@ implementation
       if nofound and (thisqual in [environq, errorsq, includelistq, listq, macroq,
                       objectq, defineq]) then
         error(nono, startingindex, next)
-        else getspecialfilename(thisqual);
+        else if length(extra) > 0
+	then getspecialfilename(thisqual);
 
     end {takequal} ;
 
@@ -734,6 +734,36 @@ implementation
     end {passtocompiler} ;
 
 
+  procedure installfilenames;
+
+{ Put the various file names where they belong.  In other words, if the
+  "x,y=z..." command line format was used, move x and y to the obj, mac,
+  and list entries.  We allow one switch type filename for either obj or
+  mac along with the "x" specification above, if both object and macro
+  are requested.  In such a case, the "x" filespec is used for the output
+  that was not given by the switch.  For example, if the command line is
+  "pas x,y=z/mac/obj=q", the object file will be named "q", and the macro
+  file will be named "x".
+}
+
+    var
+      p: filenamelistptr; {points to the filename of interest at the moment}
+
+
+    begin {installfilenames}
+      if sourcelisthead <> nil then
+      begin
+      p := sourcelisthead;
+      while p^.next <> nil do
+        p := p^.next;
+      if (objectq in qualsset) and (objname = nil) then objname := p;
+      if (macroq in qualsset) and (macname = nil) then macname := p;
+      if (defineq in qualsset) and (defname = nil) then defname := p;
+      if ((qualsset * [listq, errorsq]) <> []) and (listname = nil) then
+         listname := p;
+      end
+    end {installfilenames} ;
+
 procedure csi;
 
   var i: integer;
@@ -792,6 +822,7 @@ procedure csi;
       end;
 
     checkconsistency;
+    installfilenames;
     printversion;
 
     case targetmachine of
