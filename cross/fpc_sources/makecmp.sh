@@ -4,7 +4,7 @@ fpc -gl product
 fpc -gl utils
 fpc -gl error
 fpc -gl p2rdreal
-fpc -gl csi
+fpc -gl csi_fpc
 fpc -gl scan
 fpc -gl sd
 fpc -gl a_t

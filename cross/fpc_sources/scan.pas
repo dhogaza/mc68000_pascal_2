@@ -526,7 +526,7 @@ procedure opennext;
       if ioresult <> 0 then
       begin
         write('Can''t open source file ''');
-        writeln(filename: length(filename), '''');
+        writeln(trim(filename), '''');
         halt();
       end;
     end;

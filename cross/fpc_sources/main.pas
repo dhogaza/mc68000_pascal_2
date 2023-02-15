@@ -13,7 +13,7 @@
 
 program pascal2;
 
-uses config, hdr, utils, csi, scan, sd, analys, travrs, putcode, code, list;
+uses config, hdr, utils, csi_fpc, scan, sd, analys, travrs, putcode, code, list;
 
 label
   99; { Target for fatal errors }
@@ -144,7 +144,7 @@ begin {main}
   sourcelevel := 0;
   currentswitch := 1;
   genoptmask := 0;
-  csi.csi;
+  csi_fpc.csi;
   setoptions;
 {DRB
   if switcheverplus[timing] then
