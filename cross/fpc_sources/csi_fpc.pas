@@ -556,7 +556,7 @@ implementation
       quali := 0;
       nofound := false;
       param := uppercase(param);
-      if (length(param) > 2) and (pos(param, 'NO') > 0) then
+      if (length(param) > 2) and (pos('NO', param) > 0) then
 	begin
         nofound := true;
 	param := rightstr(param, length(param) - 2);
