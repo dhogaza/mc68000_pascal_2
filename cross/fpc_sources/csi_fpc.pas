@@ -25,7 +25,7 @@ Update release version for PC-VV0-GS0 at 2.3.0.1
 
 {DRB total hack job to make this work for a unix-like environment
  using free pascal.  There's a lot of brokenness in here but the
- switches needed to compile the compiler work fine.
+ switches needed to compile the compiler work fine.}
 
 unit csi_fpc;
 
